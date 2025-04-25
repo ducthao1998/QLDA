@@ -1,30 +1,206 @@
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarRail,
-} from '@/components/ui/sidebar'
-import { NavGroup } from '@/components/layout/nav-group'
-import { NavUser } from '@/components/layout/nav-user'
-import { TeamSwitcher } from '@/components/layout/team-switcher'
-import { sidebarData } from './data/sidebar-data'
+"use client"
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+import Link from "next/link"
+import { usePathname } from "next/navigation"
+import { cn } from "@/lib/utils"
+
+import {
+  Sidebar as ShadSidebar,
+  SidebarContent,
+  SidebarHeader,
+  SidebarFooter,
+  SidebarRail,
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  useSidebar,
+} from "@/components/ui/sidebar"
+
+import {
+  BarChart3Icon,
+  CalendarIcon,
+  ClipboardListIcon,
+  FileTextIcon,
+  HomeIcon,
+  LayoutIcon,
+  Settings2Icon,
+  UsersIcon,
+  // user-menu icons
+  BadgeCheck,
+  Bell,
+  ChevronsUpDown,
+  CreditCard,
+  LogOut,
+  Sparkles,
+} from "lucide-react"
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+
+/* -------------------------------------------------------------------------- */
+/*                                DATA SECTION                                */
+/* -------------------------------------------------------------------------- */
+
+const navItems = [
+  { title: "Tổng Quan",     href: "/dashboard",          icon: HomeIcon },
+  { title: "Dự Án",         href: "/dashboard/projects", icon: LayoutIcon },
+  { title: "Nhiệm Vụ",      href: "/dashboard/tasks",    icon: ClipboardListIcon },
+  { title: "Nhóm",          href: "/dashboard/team",     icon: UsersIcon },
+  { title: "Ma Trận RACI",  href: "/dashboard/raci",     icon: FileTextIcon },
+  { title: "Biểu Đồ Gantt", href: "/dashboard/gantt",    icon: BarChart3Icon },
+  { title: "Lịch",          href: "/dashboard/calendar", icon: CalendarIcon },
+  { title: "Cài Đặt",       href: "/dashboard/settings", icon: Settings2Icon },
+]
+
+const currentUser = {
+  name: "Nguyễn Văn A",
+  email: "nva@example.com",
+  avatar: "/avatars/user.jpg",
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                NAV USER UI                                 */
+/* -------------------------------------------------------------------------- */
+
+function NavUser() {
+  const { isMobile } = useSidebar()
+  const { name, email, avatar } = currentUser
+
   return (
-    <Sidebar collapsible='icon' variant='floating' {...props}>
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              size="lg"
+              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            >
+              <Avatar className="h-8 w-8 rounded-lg">
+                <AvatarImage src={avatar} alt={name} />
+                <AvatarFallback className="rounded-lg">NV</AvatarFallback>
+              </Avatar>
+              <div className="grid flex-1 truncate text-left text-sm leading-tight">
+                <span className="truncate font-semibold">{name}</span>
+                <span className="truncate text-xs">{email}</span>
+              </div>
+              <ChevronsUpDown className="ml-auto size-4" />
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+
+          <DropdownMenuContent
+            className="min-w-56 rounded-lg"
+            side={isMobile ? "bottom" : "right"}
+            align="end"
+            sideOffset={4}
+          >
+            <DropdownMenuLabel className="p-0 font-normal">
+              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
+                <Avatar className="h-8 w-8 rounded-lg">
+                  <AvatarImage src={avatar} alt={name} />
+                  <AvatarFallback className="rounded-lg">NV</AvatarFallback>
+                </Avatar>
+                <div className="grid flex-1 truncate text-left text-sm leading-tight">
+                  <span className="truncate font-semibold">{name}</span>
+                  <span className="truncate text-xs">{email}</span>
+                </div>
+              </div>
+            </DropdownMenuLabel>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuGroup>
+              <DropdownMenuItem>
+                <Sparkles />
+                <span>Nâng cấp Pro</span>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuGroup>
+              <DropdownMenuItem asChild>
+                <Link href="/settings/account">
+                  <BadgeCheck /> <span>Tài khoản</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings">
+                  <CreditCard /> <span>Billing</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings/notifications">
+                  <Bell /> <span>Thông báo</span>
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem>
+              <LogOut /> <span>Đăng xuất</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*                              MAIN SIDEBAR UI                               */
+/* -------------------------------------------------------------------------- */
+
+export function Sidebar(
+  props: React.ComponentProps<typeof ShadSidebar>
+) {
+  const pathname = usePathname()
+
+  return (
+    <ShadSidebar collapsible="icon" variant="floating" {...props}>
+      {/* header */}
       <SidebarHeader>
-        <TeamSwitcher teams={sidebarData.teams} />
+        <h2 className="text-xl font-bold">HTQL Dự Án</h2>
       </SidebarHeader>
+
+      {/* menu */}
       <SidebarContent>
-        {sidebarData.navGroups.map((props) => (
-          <NavGroup key={props.title} {...props} />
-        ))}
+        <SidebarGroup>
+          <SidebarMenu>
+            {navItems.map(({ title, href, icon: Icon }) => (
+              <SidebarMenuItem key={href}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === href}
+                  tooltip={title}
+                >
+                  <Link href={href}>
+                    <Icon className="h-5 w-5" />
+                    <span>{title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
       </SidebarContent>
+
+      {/* avatar + dropdown */}
       <SidebarFooter>
-        <NavUser user={sidebarData.user} />
+        <NavUser />
       </SidebarFooter>
+
+      {/* rail thu nhỏ */}
       <SidebarRail />
-    </Sidebar>
+    </ShadSidebar>
   )
 }

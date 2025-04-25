@@ -167,14 +167,33 @@ const SidebarMenuCollapsedDropdown = ({
     </SidebarMenuItem>
   )
 }
+import type { UrlObject } from 'url'
 
-function checkIsActive(href: string, item: NavItem, mainNav = false) {
+type HrefLike = string | UrlObject            // what we actually receive
+type UrlLike  = string | UrlObject | undefined // item.url can also be undefined
+
+/** Always return a simple pathname+query string such as `/tasks?foo=bar`. */
+function toPath(u: UrlLike): string {
+  if (!u) return ''
+  return typeof u === 'string'
+    ? u
+    : u.pathname + (u.search ?? '')            // UrlObject → string
+}
+
+export function checkIsActive(
+  href: HrefLike,
+  item: NavItem,
+  mainNav = false
+): boolean {
+  const current  = toPath(href)
+  const target   = toPath(item.url)
+
   return (
-    href === item.url || // /endpint?search=param
-    href.split('?')[0] === item.url || // endpoint
-    !!item?.items?.filter((i) => i.url === href).length || // if child nav is active
+    current === target ||                                   // /endpoint?search=param
+    current.split('?')[0] === target ||                     // endpoint
+    !!item?.items?.some(i => toPath(i.url) === current) ||  // active child
     (mainNav &&
-      href.split('/')[1] !== '' &&
-      href.split('/')[1] === item?.url?.split('/')[1])
+      current.split('/')[1] !== '' &&
+      current.split('/')[1] === target.split('/')[1])
   )
 }

@@ -100,7 +100,7 @@ export function RaciMatrix() {
     },
   }
 
-  const getBadgeVariant = (value) => {
+  const getBadgeVariant = (value:any) => {
     switch (value) {
       case "R":
         return "default"
@@ -115,7 +115,7 @@ export function RaciMatrix() {
     }
   }
 
-  const getTooltipText = (value) => {
+  const getTooltipText = (value:any) => {
     switch (value) {
       case "R":
         return "Thực hiện: Người thực hiện công việc"

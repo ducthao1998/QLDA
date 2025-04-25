@@ -11,14 +11,32 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { BellIcon, MenuIcon, MoonIcon, SunIcon } from "lucide-react"
 import { useTheme } from "next-themes"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { useSupabaseClient, useUser } from "@supabase/auth-helpers-react"
+import { useRouter } from "next/navigation"
 
 export function Header() {
   const { setTheme } = useTheme()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const router = useRouter()
+  const supabase = useSupabaseClient()
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    // Chuyển về trang login
+    router.push("/login")
+  }
 
+  const [profile, setProfile] = useState<any>(null)
+  console.log(profile)
+  useEffect(() => {
+    fetch("/api/user/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (!json.error) setProfile(json.profile)
+      })
+  }, [])
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b bg-white px-6 dark:bg-gray-950 dark:border-gray-800">
       <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
@@ -51,18 +69,19 @@ export function Header() {
                 <AvatarImage src="/placeholder.svg?height=40&width=40" alt="Avatar người dùng" />
                 <AvatarFallback>NVA</AvatarFallback>
               </Avatar>
-              <Badge className="absolute -bottom-1 -right-1 px-1 py-0 text-xs bg-amber-500 hover:bg-amber-600">
-                Quản lý
-              </Badge>
+              
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Tài khoản của tôi</DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-56 p-4">
+            <DropdownMenuLabel>{profile?.full_name}</DropdownMenuLabel>
+            <Badge className="">
+                Quản lý
+            </Badge>
             <DropdownMenuSeparator />
             <DropdownMenuItem>Hồ sơ</DropdownMenuItem>
             <DropdownMenuItem>Cài đặt</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Đăng xuất</DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>Đăng xuất</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

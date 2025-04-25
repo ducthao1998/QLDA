@@ -1,11 +1,9 @@
-import type React from "react"
+// app/layout.tsx
 import type { Metadata } from "next"
-import { Inter } from "next/font/google"
+import { Providers } from "../components/Provider"
 import "./globals.css"
-import { ThemeProvider } from "next-themes"
 
-const inter = Inter({ subsets: ["latin"] })
-
+// Đây là Server Component, được phép export metadata
 export const metadata: Metadata = {
   title: "Hệ Thống Quản Lý Dự Án",
   description: "Hệ Thống Quản Lý Dự Án Chính Phủ",
@@ -13,15 +11,14 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode
-}>) {
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-          {children}
-        </ThemeProvider>
+      <body>
+        {/* Nhúng Providers client-side vào đây */}
+        <Providers>{children}</Providers>
       </body>
     </html>
   )
