@@ -18,6 +18,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/password-input"
 import { createBrowserClient } from "@supabase/ssr"
+import { createClient } from "@/lib/supabase/server"
+import { login } from "@/app/login/action"
 
 const formSchema = z.object({
   email: z.string().email({ message: "Vui lòng nhập địa chỉ email hợp lệ." }),
@@ -27,36 +29,39 @@ type FormData = z.infer<typeof formSchema>
 
 export function LoginForm() {
   const router = useRouter()
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
   const [isLoading, setIsLoading] = React.useState<boolean>(false)
 
+  // Khởi tạo form và lấy setError để bắn lỗi lên field
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: { email: "", password: "" },
   })
+  const { setError } = form
 
-  async function onSubmit(data: FormData) {
+  async function onSubmit(data: { email: string; password: string }) {
     setIsLoading(true)
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
-      })
-      if (error) throw error
-
+      const formData = new FormData();
+      formData.append('email', data.email);
+      formData.append('password', data.password);
+      const {error}  = await login(formData);
+  
+      if (error) {
+        // Bắn lỗi lên trường email chung
+            setError("email", { type: "manual", message: "Email hoặc mật khẩu không đúng." })
+        return
+      }
+  
       router.refresh()
       router.push("/dashboard")
       toast.success("Đăng nhập thành công!")
-    } catch {
-      toast.error("Email hoặc mật khẩu không hợp lệ. Vui lòng thử lại.")
+    } catch (err) {
+      // Trường hợp bất ngờ
+      setError("email", { type: "manual", message: "Có lỗi xảy ra, vui lòng thử lại." })
     } finally {
       setIsLoading(false)
     }
   }
-
   return (
     <div className="grid gap-6">
       <Form {...form}>
@@ -71,6 +76,7 @@ export function LoginForm() {
                 <FormControl>
                   <Input placeholder="name@domain.com" {...field} />
                 </FormControl>
+                {/* FormMessage sẽ hiển thị cả lỗi validation lẫn lỗi manual */}
                 <FormMessage />
               </FormItem>
             )}
@@ -99,7 +105,6 @@ export function LoginForm() {
           {/* Button Đăng nhập */}
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading && (
-              /* Spinner có thể import từ Icons nếu muốn */
               <svg
                 className="animate-spin mr-2 h-4 w-4"
                 xmlns="http://www.w3.org/2000/svg"

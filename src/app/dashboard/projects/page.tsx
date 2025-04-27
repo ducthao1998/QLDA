@@ -1,4 +1,4 @@
-import { ProjectsList } from "@/components/projects-list"
+import { ProjectsList } from "@/components/project/projects-list"
 import { Button } from "@/components/ui/button"
 import { PlusIcon } from "lucide-react"
 import Link from "next/link"

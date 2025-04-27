@@ -1,8 +1,40 @@
 import { updateSession } from '@/lib/supabase/middleware'
-import { type NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { type NextRequest, NextResponse } from 'next/server'
 
 export async function middleware(request: NextRequest) {
-  return await updateSession(request)
+  // Update the session first
+  const response = await updateSession(request)
+  
+  // Get the pathname from the URL
+  const pathname = request.nextUrl.pathname
+  
+  // Define public routes that don't require authentication
+  const publicRoutes = ['/login', '/auth', '/api/auth']
+  const isPublicRoute = publicRoutes.some(route => 
+    pathname.startsWith(route) || pathname === '/'
+  )
+  
+  // Skip authentication check for public routes
+  if (isPublicRoute) {
+    return response
+  }
+  
+  // Create Supabase client
+  const supabase = createClient()
+  
+  // Check if user is authenticated
+  const { data: { user } } = await (await supabase).auth.getUser()
+  
+  // If no user is found, redirect to login page
+  if (!user) {
+    const redirectUrl = new URL('/login', request.url)
+    // Optionally add the original URL as a query parameter for redirecting back after login
+    redirectUrl.searchParams.set('redirectTo', pathname)
+    return NextResponse.redirect(redirectUrl)
+  }
+  
+  return response
 }
 
 export const config = {

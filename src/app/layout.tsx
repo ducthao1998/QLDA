@@ -2,6 +2,7 @@
 import type { Metadata } from "next"
 import { Providers } from "../components/Provider"
 import "./globals.css"
+import { Toaster } from "sonner"
 
 // Đây là Server Component, được phép export metadata
 export const metadata: Metadata = {
@@ -19,6 +20,7 @@ export default function RootLayout({
       <body>
         {/* Nhúng Providers client-side vào đây */}
         <Providers>{children}</Providers>
+        <Toaster />
       </body>
     </html>
   )

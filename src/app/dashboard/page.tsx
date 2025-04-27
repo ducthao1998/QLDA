@@ -1,5 +1,5 @@
 import { DashboardMetrics } from "@/components/dashboard-metrics"
-import { ProjectsOverview } from "@/components/projects-overview"
+import { ProjectsOverview } from "@/components/project/projects-overview"
 import { RecentActivity } from "@/components/recent-activity"
 import { UpcomingDeadlines } from "@/components/upcoming-deadlines"
 

@@ -16,6 +16,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { useSupabaseClient, useUser } from "@supabase/auth-helpers-react"
 import { useRouter } from "next/navigation"
+import { User } from "@/app/types/table-types"
 
 export function Header() {
   const { setTheme } = useTheme()
@@ -28,8 +29,7 @@ export function Header() {
     router.push("/login")
   }
 
-  const [profile, setProfile] = useState<any>(null)
-  console.log(profile)
+  const [profile, setProfile] = useState<User>()
   useEffect(() => {
     fetch("/api/user/me")
       .then((r) => r.json())
@@ -66,7 +66,7 @@ export function Header() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-10 w-10 rounded-full">
               <Avatar className="h-10 w-10">
-                <AvatarImage src="/placeholder.svg?height=40&width=40" alt="Avatar người dùng" />
+                <AvatarImage src="/avatar.png" alt="Avatar người dùng" className="object-cover" />
                 <AvatarFallback>NVA</AvatarFallback>
               </Avatar>
               
@@ -75,7 +75,7 @@ export function Header() {
           <DropdownMenuContent align="end" className="w-56 p-4">
             <DropdownMenuLabel>{profile?.full_name}</DropdownMenuLabel>
             <Badge className="">
-                Quản lý
+                {profile?.position}
             </Badge>
             <DropdownMenuSeparator />
             <DropdownMenuItem>Hồ sơ</DropdownMenuItem>
