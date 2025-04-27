@@ -20,6 +20,7 @@ export interface ProjectProgressOutput {
   delayedTasks: number;
   blockedTasks: number;
   averageDelay: number;
+  status: "on_time" | "late" | "ahead";
 }
 
 export const calculateProjectProgress = (input: ProjectProgressInput): ProjectProgressOutput => {
@@ -33,7 +34,8 @@ export const calculateProjectProgress = (input: ProjectProgressInput): ProjectPr
       onTimeTasks: 0,
       delayedTasks: 0,
       blockedTasks: 0,
-      averageDelay: 0
+      averageDelay: 0,
+      status: "on_time"
     };
   }
 
@@ -82,6 +84,20 @@ export const calculateProjectProgress = (input: ProjectProgressInput): ProjectPr
     ? delayedTaskDelays.reduce((sum, delay) => sum + delay, 0) / delayedTaskDelays.length
     : 0;
 
+  // Xác định trạng thái dự án
+  const projectStart = new Date(input.startDate);
+  const projectDeadline = new Date(input.deadline);
+  const projectDuration = projectDeadline.getTime() - projectStart.getTime();
+  const elapsedTime = now.getTime() - projectStart.getTime();
+  const expectedProgress = (elapsedTime / projectDuration) * 100;
+
+  let status: "on_time" | "late" | "ahead" = "on_time";
+  if (weightedProgress < expectedProgress - 10) {
+    status = "late";
+  } else if (weightedProgress > expectedProgress + 10) {
+    status = "ahead";
+  }
+
   return {
     overallProgress,
     completedTasks,
@@ -90,6 +106,7 @@ export const calculateProjectProgress = (input: ProjectProgressInput): ProjectPr
     onTimeTasks,
     delayedTasks,
     blockedTasks,
-    averageDelay
+    averageDelay,
+    status
   };
 }; 

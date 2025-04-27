@@ -103,7 +103,7 @@ export function TasksList() {
       const res = await fetch(`/api/projects/${selectedProject}/tasks`)
       if (!res.ok) throw new Error("Failed to load tasks")
       const data = await res.json()
-      setTasks(data)
+      setTasks(data.tasks || [])
     } catch (err) {
       toast.error("Lỗi", { description: "Không thể tải danh sách công việc" })
     } finally {
@@ -207,7 +207,7 @@ export function TasksList() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {tasks.map((task) => (
+            {Array.isArray(tasks) && tasks.map((task) => (
               <TableRow key={task.id}>
                 <TableCell className="font-medium">{task.name}</TableCell>
                 <TableCell>
@@ -255,15 +255,14 @@ export function TasksList() {
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontalIcon className="h-4 w-4" />
+                      <Button variant="ghost" className="h-8 w-8 p-0">
                         <span className="sr-only">Mở menu</span>
+                        <MoreHorizontalIcon className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Hành động</DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => setSelectedTask(task)}>
+                      <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
+                      <DropdownMenuItem onClick={() => window.location.href = `/dashboard/tasks/${task.id}`}>
                         <EyeIcon className="mr-2 h-4 w-4" />
                         Xem chi tiết
                       </DropdownMenuItem>
@@ -275,18 +274,8 @@ export function TasksList() {
                         Chỉnh sửa
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
-                      <DropdownMenuLabel>Cập nhật trạng thái</DropdownMenuLabel>
-                      {Object.entries(statusColors).map(([key, { label }]) => (
-                        <DropdownMenuItem
-                          key={key}
-                          onClick={() => updateTaskStatus(task.id, key)}
-                        >
-                          {label}
-                        </DropdownMenuItem>
-                      ))}
-                      <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        className="text-destructive"
+                        className="text-red-600"
                         onClick={() => deleteTask(task.id)}
                       >
                         <Trash2Icon className="mr-2 h-4 w-4" />

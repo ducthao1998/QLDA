@@ -1,67 +1,132 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
-import { cookies } from "next/headers"
+import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { Task } from "@/app/types/table-types"
+
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await createClient()
+    const taskId = params.id
+
+    // Kiểm tra xác thực
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Lấy thông tin chi tiết task
+    const { data: task, error: taskError } = await supabase
+      .from("tasks")
+      .select(`
+        *,
+        users:assigned_to (
+          full_name,
+          position,
+          org_unit
+        ),
+        projects (
+          name
+        )
+      `)
+      .eq("id", taskId)
+      .single()
+
+    if (taskError) {
+      console.error("Error fetching task:", taskError)
+      return NextResponse.json({ error: taskError.message }, { status: 500 })
+    }
+
+    if (!task) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 })
+    }
+
+    return NextResponse.json({ task })
+  } catch (error) {
+    console.error("Error in GET /api/tasks/[id]:", error)
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
 
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
-    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const supabase = await createClient()
+    const taskId = params.id
 
-    if (!authUser) {
+    // Kiểm tra xác thực
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const body = await request.json()
-    const { status } = body
+    const taskData: Partial<Task> = {
+      ...body,
+      updated_at: new Date().toISOString()
+    }
 
-    // Update task status
-    const { error: taskError } = await supabase
+    // Cập nhật task
+    const { data: task, error: taskError } = await supabase
       .from("tasks")
-      .update({ status })
-      .eq("id", params.id)
+      .update(taskData)
+      .eq("id", taskId)
+      .select()
+      .single()
 
     if (taskError) {
       console.error("Error updating task:", taskError)
       return NextResponse.json({ error: taskError.message }, { status: 500 })
     }
 
-    // If task is completed, update task progress
-    if (status === "completed") {
-      const { error: progressError } = await supabase
-        .from("task_progress")
-        .update({
-          actual_finish: new Date().toISOString(),
-          status_snapshot: "on_time",
-        })
-        .eq("task_id", params.id)
-
-      if (progressError) {
-        console.error("Error updating task progress:", progressError)
-        return NextResponse.json({ error: progressError.message }, { status: 500 })
-      }
+    if (!task) {
+      return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
-    // If task is in progress, update task progress
-    if (status === "in_progress") {
-      const { error: progressError } = await supabase
-        .from("task_progress")
-        .update({
-          actual_start: new Date().toISOString(),
-        })
-        .eq("task_id", params.id)
+    return NextResponse.json({ task })
+  } catch (error) {
+    console.error("Error in PATCH /api/tasks/[id]:", error)
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
 
-      if (progressError) {
-        console.error("Error updating task progress:", progressError)
-        return NextResponse.json({ error: progressError.message }, { status: 500 })
-      }
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await createClient()
+    const taskId = params.id
+
+    // Kiểm tra xác thực
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Xóa task
+    const { error: deleteError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", taskId)
+
+    if (deleteError) {
+      console.error("Error deleting task:", deleteError)
+      return NextResponse.json({ error: deleteError.message }, { status: 500 })
     }
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error in PATCH /api/tasks/[id]:", error)
+    console.error("Error in DELETE /api/tasks/[id]:", error)
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 }

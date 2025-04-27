@@ -17,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body>
+      <body suppressHydrationWarning>
         {/* Nhúng Providers client-side vào đây */}
         <Providers>{children}</Providers>
         <Toaster />
