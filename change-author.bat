@@ -1,0 +1,2 @@
+@echo off
+git filter-branch --env-filter "if [ \"$GIT_COMMITTER_EMAIL\" = \"machaidangms@gmail.com\" ]; then export GIT_COMMITTER_NAME=\"ducthao1998\"; export GIT_COMMITTER_EMAIL=\"thao.nd241072m@sis.hust.edu.vn\"; fi; if [ \"$GIT_AUTHOR_EMAIL\" = \"machaidangms@gmail.com\" ]; then export GIT_AUTHOR_NAME=\"ducthao1998\"; export GIT_AUTHOR_EMAIL=\"thao.nd241072m@sis.hust.edu.vn\"; fi" --tag-name-filter cat -- --branches --tags 

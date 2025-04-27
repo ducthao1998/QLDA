@@ -28,6 +28,10 @@ export default function DashboardPage() {
         if (!response.ok) throw new Error("Failed to load projects")
         const data = await response.json()
         
+        if (!data.projects || !Array.isArray(data.projects)) {
+          throw new Error("Invalid projects data")
+        }
+
         // Calculate progress for each project
         const projectsWithProgress = await Promise.all(
           data.projects.map(async (project: any) => {
@@ -43,7 +47,9 @@ export default function DashboardPage() {
         
         setProjects(projectsWithProgress)
       } catch (error) {
+        console.error("Error loading projects:", error)
         toast.error("Không thể tải danh sách dự án")
+        setProjects([])
       } finally {
         setLoading(false)
       }
@@ -66,26 +72,34 @@ export default function DashboardPage() {
       </div>
       <RecentActivity />
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {projects.map((project) => (
-          <Card key={project.id}>
-            <CardHeader>
-              <CardTitle>{project.name}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Tiến độ</span>
-                  <span>{project.progress}%</span>
+        {projects.length > 0 ? (
+          projects.map((project) => (
+            <Card key={project.id}>
+              <CardHeader>
+                <CardTitle>{project.name}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Tiến độ</span>
+                    <span>{project.progress}%</span>
+                  </div>
+                  <Progress value={project.progress} />
+                  <div className="text-sm text-muted-foreground">
+                    Trạng thái: {project.status === "on_time" ? "Đúng tiến độ" : 
+                                project.status === "late" ? "Chậm tiến độ" : "Vượt tiến độ"}
+                  </div>
                 </div>
-                <Progress value={project.progress} />
-                <div className="text-sm text-muted-foreground">
-                  Trạng thái: {project.status === "on_time" ? "Đúng tiến độ" : 
-                              project.status === "late" ? "Chậm tiến độ" : "Vượt tiến độ"}
-                </div>
-              </div>
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-10">
+              <p className="text-muted-foreground">Chưa có dự án nào</p>
             </CardContent>
           </Card>
-        ))}
+        )}
       </div>
     </div>
   )
