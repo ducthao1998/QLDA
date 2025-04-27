@@ -18,11 +18,14 @@ import { Label } from "../ui/label"
 import { Textarea } from "../ui/textarea"
 import { Input } from "../ui/input"
 import type { Task, TaskStatus, User } from "@/app/types/table-types"
+import { calculateTaskDependencies } from "@/algorithm/task-dependencies"
 
 export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [users, setUsers] = useState<User[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([])
   const [newTask, setNewTask] = useState<Partial<Task>>({
     project_id: projectId,
     name: "",
@@ -49,6 +52,16 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
         .catch(() => toast.error("Không tải được danh sách người dùng"))
     }
   }, [isOpen])
+
+  // Fetch tasks for dependencies selection
+  useEffect(() => {
+    if (isOpen) {
+      fetch(`/api/projects/${projectId}/tasks`)
+        .then((res) => res.json())
+        .then((data) => setTasks(data.tasks || []))
+        .catch(() => toast.error("Không tải được danh sách công việc"))
+    }
+  }, [isOpen, projectId])
 
   // 2) Reset form khi đóng
   function reset() {
@@ -80,12 +93,21 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
         return
       }
 
+      // Calculate task dependencies
+      const dependencies = selectedDependencies.map(depId => ({
+        task_id: newTask.id,
+        depends_on_id: depId
+      }))
+
       const response = await fetch(`/api/projects/${projectId}/tasks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(newTask),
+        body: JSON.stringify({
+          ...newTask,
+          dependencies
+        }),
       })
 
       if (!response.ok) {
@@ -295,6 +317,29 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
               </Select>
               <p className="text-sm text-muted-foreground">Độ phức tạp của công việc (1 là đơn giản nhất)</p>
             </div>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="dependencies">Công việc phụ thuộc</Label>
+            <Select
+              value={selectedDependencies}
+              onValueChange={(value) => setSelectedDependencies(value)}
+              multiple
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn công việc phụ thuộc" />
+              </SelectTrigger>
+              <SelectContent>
+                {tasks.map((task) => (
+                  <SelectItem key={task.id} value={task.id}>
+                    {task.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              Chọn các công việc cần hoàn thành trước khi bắt đầu công việc này
+            </p>
           </div>
         </div>
         <DialogFooter>

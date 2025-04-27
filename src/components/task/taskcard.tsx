@@ -29,6 +29,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { calculateRiskPrediction } from "@/algorithm/risk-prediction"
+import { Progress } from "@/components/ui/progress"
 
 const statusColors: Record<string, { variant: "default" | "secondary" | "destructive" | "outline", label: string }> = {
   todo: { variant: "secondary", label: "Chưa bắt đầu" },
@@ -41,6 +43,29 @@ const statusColors: Record<string, { variant: "default" | "secondary" | "destruc
 
 export function TaskCard({ task, projectId, onStatusChange }: { task: any; projectId: string; onStatusChange: () => void }) {
   const router = useRouter()
+  const [riskPrediction, setRiskPrediction] = useState<{
+    riskLevel: number
+    riskFactors: string[]
+  } | null>(null)
+
+  useEffect(() => {
+    async function calculateRisk() {
+      try {
+        const prediction = await calculateRiskPrediction({
+          taskId: task.id,
+          complexity: task.complexity,
+          riskLevel: task.risk_level,
+          status: task.status,
+          dueDate: task.due_date
+        })
+        setRiskPrediction(prediction)
+      } catch (error) {
+        console.error("Error calculating risk:", error)
+      }
+    }
+
+    calculateRisk()
+  }, [task])
 
   async function updateStatus(newStatus: string) {
     try {
@@ -121,6 +146,27 @@ export function TaskCard({ task, projectId, onStatusChange }: { task: any; proje
             <span>{task.users?.full_name || "Chưa gán"}</span>
           </div>
         </div>
+        {riskPrediction && (
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Mức độ rủi ro</span>
+              <span className="text-sm text-muted-foreground">
+                {riskPrediction.riskLevel}/5
+              </span>
+            </div>
+            <Progress value={riskPrediction.riskLevel * 20} />
+            {riskPrediction.riskFactors.length > 0 && (
+              <div className="text-sm text-muted-foreground">
+                <p className="font-medium">Yếu tố rủi ro:</p>
+                <ul className="list-disc list-inside">
+                  {riskPrediction.riskFactors.map((factor, index) => (
+                    <li key={index}>{factor}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
       <CardFooter className="pt-0">
         <Button variant="outline" size="sm" className="w-full" onClick={() => router.push(`/dashboard/tasks/${task.id}`)}>
