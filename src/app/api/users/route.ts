@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password: "password123",
-      email_confirm: true,
+      email_confirm: false,
       user_metadata: {
         full_name,
         position,
@@ -77,19 +77,38 @@ export async function POST(request: Request) {
     }
 
     // Gửi email xác nhận
-    const { error: emailError } = await supabase.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm`
-    })
+    try {
+      const { error: emailError } = await supabase.auth.admin.inviteUserByEmail(email, {
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/confirm?token=650264713f74be04b81dc47bf3be902d0c73af2fb7bf716b07149fa9`
+      })
 
-    if (emailError) {
+      if (emailError) {
+        console.error("Lỗi gửi email xác nhận:", emailError)
+        // Vẫn trả về thành công vì user đã được tạo
+        return NextResponse.json(
+          { 
+            message: "Đã tạo người dùng thành công",
+            warning: "Không thể gửi email xác nhận"
+          },
+          { status: 201 }
+        )
+      }
+
+      return NextResponse.json(
+        { message: "Đã tạo người dùng và gửi email xác nhận thành công" },
+        { status: 201 }
+      )
+    } catch (emailError) {
       console.error("Lỗi gửi email xác nhận:", emailError)
-      // Không throw error ở đây vì user đã được tạo thành công
+      // Vẫn trả về thành công vì user đã được tạo
+      return NextResponse.json(
+        { 
+          message: "Đã tạo người dùng thành công",
+          warning: "Không thể gửi email xác nhận"
+        },
+        { status: 201 }
+      )
     }
-
-    return NextResponse.json(
-      { message: "Đã tạo người dùng thành công" },
-      { status: 201 }
-    )
   } catch (error) {
     console.error("Lỗi tạo người dùng:", error)
     return NextResponse.json(

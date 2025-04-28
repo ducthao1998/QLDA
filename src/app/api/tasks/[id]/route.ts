@@ -1,27 +1,26 @@
-import { createClient } from "@/lib/supabase/server"
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
 import { Task } from "@/app/types/table-types"
+import { createClient } from "@/lib/supabase/server"
 
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = await createClient()
-    const taskId = params.id
+    const supabase = createRouteHandlerClient({ cookies })
+    const { data: { user: authUser } } = await supabase.auth.getUser()
 
-    // Kiểm tra xác thực
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
+    if (!authUser) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
-    // Lấy thông tin chi tiết task
-    const { data: task, error: taskError } = await supabase
+    const id = await params.id;
+    const { data: task, error } = await supabase
       .from("tasks")
       .select(`
         *,
-        users:assigned_to (
+        users!assigned_to:user_id (
           full_name,
           position,
           org_unit
@@ -30,19 +29,19 @@ export async function GET(
           name
         )
       `)
-      .eq("id", taskId)
+      .eq("id", id)
       .single()
 
-    if (taskError) {
-      console.error("Error fetching task:", taskError)
-      return NextResponse.json({ error: taskError.message }, { status: 500 })
+    if (error) {
+      console.error("Error fetching task:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
-    return NextResponse.json({ task })
+    return NextResponse.json(task)
   } catch (error) {
     console.error("Error in GET /api/tasks/[id]:", error)
     return NextResponse.json(

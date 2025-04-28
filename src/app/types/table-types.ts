@@ -58,6 +58,7 @@ export interface Task {
   name: string
   description: string | null
   status: TaskStatus
+  priority: number      // 1-5 scale
   estimate_low: number
   estimate_high: number
   weight: number

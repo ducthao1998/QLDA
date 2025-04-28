@@ -37,14 +37,29 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
+  // Define public routes that don't require authentication
+  const publicRoutes = ['/login', '/auth', '/api/auth', '/auth/confirm']
+  const isPublicRoute = publicRoutes.some(route => request.nextUrl.pathname.startsWith(route))
+  
+  // Check if this is a Supabase email verification request
+  const isEmailVerification = request.nextUrl.pathname === '/auth/v1/verify' && 
+    request.nextUrl.searchParams.has('token') &&
+    request.nextUrl.searchParams.has('type') &&
+    request.nextUrl.searchParams.has('redirect_to')
+
+  // If user is not authenticated and trying to access protected route
+  if (!user && !isPublicRoute && !isEmailVerification) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
+    // Add the original URL as a query parameter for redirecting back after login
+    url.searchParams.set('redirectTo', request.nextUrl.pathname)
+    return NextResponse.redirect(url)
+  }
+
+  // If user is authenticated and trying to access login page
+  if (user && request.nextUrl.pathname === '/login') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }
 

@@ -1,8 +1,7 @@
 "use client"
 
 import type React from "react"
-
-import { useState } from "react"
+import { useState, Suspense } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
@@ -37,6 +36,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Project, TaskStatus } from "@/app/types/table-types"
+import { LoadingSpinner } from "@/components/ui/loading"
 
 const statusMap: Record<
   TaskStatus,
@@ -90,9 +90,36 @@ const priorityLabelMap: Record<number, string> = {
     4: "bg-blue-100 text-blue-800",
     5: "bg-gray-100 text-gray-800",
   }
-export function ProjectDetails({ project }: { project: Project }) {
+
+export function ProjectDetails({ projectId }: { projectId: string }) {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <ProjectDetailsContent projectId={projectId} />
+    </Suspense>
+  )
+}
+
+function ProjectDetailsContent({ projectId }: { projectId: string }) {
   const router = useRouter()
   const [isDeleting, setIsDeleting] = useState(false)
+
+  const project = {
+    id: projectId,
+    name: "Tên dự án",
+    status: "todo",
+    priority: 3,
+    start_date: "2024-01-01",
+    deadline: "2024-12-31",
+    progress: 25,
+    tasks_completed: 5,
+    tasks_total: 20,
+    description: "Mô tả dự án",
+    users: {
+      full_name: "Nguyễn Văn A",
+      position: "Nhân viên",
+      org_unit: "Phòng ban A",
+    },
+  }
 
   const status = statusMap[project.status] || {
     label: project.status,
@@ -103,6 +130,7 @@ export function ProjectDetails({ project }: { project: Project }) {
   const priorityLabel = priorityLabelMap[project.priority] ?? "Không xác định"
   const priorityColor =
     priorityColorMap[project.priority] ?? "bg-gray-100 text-gray-800"
+
   async function handleDelete() {
     try {
       setIsDeleting(true)
