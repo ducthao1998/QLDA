@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format } from "date-fns"
 import { AddTaskDialog } from "@/components/task/add-task-dialog"
+import Link from "next/link"
 
 interface Task {
   id: string
@@ -262,9 +263,11 @@ export function TasksList() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
-                      <DropdownMenuItem onClick={() => window.location.href = `/dashboard/tasks/${task.id}`}>
-                        <EyeIcon className="mr-2 h-4 w-4" />
-                        Xem chi tiết
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/tasks/${task.id}`}>
+                          <EyeIcon className="mr-2 h-4 w-4" />
+                          Xem chi tiết
+                        </Link>
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => {
                         setSelectedTask(task)

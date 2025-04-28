@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { useRouter } from "next/navigation"
-import { useMemo, useState } from "react"
+import { useMemo, useState, Suspense } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { Project } from "@/app/types/table-types"
 import { Label as UILabel } from "@/components/ui/label"
+import { LoadingSpinner } from "@/components/ui/loading"
 
 const formSchema = z.object({
     name: z.string().min(3, { message: "Tên dự án phải có ít nhất 3 ký tự" }),
@@ -35,7 +36,15 @@ const formSchema = z.object({
   })
   type FormValues = z.infer<typeof formSchema>
 
-export function ProjectForm({ project }: { project?: Project }) {
+export function ProjectForm({ projectId }: { projectId?: string }) {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <ProjectFormContent projectId={projectId} />
+    </Suspense>
+  )
+}
+
+function ProjectFormContent({ projectId }: { projectId?: string }) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [projectState, setProject] = useState<Partial<Project>>({
@@ -53,7 +62,7 @@ export function ProjectForm({ project }: { project?: Project }) {
   })
 
   const defaultValues = useMemo<Partial<FormValues>>(() => {
-    if (!project) {
+    if (!projectId) {
       return {
         name: "",
         description: "",
@@ -69,19 +78,19 @@ export function ProjectForm({ project }: { project?: Project }) {
       }
     }
     return {
-      name: project.name,
-      description: project.description ?? "",
-      start_date: new Date(project.start_date),
-      deadline: new Date(project.deadline),
-      priority: project.priority.toString(),
-      status: project.status,
-      complexity: project.complexity?.toString() ?? "3",
-      business_value: project.business_value?.toString() ?? "3",
-      technical_risk: project.technical_risk?.toString() ?? "3",
-      dependencies: project.dependencies ?? "",
-      historical_data: project.historical_data ?? "",
+      name: projectState.name,
+      description: projectState.description ?? "",
+      start_date: new Date(projectState.start_date),
+      deadline: new Date(projectState.deadline),
+      priority: projectState.priority?.toString() ?? "3",
+      status: projectState.status,
+      complexity: projectState.complexity?.toString() ?? "3",
+      business_value: projectState.business_value?.toString() ?? "3",
+      technical_risk: projectState.technical_risk?.toString() ?? "3",
+      dependencies: projectState.dependencies ?? "",
+      historical_data: projectState.historical_data ?? "",
     }
-  }, [project])
+  }, [projectId, projectState.name, projectState.description, projectState.start_date, projectState.deadline, projectState.priority, projectState.status, projectState.complexity, projectState.business_value, projectState.technical_risk, projectState.dependencies, projectState.historical_data])
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -103,8 +112,8 @@ export function ProjectForm({ project }: { project?: Project }) {
         technical_risk: Number.parseInt(values.technical_risk),
       }
 
-      const endpoint = project ? `/api/projects/${project.id}` : "/api/projects"
-      const method = project ? "PUT" : "POST"
+      const endpoint = projectId ? `/api/projects/${projectId}` : "/api/projects"
+      const method = projectId ? "PUT" : "POST"
 
       const response = await fetch(endpoint, {
         method,
@@ -119,8 +128,8 @@ export function ProjectForm({ project }: { project?: Project }) {
         throw new Error(error.message || "Có lỗi xảy ra")
       }
 
-      toast( project ? "Cập nhật dự án thành công" : "Tạo dự án thành công",{
-        description: project ? "Dự án đã được cập nhật" : "Dự án mới đã được tạo thành công",
+      toast( projectId ? "Cập nhật dự án thành công" : "Tạo dự án thành công",{
+        description: projectId ? "Dự án đã được cập nhật" : "Dự án mới đã được tạo thành công",
       })
 
       router.push("/dashboard/projects")
@@ -436,7 +445,7 @@ export function ProjectForm({ project }: { project?: Project }) {
             Hủy
           </Button>
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Đang lưu..." : project ? "Cập nhật" : "Tạo dự án"}
+            {isSubmitting ? "Đang lưu..." : projectId ? "Cập nhật" : "Tạo dự án"}
           </Button>
         </div>
       </form>

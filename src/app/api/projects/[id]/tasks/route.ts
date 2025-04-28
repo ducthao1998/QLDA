@@ -8,7 +8,7 @@ export async function GET(
 ) {
   try {
     const supabase = await createClient()
-    const projectId = params.id
+    const { id: projectId } = await params
 
     // Kiểm tra xác thực
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -54,7 +54,7 @@ export async function POST(
 ) {
   try {
     const supabase = await createClient()
-    const projectId = params.id
+    const { id: projectId } = await params
 
     // Kiểm tra xác thực
     const { data: { user }, error: authError } = await supabase.auth.getUser()

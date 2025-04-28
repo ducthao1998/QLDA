@@ -8,7 +8,6 @@ export async function GET(request: Request, { params }: { params: { id: string }
     data: { user: authUser },
     error: authError,
   } = await supabase.auth.getUser()
-  console.log ("AAA");
   if (authError || !authUser) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }

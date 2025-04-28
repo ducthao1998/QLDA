@@ -1,4 +1,3 @@
-import { createClient } from "@/lib/supabase/server"
 import { notFound } from "next/navigation"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
@@ -14,7 +13,7 @@ import { calculateTaskWeight } from "@/algorithm/task-weight"
 import { calculateEstimatedTime } from "@/algorithm/estimated-time"
 import { Task } from "@/app/types/task"
 
-type Params = Promise<{ id: string }>
+type Params = { id: string }
 
 const statusColors: Record<string, { variant: "default" | "secondary" | "destructive" | "outline", label: string }> = {
   todo: { variant: "secondary", label: "Chưa bắt đầu" },
@@ -26,27 +25,17 @@ const statusColors: Record<string, { variant: "default" | "secondary" | "destruc
 }
 
 export default async function TaskDetailPage({ params }: { params: Params }) {
-  const { id } = await params
-  const supabase = await createClient()
-  const { data: task, error } = await supabase
-    .from("tasks")
-    .select(`
-      *,
-      users!assigned_to:user_id (
-        full_name,
-        position,
-        org_unit
-      ),
-      projects (
-        name
-      )
-    `)
-    .eq("id", id)
-    .single() as { data: Task | null, error: any }
+  const { id } = params
+  
+  const response = await fetch(`http://localhost:3000/api/tasks/${id}`, {
+    cache: 'no-store'
+  })
 
-  if (error || !task) {
+  if (!response.ok) {
     notFound()
   }
+
+  const task = await response.json() as Task
 
   const riskPrediction = await calculateRiskPrediction({
     taskId: task.id,

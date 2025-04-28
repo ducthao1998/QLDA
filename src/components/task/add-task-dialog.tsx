@@ -18,7 +18,7 @@ import { Label } from "../ui/label"
 import { Textarea } from "../ui/textarea"
 import { Input } from "../ui/input"
 import type { Task, TaskStatus, User } from "@/app/types/table-types"
-import { calculateTaskDependencies } from "@/algorithm/task-dependencies"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu"
 
 export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
   const [isOpen, setIsOpen] = useState(false)
@@ -321,22 +321,32 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
 
           <div className="grid gap-2">
             <Label htmlFor="dependencies">Công việc phụ thuộc</Label>
-            <Select
-              value={selectedDependencies}
-              onValueChange={(value) => setSelectedDependencies(value)}
-              multiple
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Chọn công việc phụ thuộc" />
-              </SelectTrigger>
-              <SelectContent>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-full justify-start">
+                  {selectedDependencies.length > 0 
+                    ? `${selectedDependencies.length} công việc đã chọn`
+                    : "Chọn công việc phụ thuộc"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56">
                 {tasks.map((task) => (
-                  <SelectItem key={task.id} value={task.id}>
+                  <DropdownMenuCheckboxItem
+                    key={task.id}
+                    checked={selectedDependencies.includes(task.id)}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedDependencies([...selectedDependencies, task.id])
+                      } else {
+                        setSelectedDependencies(selectedDependencies.filter(id => id !== task.id))
+                      }
+                    }}
+                  >
                     {task.name}
-                  </SelectItem>
+                  </DropdownMenuCheckboxItem>
                 ))}
-              </SelectContent>
-            </Select>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <p className="text-sm text-muted-foreground">
               Chọn các công việc cần hoàn thành trước khi bắt đầu công việc này
             </p>

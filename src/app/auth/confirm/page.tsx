@@ -1,60 +1,99 @@
 "use client"
 
-import { Suspense } from "react"
-import { useSearchParams } from "next/navigation"
+import { useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
-import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Loader2 } from "lucide-react"
 
-function ConfirmContent() {
+export default function ConfirmEmailPage() {
+  const router = useRouter()
   const searchParams = useSearchParams()
-  const token = searchParams.get("token")
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
+  const [error, setError] = useState<string | null>(null)
 
-  if (!token) {
-    return <div>Invalid token</div>
-  }
+  useEffect(() => {
+    const confirmEmail = async () => {
+      try {
+        const token = searchParams.get("token")
+        const type = searchParams.get("type")
 
-  const confirmEmail = async () => {
-    try {
-      const supabase = createClient()
-      const { error } = await supabase.auth.verifyOtp({
-        token_hash: token,
-        type: "email"
-      })
+        if (!token || type !== "invite") {
+          setStatus("error")
+          setError("Invalid confirmation link")
+          return
+        }
 
-      if (error) {
-        toast.error("Xác thực thất bại", { description: error.message })
-        return
+        const supabase = createClient()
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash: token,
+          type: "invite"
+        })
+
+        if (error) {
+          setStatus("error")
+          setError(error.message)
+          return
+        }
+
+        setStatus("success")
+        // Redirect to login after 3 seconds
+        setTimeout(() => {
+          router.push("/login")
+        }, 3000)
+      } catch (err) {
+        setStatus("error")
+        setError("An unexpected error occurred")
       }
-
-      toast.success("Xác thực thành công")
-      window.location.href = "/dashboard"
-    } catch (error) {
-      toast.error("Có lỗi xảy ra", { description: "Vui lòng thử lại sau" })
     }
-  }
+
+    confirmEmail()
+  }, [router, searchParams])
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow">
-        <h1 className="text-2xl font-bold text-center">Xác thực email</h1>
-        <p className="text-center text-gray-600">
-          Nhấn nút bên dưới để xác thực email của bạn
-        </p>
-        <button
-          onClick={confirmEmail}
-          className="w-full px-4 py-2 text-white bg-blue-600 rounded-md hover:bg-blue-700"
-        >
-          Xác thực
-        </button>
-      </div>
+    <div className="flex min-h-screen items-center justify-center">
+      <Card className="w-[350px]">
+        <CardHeader>
+          <CardTitle>Xác nhận email</CardTitle>
+          <CardDescription>
+            {status === "loading" && "Đang xác nhận email của bạn..."}
+            {status === "success" && "Email của bạn đã được xác nhận thành công!"}
+            {status === "error" && "Có lỗi xảy ra khi xác nhận email"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {status === "loading" && (
+            <div className="flex justify-center">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          )}
+          {status === "error" && (
+            <div className="space-y-4">
+              <p className="text-sm text-red-500">{error}</p>
+              <Button
+                onClick={() => router.push("/login")}
+                className="w-full"
+              >
+                Quay lại trang đăng nhập
+              </Button>
+            </div>
+          )}
+          {status === "success" && (
+            <div className="space-y-4">
+              <p className="text-sm text-green-500">
+                Bạn sẽ được chuyển hướng về trang đăng nhập trong giây lát...
+              </p>
+              <Button
+                onClick={() => router.push("/login")}
+                className="w-full"
+              >
+                Đi đến trang đăng nhập
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
-  )
-}
-
-export default function ConfirmPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <ConfirmContent />
-    </Suspense>
   )
 } 

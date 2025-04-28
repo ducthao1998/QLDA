@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
@@ -29,6 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { LoadingSpinner } from "@/components/ui/loading"
 
 const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   planning: { label: "Lập kế hoạch", variant: "secondary" },
@@ -39,6 +40,14 @@ const statusMap: Record<string, { label: string; variant: "default" | "secondary
 }
 
 export function ProjectsList() {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <ProjectsListContent />
+    </Suspense>
+  )
+}
+
+function ProjectsListContent() {
   const router = useRouter()
   const [projects, setProjects] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

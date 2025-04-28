@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { PlusIcon, UserIcon, BuildingIcon, CheckIcon, CircleIcon, InfoIcon, HelpCircleIcon } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -57,6 +58,8 @@ export function ProjectRaci({ projectId }: { projectId: string }) {
     external_org_id: "",
     role: "responsible",
   })
+  const router = useRouter()
+
   useEffect(() => {
     fetchData()
   }, [projectId])
@@ -160,6 +163,10 @@ export function ProjectRaci({ projectId }: { projectId: string }) {
       (raci) =>
         raci.task_id === taskId && ((userId && raci.user_id === userId) || (orgId && raci.external_org_id === orgId)),
     )
+  }
+
+  const handleViewTasks = () => {
+    router.push(`/dashboard/projects/${projectId}?tab=tasks`)
   }
 
   if (loading) {
@@ -318,11 +325,8 @@ export function ProjectRaci({ projectId }: { projectId: string }) {
           {tasks.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground mb-4">Chưa có nhiệm vụ nào trong dự án này</p>
-              <Button
-                variant="outline"
-                onClick={() => (window.location.href = `/dashboard/projects/${projectId}?tab=tasks`)}
-              >
-                Thêm nhiệm vụ trước
+              <Button variant="outline" onClick={handleViewTasks}>
+                Xem danh sách task
               </Button>
             </div>
           ) : (
