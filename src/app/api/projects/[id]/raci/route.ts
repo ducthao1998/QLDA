@@ -13,12 +13,12 @@ export async function GET(
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-
+    const id = await params.id
     // Lấy danh sách nhiệm vụ của dự án
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
       .select("id")
-      .eq("project_id", params.id)
+      .eq("project_id", id)
 
     if (tasksError) {
       console.error("Error fetching tasks:", tasksError)
@@ -62,7 +62,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   if (authError || !authUser) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
-
+  const id = await params.id
   try {
     const body = await request.json()
 
@@ -76,7 +76,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       .from("tasks")
       .select("id")
       .eq("id", body.task_id)
-      .eq("project_id", params.id)
+      .eq("project_id", id)
       .single()
 
     if (taskError || !task) {

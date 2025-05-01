@@ -51,27 +51,35 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
 
-  const { id } = params
+  const { id } = await params
 
   try {
     const body = await request.json()
 
-    // Validate required fields
-    if (!body.name || !body.description || !body.start_date || !body.deadline || !body.priority || !body.status) {
-      return NextResponse.json({ error: "Thiếu thông tin bắt buộc" }, { status: 400 })
+    // Get current project data
+    const { data: currentProject, error: fetchError } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", id)
+      .single()
+
+    if (fetchError) {
+      return NextResponse.json({ error: fetchError.message }, { status: 500 })
+    }
+
+    // Merge current data with new data, only update fields that are provided
+    const updateData = {
+      name: body.name ?? currentProject.name,
+      description: body.description ?? currentProject.description,
+      start_date: body.start_date ?? currentProject.start_date,
+      end_date: body.end_date ?? currentProject.end_date,
+      status: body.status ?? currentProject.status,
     }
 
     // Update project
     const { data, error } = await supabase
       .from("projects")
-      .update({
-        name: body.name,
-        description: body.description,
-        start_date: body.start_date,
-        deadline: body.deadline,
-        priority: body.priority,
-        status: body.status,
-      })
+      .update(updateData)
       .eq("id", id)
       .select()
 

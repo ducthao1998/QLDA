@@ -59,7 +59,7 @@ const navItems = [
   { title: "Nhóm",          href: "/dashboard/team",     icon: UsersIcon },
   { title: "Ma Trận RACI",  href: "/dashboard/raci",     icon: FileTextIcon },
   { title: "Biểu Đồ Gantt", href: "/dashboard/gantt",    icon: BarChart3Icon },
-  { title: "Lịch",          href: "/dashboard/calendar", icon: CalendarIcon },
+  { title: "Lịch",          href: "/dashboard/shedule", icon: CalendarIcon },
   { title: "Cài Đặt",       href: "/dashboard/settings", icon: Settings2Icon },
 ]
 

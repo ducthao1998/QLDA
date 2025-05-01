@@ -36,40 +36,32 @@ export interface ExternalOrg {
 export interface Project {
   id: string
   name: string
-  description: string | null
+  description: string
+  status: string
   start_date: string
-  deadline: string
-  priority: number
-  status: "planning" | "in_progress" | "completed" | "on_hold" | "cancelled"
-  created_at: string
-  updated_at: string
-  complexity: number
-  business_value: number
-  technical_risk: number
-  dependencies: string | null
-  historical_data: string | null
+  end_date: string
+  users?: {
+    full_name: string
+    position: string
+    org_unit: string
+  }
 }
 
 ////////////////////////////////////////////////////
 // 4. tasks
 export interface Task {
-  id: string            // PK
-  project_id: string    // FK → projects.id
+  id: number
+  project_id: string
   name: string
-  description: string | null
   status: TaskStatus
-  priority: number      // 1-5 scale
-  estimate_low: number
-  estimate_high: number
-  weight: number
-  due_date: string
-  max_rejections: number
-  current_rej: number
-  risk_level: number
-  complexity: number
-  created_at: string
-  updated_at: string
-  assigned_to: string | null
+  start_date: string
+  end_date: string
+  phase_id: string
+  assigned_to?: string | null
+  note?: string
+  unit_in_charge?: string
+  legal_basis?: string
+  max_retries?: number
 }
 
 ////////////////////////////////////////////////////
@@ -85,9 +77,16 @@ export interface TaskDependency {
 export interface TaskRaci {
   id: number              // serial PK
   task_id: string         // FK → tasks.id
-  user_id: string | null  // FK → users.id
+  user_id: string   // FK → users.id
   external_org_id: string | null // FK → external_orgs.id
   role: RaciRole
+  created_at: string
+  updated_at: string
+  users?: {
+    full_name: string
+    position?: string
+    org_unit?: string
+  }
 }
 
 ////////////////////////////////////////////////////
@@ -210,4 +209,20 @@ export interface ProjectStatus {
   id: string            // projects.id
   name: string
   current_status: "late" | "ahead" | "on_time"
+
+}
+
+export interface TaskSkill {
+  task_id: string;    // FK → tasks.id
+  skill_id: number;   // FK → skills.id
+}
+
+export interface ProjectPhase {
+  id: string
+  project_id: string
+  name: string
+  description: string
+  order_no: number
+  created_at: string
+  updated_at: string
 }

@@ -1,27 +1,41 @@
-export interface TaskWeightInput {
-  complexity: number; // 1-5
-  risk: number; // 1-5
+import { TaskWeightResult } from "@/app/types/task"
+
+interface TaskWeightParams {
+  min_duration_hours?: number
+  max_duration_hours?: number
+  max_retries?: number
+  dependencies?: any[]
+  skill_complexity?: number
 }
 
-export interface TaskWeightOutput {
-  weight: number;
-  complexityWeight: number;
-  riskWeight: number;
-}
+export function calculateTaskWeight(params: TaskWeightParams): TaskWeightResult {
+  const {
+    min_duration_hours = 0,
+    max_duration_hours = 0,
+    max_retries = 0,
+    dependencies = [],
+    skill_complexity = 1,
+  } = params
 
-export const calculateTaskWeight = (input: TaskWeightInput): TaskWeightOutput => {
-  // Trọng số cho từng yếu tố
-  const complexityWeight = 0.6; // Tăng trọng số cho độ phức tạp
-  const riskWeight = 0.4; // Giảm trọng số cho rủi ro
+  // Calculate time weight (0-1)
+  const avgDuration = (min_duration_hours + max_duration_hours) / 2
+  const timeWeight = Math.min(avgDuration / 40, 1) // Normalize to 0-1 (40 hours = 1 week)
 
-  // Tính toán trọng số tổng thể
-  const weight = 
-    (input.complexity * complexityWeight) +
-    (input.risk * riskWeight);
+  // Calculate retry weight (0-1)
+  const retryWeight = Math.min(max_retries / 5, 1) // Normalize to 0-1 (5 retries = max)
+
+  // Calculate dependency weight (0-1)
+  const dependencyWeight = Math.min(dependencies.length / 5, 1) // Normalize to 0-1 (5 dependencies = max)
+
+  // Calculate overall complexity (1-5)
+  const weightSum = timeWeight * 0.4 + retryWeight * 0.2 + dependencyWeight * 0.2 + (skill_complexity / 5) * 0.2
+  const complexity = Math.max(1, Math.min(Math.round(weightSum * 5), 5))
 
   return {
-    weight,
-    complexityWeight: input.complexity * complexityWeight,
-    riskWeight: input.risk * riskWeight
-  };
-}; 
+    complexity,
+    timeWeight,
+    retryWeight,
+    dependencyWeight,
+    skillComplexity: skill_complexity,
+  }
+}

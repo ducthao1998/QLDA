@@ -12,7 +12,7 @@ export default async function EditTaskPage({ params }: { params: Params }) {
     .from("tasks")
     .select(`
       *,
-      users!assigned_to:user_id (
+      users:assigned_to (
         full_name,
         position,
         org_unit

@@ -21,16 +21,14 @@ export async function GET() {
       name,
       description,
       start_date,
-      deadline,
-      priority,
+      end_date,
       status,
       created_by,
       users!created_by (
         full_name
       )
     `)
-    .order("priority", { ascending: true })
-    .order("deadline", { ascending: true })
+    .order("end_date", { ascending: true })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
@@ -55,8 +53,15 @@ export async function POST(request: Request) {
     const body = await request.json()
 
     // Validate required fields
-    if (!body.name || !body.description || !body.start_date || !body.deadline || !body.priority || !body.status) {
+    if (!body.name || !body.description || !body.start_date || !body.end_date || !body.status) {
       return NextResponse.json({ error: "Thiếu thông tin bắt buộc" }, { status: 400 })
+    }
+
+    // Validate dates
+    const startDate = new Date(body.start_date)
+    const endDate = new Date(body.end_date)
+    if (endDate < startDate) {
+      return NextResponse.json({ error: "Ngày kết thúc phải sau ngày bắt đầu" }, { status: 400 })
     }
 
     // Insert new project
@@ -66,8 +71,7 @@ export async function POST(request: Request) {
         name: body.name,
         description: body.description,
         start_date: body.start_date,
-        deadline: body.deadline,
-        priority: body.priority,
+        end_date: body.end_date,
         status: body.status,
         created_by: authUser.id,
       })

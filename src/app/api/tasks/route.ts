@@ -52,4 +52,36 @@ export async function GET() {
       { status: 500 }
     )
   }
-} 
+}
+
+// SQL commands for Supabase
+export const TASKS_TABLE_SQL = `
+-- Disable RLS for tasks table
+ALTER TABLE tasks DISABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if any
+DROP POLICY IF EXISTS "Project members can view tasks" ON tasks;
+DROP POLICY IF EXISTS "Project members can create tasks" ON tasks;
+DROP POLICY IF EXISTS "Project admins can manage tasks" ON tasks;
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id UUID REFERENCES projects(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'todo',
+  min_duration_hours INTEGER NOT NULL,
+  max_duration_hours INTEGER NOT NULL,
+  due_date DATE,
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+  assigned_to UUID REFERENCES users(id),
+  max_retries INTEGER DEFAULT 3,
+  dependencies JSONB DEFAULT '[]'::jsonb,
+  optimization_score NUMERIC DEFAULT 0,
+  start_date TIMESTAMP WITH TIME ZONE,
+  end_date TIMESTAMP WITH TIME ZONE,
+  is_imported BOOLEAN DEFAULT FALSE,
+  import_date TIMESTAMP WITH TIME ZONE
+);
+`; 

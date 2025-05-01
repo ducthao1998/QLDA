@@ -27,7 +27,7 @@ interface Task {
     name: string
   }
   description: string
-  status: "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived"
+  status: "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived" | "planning" | "on_hold" | "cancelled" | "done"
   estimate_low: number
   estimate_high: number
   weight: number
@@ -38,6 +38,13 @@ interface Task {
   users?: {
     full_name: string
   }
+  task_raci?: {
+    user_id: string
+    role: string
+    users: {
+      full_name: string
+    }
+  }[]
   task_progress?: {
     planned_start: string
     planned_finish: string
@@ -51,6 +58,10 @@ interface Task {
     on_time: boolean
     qual_score: number
   }
+  min_duration_hours?: number
+  max_duration_hours?: number
+  start_date?: string
+  end_date?: string
 }
 
 interface Project {
@@ -64,7 +75,11 @@ const statusColors: Record<string, { variant: "default" | "secondary" | "destruc
   review: { variant: "secondary", label: "Đang xem xét" },
   completed: { variant: "outline", label: "Hoàn thành" },
   blocked: { variant: "destructive", label: "Bị chặn" },
-  archived: { variant: "outline", label: "Lưu trữ" }
+  archived: { variant: "outline", label: "Lưu trữ" },
+  planning: { variant: "secondary", label: "Lập kế hoạch" },
+  on_hold: { variant: "destructive", label: "Tạm dừng" },
+  cancelled: { variant: "destructive", label: "Đã hủy" },
+  done: { variant: "outline", label: "Hoàn thành" }
 }
 
 export function TasksList() {
@@ -197,20 +212,29 @@ export function TasksList() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nhiệm Vụ</TableHead>
-              <TableHead>Người Phụ Trách</TableHead>
-              <TableHead>Tiến Độ</TableHead>
-              <TableHead>Trạng Thái</TableHead>
-              <TableHead>Ước Tính</TableHead>
-              <TableHead>Rủi Ro</TableHead>
-              <TableHead>Hạn Chót</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
+              <TableHead>Tên công việc</TableHead>
+              <TableHead>Thời gian thực hiện</TableHead>
+              <TableHead>Người thực hiện</TableHead>
+              <TableHead>RACI</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead className="w-[80px]">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {Array.isArray(tasks) && tasks.map((task) => (
               <TableRow key={task.id}>
                 <TableCell className="font-medium">{task.name}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1 text-xs">
+                    <ClockIcon className="h-3 w-3" />
+                    {task.min_duration_hours && task.max_duration_hours 
+                      ? `${task.min_duration_hours}-${task.max_duration_hours}h`
+                      : task.start_date && task.end_date
+                        ? `${format(new Date(task.start_date), "dd/MM/yyyy")} - ${format(new Date(task.end_date), "dd/MM/yyyy")}`
+                        : "Chưa có thời gian"
+                    }
+                  </div>
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Avatar className="h-6 w-6">
@@ -220,38 +244,22 @@ export function TasksList() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
-                    <div className="w-full bg-secondary rounded-full h-2">
-                      <div
-                        className="bg-primary h-2 rounded-full"
-                        style={{ width: `${calculateProgress(task)}%` }}
-                      />
-                    </div>
-                    <span className="text-xs">{calculateProgress(task)}%</span>
+                  <div className="flex flex-col gap-1">
+                    {task.task_raci?.map((raci) => (
+                      <div key={raci.user_id} className="flex items-center gap-1 text-xs">
+                        <span className="font-medium">{raci.role}:</span>
+                        <span>{raci.users?.full_name}</span>
+                      </div>
+                    ))}
+                    {(!task.task_raci || task.task_raci.length === 0) && (
+                      <span className="text-xs text-muted-foreground">Chưa gán RACI</span>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell>
                   <Badge variant={statusColors[task.status]?.variant || "secondary"}>
                     {statusColors[task.status]?.label || task.status}
                   </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1 text-xs">
-                    <ClockIcon className="h-3 w-3" />
-                    {task.estimate_low}-{task.estimate_high}h
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1 text-xs">
-                    <AlertCircleIcon className="h-3 w-3" />
-                    {task.risk_level}/5
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1 text-xs">
-                    <CalendarIcon className="h-3 w-3" />
-                    {format(new Date(task.due_date), "dd/MM/yyyy")}
-                  </div>
                 </TableCell>
                 <TableCell>
                   <DropdownMenu>

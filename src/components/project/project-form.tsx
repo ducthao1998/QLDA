@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { useRouter } from "next/navigation"
-import { useMemo, useState, Suspense } from "react"
+import { useMemo, useState, Suspense, useEffect } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -17,48 +17,52 @@ import { format } from "date-fns"
 import { CalendarIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
-import { Project } from "@/app/types/table-types"
-import { Label as UILabel } from "@/components/ui/label"
+import type { Project } from "@/app/types/table-types"
 import { LoadingSpinner } from "@/components/ui/loading"
 
 const formSchema = z.object({
-    name: z.string().min(3, { message: "Tên dự án phải có ít nhất 3 ký tự" }),
-    description: z.string().min(10, { message: "Mô tả dự án phải có ít nhất 10 ký tự" }),
-    start_date: z.date({ required_error: "Vui lòng chọn ngày bắt đầu" }),
-    deadline: z.date({ required_error: "Vui lòng chọn hạn hoàn thành" }),
-    priority: z.string().min(1, { message: "Vui lòng chọn mức độ ưu tiên" }),
-    status: z.string().min(1, { message: "Vui lòng chọn trạng thái" }),
-    complexity: z.string().min(1, { message: "Vui lòng chọn độ phức tạp" }),
-    business_value: z.string().min(1, { message: "Vui lòng chọn giá trị kinh doanh" }),
-    technical_risk: z.string().min(1, { message: "Vui lòng chọn rủi ro kỹ thuật" }),
-    dependencies: z.string().optional(),
-    historical_data: z.string().optional(),
-  })
-  type FormValues = z.infer<typeof formSchema>
+  name: z.string().min(3, { message: "Tên dự án phải có ít nhất 3 ký tự" }),
+  description: z.string().min(10, { message: "Mô tả dự án phải có ít nhất 10 ký tự" }),
+  start_date: z.date({ required_error: "Vui lòng chọn ngày bắt đầu" }),
+  end_date: z.date({ required_error: "Vui lòng chọn ngày kết thúc" }),
+  status: z.string().min(1, { message: "Vui lòng chọn trạng thái" }),
+})
+type FormValues = z.infer<typeof formSchema>
 
-export function ProjectForm({ projectId }: { projectId?: string }) {
+interface ProjectFormProps {
+  projectId?: string
+  initialData?: {
+    name: string
+    description?: string
+    start_date: string
+    end_date: string
+    status: "planning" | "in_progress" | "completed" | "on_hold" | "cancelled"
+  }
+}
+
+export function ProjectForm({ projectId, initialData }: ProjectFormProps) {
+  const router = useRouter()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
   return (
     <Suspense fallback={<LoadingSpinner />}>
-      <ProjectFormContent projectId={projectId} />
+      <ProjectFormContent projectId={projectId} initialData={initialData} />
     </Suspense>
   )
 }
 
-function ProjectFormContent({ projectId }: { projectId?: string }) {
+function ProjectFormContent({
+  projectId,
+  initialData,
+}: { projectId?: string; initialData?: ProjectFormProps["initialData"] }) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [projectState, setProject] = useState<Partial<Project>>({
     name: "",
     description: "",
     start_date: "",
-    deadline: "",
-    priority: 1,
+    end_date: "",
     status: "planning",
-    complexity: 1,
-    business_value: 1,
-    technical_risk: 1,
-    dependencies: "",
-    historical_data: ""
   })
 
   const defaultValues = useMemo<Partial<FormValues>>(() => {
@@ -67,35 +71,45 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
         name: "",
         description: "",
         start_date: undefined,
-        deadline: undefined,
-        priority: "3",
+        end_date: undefined,
         status: "planning",
-        complexity: "3",
-        business_value: "3",
-        technical_risk: "3",
-        dependencies: "",
-        historical_data: "",
       }
     }
     return {
       name: projectState.name,
       description: projectState.description ?? "",
-      start_date: new Date(projectState.start_date),
-      deadline: new Date(projectState.deadline),
-      priority: projectState.priority?.toString() ?? "3",
+      start_date: projectState.start_date ? new Date(projectState.start_date) : undefined,
+      end_date: projectState.end_date ? new Date(projectState.end_date) : undefined,
       status: projectState.status,
-      complexity: projectState.complexity?.toString() ?? "3",
-      business_value: projectState.business_value?.toString() ?? "3",
-      technical_risk: projectState.technical_risk?.toString() ?? "3",
-      dependencies: projectState.dependencies ?? "",
-      historical_data: projectState.historical_data ?? "",
     }
-  }, [projectId, projectState.name, projectState.description, projectState.start_date, projectState.deadline, projectState.priority, projectState.status, projectState.complexity, projectState.business_value, projectState.technical_risk, projectState.dependencies, projectState.historical_data])
+  }, [projectId, projectState])
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues,
   })
+
+  // Initialize project state with initialData if available
+  useEffect(() => {
+    if (initialData) {
+      setProject({
+        name: initialData.name,
+        description: initialData.description || "",
+        start_date: initialData.start_date,
+        end_date: initialData.end_date,
+        status: initialData.status,
+      })
+
+      // Reset form with initialData
+      form.reset({
+        name: initialData.name,
+        description: initialData.description || "",
+        start_date: initialData.start_date ? new Date(initialData.start_date) : undefined,
+        end_date: initialData.end_date ? new Date(initialData.end_date) : undefined,
+        status: initialData.status,
+      })
+    }
+  }, [initialData, form])
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
@@ -105,11 +119,7 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
       const formattedValues = {
         ...values,
         start_date: format(values.start_date, "yyyy-MM-dd"),
-        deadline: format(values.deadline, "yyyy-MM-dd"),
-        priority: Number.parseInt(values.priority),
-        complexity: Number.parseInt(values.complexity),
-        business_value: Number.parseInt(values.business_value),
-        technical_risk: Number.parseInt(values.technical_risk),
+        end_date: format(values.end_date, "yyyy-MM-dd"),
       }
 
       const endpoint = projectId ? `/api/projects/${projectId}` : "/api/projects"
@@ -128,7 +138,9 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
         throw new Error(error.message || "Có lỗi xảy ra")
       }
 
-      toast( projectId ? "Cập nhật dự án thành công" : "Tạo dự án thành công",{
+      const { project } = await response.json()
+
+      toast(projectId ? "Cập nhật dự án thành công" : "Tạo dự án thành công", {
         description: projectId ? "Dự án đã được cập nhật" : "Dự án mới đã được tạo thành công",
       })
 
@@ -136,7 +148,7 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
       router.refresh()
     } catch (error) {
       console.error("Lỗi:", error)
-      toast.error("Lỗi",{
+      toast.error("Lỗi", {
         description: error instanceof Error ? error.message : "Có lỗi xảy ra",
       })
     } finally {
@@ -220,11 +232,11 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
 
           <FormField
             control={form.control}
-            name="deadline"
+            name="end_date"
             render={({ field }) => (
               <FormItem className="flex flex-col">
                 <FormLabel className="flex items-center gap-1">
-                  Hạn hoàn thành <span className="text-red-500">*</span>
+                  Ngày kết thúc <span className="text-red-500">*</span>
                 </FormLabel>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -251,7 +263,7 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
                     />
                   </PopoverContent>
                 </Popover>
-                <FormDescription>Hạn hoàn thành cam kết</FormDescription>
+                <FormDescription>Ngày dự kiến kết thúc dự án</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -259,34 +271,6 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField
-            control={form.control}
-            name="priority"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="flex items-center gap-1">
-                  Mức ưu tiên <span className="text-red-500">*</span>
-                </FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn mức ưu tiên" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="1">1 - Cao nhất</SelectItem>
-                    <SelectItem value="2">2 - Cao</SelectItem>
-                    <SelectItem value="3">3 - Trung bình</SelectItem>
-                    <SelectItem value="4">4 - Thấp</SelectItem>
-                    <SelectItem value="5">5 - Thấp nhất</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>Mức ưu tiên của dự án (1 là cao nhất)</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
           <FormField
             control={form.control}
             name="status"
@@ -306,6 +290,7 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
                     <SelectItem value="in_progress">Đang thực hiện</SelectItem>
                     <SelectItem value="completed">Hoàn thành</SelectItem>
                     <SelectItem value="on_hold">Tạm dừng</SelectItem>
+                    <SelectItem value="archived">Lưu trữ</SelectItem>
                     <SelectItem value="cancelled">Đã hủy</SelectItem>
                   </SelectContent>
                 </Select>
@@ -315,130 +300,6 @@ function ProjectFormContent({ projectId }: { projectId?: string }) {
             )}
           />
         </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <FormField
-            control={form.control}
-            name="complexity"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="flex items-center gap-1">
-                  Độ phức tạp <span className="text-red-500">*</span>
-                </FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn độ phức tạp" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="1">1 - Rất đơn giản</SelectItem>
-                    <SelectItem value="2">2 - Đơn giản</SelectItem>
-                    <SelectItem value="3">3 - Trung bình</SelectItem>
-                    <SelectItem value="4">4 - Phức tạp</SelectItem>
-                    <SelectItem value="5">5 - Rất phức tạp</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>Độ phức tạp kỹ thuật của dự án (1 là đơn giản nhất)</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="business_value"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="flex items-center gap-1">
-                  Giá trị kinh doanh <span className="text-red-500">*</span>
-                </FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn giá trị" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="1">1 - Rất thấp</SelectItem>
-                    <SelectItem value="2">2 - Thấp</SelectItem>
-                    <SelectItem value="3">3 - Trung bình</SelectItem>
-                    <SelectItem value="4">4 - Cao</SelectItem>
-                    <SelectItem value="5">5 - Rất cao</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>Giá trị kinh doanh của dự án (1 là thấp nhất)</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="technical_risk"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="flex items-center gap-1">
-                  Rủi ro kỹ thuật <span className="text-red-500">*</span>
-                </FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn rủi ro" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="1">1 - Rất thấp</SelectItem>
-                    <SelectItem value="2">2 - Thấp</SelectItem>
-                    <SelectItem value="3">3 - Trung bình</SelectItem>
-                    <SelectItem value="4">4 - Cao</SelectItem>
-                    <SelectItem value="5">5 - Rất cao</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>Mức độ rủi ro kỹ thuật của dự án (1 là thấp nhất)</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <FormField
-          control={form.control}
-          name="dependencies"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Dự án phụ thuộc</FormLabel>
-              <FormControl>
-                <Textarea 
-                  placeholder="Nhập ID các dự án phụ thuộc, cách nhau bằng dấu phẩy" 
-                  className="min-h-[60px]" 
-                  {...field} 
-                />
-              </FormControl>
-              <FormDescription>Danh sách ID các dự án mà dự án này phụ thuộc vào</FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="historical_data"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Dữ liệu lịch sử</FormLabel>
-              <FormControl>
-                <Textarea 
-                  placeholder="Nhập thông tin về các dự án tương tự đã thực hiện" 
-                  className="min-h-[60px]" 
-                  {...field} 
-                />
-              </FormControl>
-              <FormDescription>Thông tin về các dự án tương tự đã thực hiện trước đây</FormDescription>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
 
         <div className="flex justify-end gap-4">
           <Button type="button" variant="outline" onClick={() => router.back()}>

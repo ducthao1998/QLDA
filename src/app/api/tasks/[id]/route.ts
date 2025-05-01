@@ -1,26 +1,31 @@
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
-import { cookies } from "next/headers"
+import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { Task } from "@/app/types/table-types"
-import { createClient } from "@/lib/supabase/server"
+import { optimizeTask } from "@/services/task-optimization"
 
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-
-    if (!authUser) {
+    const supabase = await createClient()
+    
+    // Kiểm tra session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    
+    if (sessionError || !session) {
+      console.error("Session error:", sessionError)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
+
     const id = await params.id;
+    console.log("Fetching task with ID:", id)
+    
     const { data: task, error } = await supabase
       .from("tasks")
       .select(`
         *,
-        users!assigned_to:user_id (
+        users:assigned_to (
           full_name,
           position,
           org_unit
@@ -32,6 +37,9 @@ export async function GET(
       .eq("id", id)
       .single()
 
+    console.log("Task data:", task)
+    console.log("Error:", error)
+
     if (error) {
       console.error("Error fetching task:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
@@ -41,7 +49,16 @@ export async function GET(
       return NextResponse.json({ error: "Task not found" }, { status: 404 })
     }
 
-    return NextResponse.json(task)
+    // Tính toán các thông số tối ưu
+    const optimizationResult = await optimizeTask(task)
+    
+    // Kết hợp kết quả tối ưu với thông tin task
+    const taskWithOptimization = {
+      ...task,
+      ...optimizationResult
+    }
+
+    return NextResponse.json(taskWithOptimization)
   } catch (error) {
     console.error("Error in GET /api/tasks/[id]:", error)
     return NextResponse.json(
