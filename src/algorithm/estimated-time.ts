@@ -1,28 +1,43 @@
-export interface EstimatedTimeInput {
-  complexity: number; // 1-5
-  risk: number; // 1-5
-  baseTime: number; // Thời gian cơ bản (giờ)
+import { EstimatedTimeResult } from "@/app/types/task"
+
+interface EstimatedTimeParams {
+  min_duration_hours?: number
+  max_duration_hours?: number
+  max_retries?: number
+  dependencies?: any[]
 }
 
-export interface EstimatedTimeOutput {
-  estimatedTime: number;
-  complexityFactor: number;
-  riskFactor: number;
-}
+export function calculateEstimatedTime(params: EstimatedTimeParams): EstimatedTimeResult {
+  const { min_duration_hours = 0, max_duration_hours = 0, max_retries = 0, dependencies = [] } = params
+  console.log("min_duration_hours", min_duration_hours)
+  console.log("max_duration_hours", max_duration_hours)
+  console.log("max_retries", max_retries)
+  console.log("dependencies", dependencies)
+  // Base estimate is weighted average of min and max
+  const baseEstimate = min_duration_hours * 0.4 + max_duration_hours * 0.6
 
-export const calculateEstimatedTime = (input: EstimatedTimeInput): EstimatedTimeOutput => {
-  // Hệ số tăng thời gian dựa trên độ phức tạp
-  const complexityFactor = 1 + (input.complexity - 1) * 0.2;
-  
-  // Hệ số tăng thời gian dựa trên rủi ro
-  const riskFactor = 1 + (input.risk - 1) * 0.15;
+  // Add time for retries
+  const retryFactor = 1 + max_retries * 0.1
 
-  // Tính toán thời gian ước tính
-  const estimatedTime = input.baseTime * complexityFactor * riskFactor;
+  // Add time for dependencies
+  const dependencyFactor = 1 + dependencies.length * 0.05
+
+  // Calculate final estimate
+  const estimatedTime = baseEstimate * retryFactor * dependencyFactor
+
+  // Calculate confidence (0-1)
+  // Lower confidence if there's a big gap between min and max
+  const durationRange = max_duration_hours - min_duration_hours
+  const rangeFactor = min_duration_hours > 0 ? Math.min(1, 1 - durationRange / (min_duration_hours * 2)) : 0.5
+
+  // Lower confidence if there are many dependencies
+  const dependencyConfidence = Math.max(0.5, 1 - dependencies.length * 0.05)
+
+  // Final confidence
+  const confidence = Math.max(0.3, rangeFactor * 0.7 + dependencyConfidence * 0.3)
 
   return {
     estimatedTime,
-    complexityFactor,
-    riskFactor
-  };
-}; 
+    confidence,
+  }
+}

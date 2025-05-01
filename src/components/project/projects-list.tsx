@@ -118,7 +118,6 @@ function ProjectsListContent() {
               <TableHead>Mã</TableHead>
               <TableHead>Tên</TableHead>
               <TableHead>Trạng Thái</TableHead>
-              <TableHead>Tiến Độ</TableHead>
               <TableHead>Thời Gian</TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
@@ -161,7 +160,6 @@ function ProjectsListContent() {
               <TableHead>Mã</TableHead>
               <TableHead>Tên</TableHead>
               <TableHead>Trạng Thái</TableHead>
-              <TableHead>Tiến Độ</TableHead>
               <TableHead>Thời Gian</TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
@@ -184,15 +182,10 @@ function ProjectsListContent() {
                     <TableCell>
                       <Badge variant={status.variant}>{status.label}</Badge>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Progress value={project.progress || 0} className="h-2 w-[60px]" />
-                        <span className="text-xs text-muted-foreground">{project.progress || 0}%</span>
-                      </div>
-                    </TableCell>
+                  
                     <TableCell className="text-xs">
                       {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })} -{" "}
-                      {format(new Date(project.deadline), "dd/MM/yyyy", { locale: vi })}
+                      {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>

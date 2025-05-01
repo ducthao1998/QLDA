@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, Suspense } from "react"
+import { useState, Suspense, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
@@ -15,6 +15,7 @@ import {
   CheckCircleIcon,
   PauseCircleIcon,
   ClipboardListIcon,
+  PlusIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -37,105 +38,178 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Project, TaskStatus } from "@/app/types/table-types"
 import { LoadingSpinner } from "@/components/ui/loading"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { ProjectPhases } from "./project-phases"
 
-const statusMap: Record<
-  TaskStatus,
-  { label: string; color: string; icon: React.ReactNode }
-> = {
-  todo: {
-    label: "Chưa bắt đầu",
+interface ProjectPhase {
+  id: string
+  project_id: string
+  name: string
+  description: string
+  order_no: number
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+interface ProjectDetailsProps {
+  projectId: string
+  initialProject?: Project
+  initialPhases?: ProjectPhase[]
+}
+
+const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; color: string; icon: React.ReactNode }> = {
+  planning: { 
+    label: "Lập kế hoạch", 
+    variant: "secondary",
     color: "bg-gray-100 text-gray-800",
-    icon: <ClipboardListIcon className="h-4 w-4" />,
+    icon: <ClipboardListIcon className="h-4 w-4" />
   },
-  in_progress: {
-    label: "Đang thực hiện",
+  in_progress: { 
+    label: "Đang thực hiện", 
+    variant: "default",
     color: "bg-green-100 text-green-800",
-    icon: <BarChart4Icon className="h-4 w-4" />,
+    icon: <BarChart4Icon className="h-4 w-4" />
   },
-  blocked: {
-    label: "Bị khoá",
+  on_hold: { 
+    label: "Tạm dừng", 
+    variant: "outline",
     color: "bg-amber-100 text-amber-800",
-    icon: <PauseCircleIcon className="h-4 w-4" />,
+    icon: <PauseCircleIcon className="h-4 w-4" />
   },
-  review: {
-    label: "Đang xem xét",
-    color: "bg-blue-100 text-blue-800",
-    icon: <AlertTriangleIcon className="h-4 w-4" />,
-  },
-  done: {
-    label: "Hoàn thành",
+  completed: { 
+    label: "Hoàn thành", 
+    variant: "default",
     color: "bg-emerald-100 text-emerald-800",
-    icon: <CheckCircleIcon className="h-4 w-4" />,
+    icon: <CheckCircleIcon className="h-4 w-4" />
   },
   archived: {
     label: "Lưu trữ",
+    variant: "secondary",
     color: "bg-gray-200 text-gray-600",
-    icon: <AlertTriangleIcon className="h-4 w-4" />,
+    icon: <AlertTriangleIcon className="h-4 w-4" />
   },
+  cancelled: {
+    label: "Đã hủy",
+    variant: "destructive",
+    color: "bg-red-100 text-red-800",
+    icon: <AlertTriangleIcon className="h-4 w-4" />
+  }
 }
 
-
 const priorityLabelMap: Record<number, string> = {
-    1: "Cao nhất",
-    2: "Cao",
-    3: "Trung bình",
-    4: "Thấp",
-    5: "Thấp nhất",
-  }
-  
-  const priorityColorMap: Record<number, string> = {
-    1: "bg-red-100 text-red-800",
-    2: "bg-orange-100 text-orange-800",
-    3: "bg-yellow-100 text-yellow-800",
-    4: "bg-blue-100 text-blue-800",
-    5: "bg-gray-100 text-gray-800",
-  }
+  1: "Rất cao",
+  2: "Cao",
+  3: "Trung bình",
+  4: "Thấp",
+  5: "Rất thấp",
+}
 
-export function ProjectDetails({ projectId }: { projectId: string }) {
+const priorityColorMap: Record<number, string> = {
+  1: "bg-red-100 text-red-800",
+  2: "bg-orange-100 text-orange-800",
+  3: "bg-yellow-100 text-yellow-800",
+  4: "bg-blue-100 text-blue-800",
+  5: "bg-gray-100 text-gray-800",
+}
+
+export function ProjectDetails({ projectId, initialProject, initialPhases }: ProjectDetailsProps) {
   return (
     <Suspense fallback={<LoadingSpinner />}>
-      <ProjectDetailsContent projectId={projectId} />
+      <ProjectDetailsContent projectId={projectId} initialProject={initialProject} initialPhases={initialPhases} />
     </Suspense>
   )
 }
 
-function ProjectDetailsContent({ projectId }: { projectId: string }) {
+function ProjectDetailsContent({ projectId, initialProject, initialPhases }: ProjectDetailsProps) {
   const router = useRouter()
+  const [project, setProject] = useState<Project | null>(initialProject || null)
+  const [phases, setPhases] = useState<ProjectPhase[]>(initialPhases || [])
+  const [isLoading, setIsLoading] = useState(!initialProject)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isAddingPhase, setIsAddingPhase] = useState(false)
+  const [newPhase, setNewPhase] = useState({
+    name: "",
+    description: "",
+    order_no: 1
+  })
 
-  const project = {
-    id: projectId,
-    name: "Tên dự án",
-    status: "todo",
-    priority: 3,
-    start_date: "2024-01-01",
-    deadline: "2024-12-31",
-    progress: 25,
-    tasks_completed: 5,
-    tasks_total: 20,
-    description: "Mô tả dự án",
-    users: {
-      full_name: "Nguyễn Văn A",
-      position: "Nhân viên",
-      org_unit: "Phòng ban A",
-    },
+  useEffect(() => {
+    if (!initialProject) {
+      fetchProject()
+    }
+    fetchPhases()
+  }, [projectId])
+
+  const fetchProject = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch project")
+      }
+      const data = await response.json()
+      setProject(data.project)
+    } catch (error) {
+      console.error("Error fetching project:", error)
+      toast.error("Lỗi", {
+        description: "Không thể tải thông tin dự án"
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const status = statusMap[project.status] || {
-    label: project.status,
-    color: "bg-gray-100 text-gray-800",
-    icon: null,
+  const fetchPhases = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/phases`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch phases")
+      }
+      const data = await response.json()
+      setPhases(data.phases || [])
+    } catch (error) {
+      console.error("Error fetching phases:", error)
+      toast.error("Lỗi", {
+        description: "Không thể tải danh sách giai đoạn"
+      })
+      setPhases([])
+    }
   }
 
-  const priorityLabel = priorityLabelMap[project.priority] ?? "Không xác định"
-  const priorityColor =
-    priorityColorMap[project.priority] ?? "bg-gray-100 text-gray-800"
+  const handleAddPhase = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/phases`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(newPhase),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to add phase")
+      }
+
+      toast.success("Thêm giai đoạn thành công")
+      setIsAddingPhase(false)
+      setNewPhase({ name: "", description: "", order_no: 1 })
+      fetchPhases()
+    } catch (error) {
+      console.error("Error adding phase:", error)
+      toast.error("Lỗi", {
+        description: "Không thể thêm giai đoạn mới"
+      })
+    }
+  }
 
   async function handleDelete() {
     try {
       setIsDeleting(true)
 
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const response = await fetch(`/api/projects/${projectId}`, {
         method: "DELETE",
       })
 
@@ -144,7 +218,7 @@ function ProjectDetailsContent({ projectId }: { projectId: string }) {
         throw new Error(error.message || "Có lỗi xảy ra khi xóa dự án")
       }
 
-      toast.success("Xóa dự án thành công",{
+      toast.success("Xóa dự án thành công", {
         description: "Dự án đã được xóa khỏi hệ thống",
       })
 
@@ -152,12 +226,22 @@ function ProjectDetailsContent({ projectId }: { projectId: string }) {
       router.refresh()
     } catch (error) {
       console.error("Lỗi:", error)
-      toast.error("Lỗi",{
+      toast.error("Lỗi", {
         description: error instanceof Error ? error.message : "Có lỗi xảy ra khi xóa dự án",
       })
     } finally {
       setIsDeleting(false)
     }
+  }
+
+  if (isLoading || !project) {
+    return <LoadingSpinner />
+  }
+
+  const status = statusMap[project.status] || {
+    label: project.status,
+    color: "bg-gray-100 text-gray-800",
+    icon: null,
   }
 
   return (
@@ -172,7 +256,6 @@ function ProjectDetailsContent({ projectId }: { projectId: string }) {
                 {status.label}
               </span>
             </Badge>
-            <Badge className={priorityColor}>Ưu tiên: {priorityLabel}</Badge>
           </div>
         </div>
         <div className="flex gap-2">
@@ -218,7 +301,7 @@ function ProjectDetailsContent({ projectId }: { projectId: string }) {
               <div className="flex items-center">
                 <ClockIcon className="h-4 w-4 mr-2 text-muted-foreground" />
                 <span className="text-sm">
-                  Hạn chót: {format(new Date(project.deadline), "dd/MM/yyyy", { locale: vi })}
+                  Kết thúc: {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
                 </span>
               </div>
             </div>
@@ -241,25 +324,6 @@ function ProjectDetailsContent({ projectId }: { projectId: string }) {
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Tiến độ</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col space-y-2">
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="bg-green-600 h-2.5 rounded-full" style={{ width: `${project.progress || 0}%` }}></div>
-              </div>
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{project.progress || 0}% hoàn thành</span>
-                <span>
-                  {project.tasks_completed || 0}/{project.tasks_total || 0} nhiệm vụ
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <Card>
@@ -274,18 +338,26 @@ function ProjectDetailsContent({ projectId }: { projectId: string }) {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="tasks">
-        <TabsList className="grid w-full grid-cols-3">
+      <Tabs defaultValue="phases">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="phases">Các giai đoạn</TabsTrigger>
           <TabsTrigger value="tasks">Nhiệm vụ</TabsTrigger>
           <TabsTrigger value="raci">Ma trận RACI</TabsTrigger>
           <TabsTrigger value="gantt">Biểu đồ Gantt</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="phases" className="mt-6">
+        <ProjectPhases projectId={project.id} phases={phases} onRefresh={fetchPhases} />
+        </TabsContent>
+
         <TabsContent value="tasks" className="mt-6">
           <ProjectTasks projectId={project.id} />
         </TabsContent>
+
         <TabsContent value="raci" className="mt-6">
           <ProjectRaci projectId={project.id} />
         </TabsContent>
+
         <TabsContent value="gantt" className="mt-6">
           <Card>
             <CardHeader>

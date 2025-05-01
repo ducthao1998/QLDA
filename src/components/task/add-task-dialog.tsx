@@ -1,6 +1,5 @@
 "use client"
 import { useEffect, useState } from "react"
-import { format } from "date-fns"
 import { toast } from "sonner"
 import {
   Dialog,
@@ -17,70 +16,209 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Label } from "../ui/label"
 import { Textarea } from "../ui/textarea"
 import { Input } from "../ui/input"
-import type { Task, TaskStatus, User } from "@/app/types/table-types"
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu"
+import { Badge } from "../ui/badge"
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import type { Task, TaskStatus, User, ProjectPhase, Skill, RaciRole } from "@/app/types/table-types"
+
+interface RecommendedUser {
+  id: string
+  full_name: string
+  position?: string
+  org_unit?: string
+  email?: string
+  skill_level?: number
+}
+
+interface TaskRaciInput {
+  user_id: string
+  role: RaciRole
+}
+
+interface UserSkill {
+  user_id: string
+  skill_id: number
+  level: number
+  skill?: {
+    name: string
+  }
+}
 
 export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [users, setUsers] = useState<User[]>([])
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([])
+  const [phases, setPhases] = useState<ProjectPhase[]>([])
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [recommendedUsers, setRecommendedUsers] = useState<RecommendedUser[]>([])
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([])
+  const [raciUsers, setRaciUsers] = useState<TaskRaciInput[]>([])
+  const [userSkills, setUserSkills] = useState<UserSkill[]>([])
+  const [loadingUserSkills, setLoadingUserSkills] = useState(false)
   const [newTask, setNewTask] = useState<Partial<Task>>({
     project_id: projectId,
     name: "",
-    description: "",
     status: "todo",
-    due_date: format(new Date(Date.now() + 7 * 86400000), "yyyy-MM-dd"),
-    priority: 3,
-    assigned_to: null,
-    estimate_low: 1,
-    estimate_high: 2,
-    risk_level: 1,
-    complexity: 1,
-    weight: 0.5,
-    max_rejections: 3,
-    current_rej: 0
+    start_date: "",
+    end_date: "",
+    unit_in_charge: "",
+    legal_basis: "",
+    note: "",
+    assigned_to: "",
+    phase_id: "",
   })
 
-  // 1) Fetch list of users to assign
   useEffect(() => {
     if (isOpen) {
+      // Fetch users
       fetch("/api/user")
         .then((res) => res.json())
         .then((data) => setUsers(data.users))
         .catch(() => toast.error("Không tải được danh sách người dùng"))
-    }
-  }, [isOpen])
 
-  // Fetch tasks for dependencies selection
-  useEffect(() => {
-    if (isOpen) {
-      fetch(`/api/projects/${projectId}/tasks`)
+      // Fetch project phases
+      fetch(`/api/projects/${projectId}/phases`)
         .then((res) => res.json())
-        .then((data) => setTasks(data.tasks || []))
-        .catch(() => toast.error("Không tải được danh sách công việc"))
+        .then((data) => setPhases(data.phases))
+        .catch(() => toast.error("Không tải được danh sách giai đoạn"))
+
+      // Fetch skills
+      fetch("/api/skills")
+        .then((res) => res.json())
+        .then((data) => setSkills(data.skills))
+        .catch(() => toast.error("Không tải được danh sách lĩnh vực"))
+
+      // Fetch all user skills
+      fetch("/api/user-skills")
+        .then((res) => res.json())
+        .then((data) => {
+          setUserSkills(data.userSkills || [])
+        })
+        .catch(() => toast.error("Không tải được danh sách kỹ năng người dùng"))
     }
   }, [isOpen, projectId])
 
-  // 2) Reset form khi đóng
-  function reset() {
-    setNewTask({
-      project_id: projectId,
-      name: "",
-      description: "",
-      status: "todo",
-      due_date: format(new Date(Date.now() + 7 * 86400000), "yyyy-MM-dd"),
-      priority: 3,
-      assigned_to: null,
-      estimate_low: 1,
-      estimate_high: 2,
-      risk_level: 1,
-      complexity: 1,
-      weight: 0.5,
-      max_rejections: 3,
-      current_rej: 0
+  // Separate effect for skill selection to avoid dependency on raciUsers
+  useEffect(() => {
+    if (selectedSkills.length > 0) {
+      // Only fetch recommended users if skills are selected
+      fetch(`/api/projects/${projectId}/tasks/recommended-users?skill_id=${selectedSkills[0]}`)
+        .then((res) => res.json())
+        .then((data) => {
+          console.log("Recommended users data:", data)
+          const recommendedData = data.users || []
+          setRecommendedUsers(recommendedData)
+
+          // Auto-assign after a short delay to ensure state is updated
+          setTimeout(() => {
+            autoAssignRaciRoles(recommendedData)
+          }, 100)
+        })
+        .catch((error) => {
+          console.error("Error fetching recommended users:", error)
+          setRecommendedUsers([])
+        })
+    } else {
+      setRecommendedUsers([])
+    }
+  }, [selectedSkills, projectId])
+
+  // Function to auto-assign RACI roles
+  const autoAssignRaciRoles = (recommendedData: RecommendedUser[]) => {
+    if (recommendedData.length === 0) return
+
+    console.log("Auto-assigning RACI roles with data:", recommendedData)
+
+    // Find the top user (highest skill level)
+    const topUser = recommendedData[0]
+
+    if (topUser && topUser.id) {
+      console.log("Assigning R role to top user:", topUser.full_name)
+
+      // Assign R role to top user
+      setRaciUsers((prev) => {
+        // Check if R role is already assigned
+        const hasR = prev.some((u) => u.role === "R")
+        if (hasR) return prev
+
+        // Update assigned_to in task
+        setNewTask((prevTask) => ({ ...prevTask, assigned_to: topUser.id }))
+
+        // Add R role
+        return [...prev.filter((u) => u.user_id !== topUser.id), { user_id: topUser.id, role: "R" }]
+      })
+
+      // Find a manager to assign as A
+      const potentialA = recommendedData.find(
+        (u) => u.position?.toLowerCase().includes("chỉ huy") || u.position?.toLowerCase().includes("quản lý"),
+      )
+
+      if (potentialA && potentialA.id) {
+        console.log("Assigning A role to manager:", potentialA.full_name)
+
+        // Assign A role to manager
+        setRaciUsers((prev) => {
+          // Check if A role is already assigned
+          const hasA = prev.some((u) => u.role === "A")
+          if (hasA) return prev
+
+          // Add A role
+          return [...prev.filter((u) => u.user_id !== potentialA.id), { user_id: potentialA.id, role: "A" }]
+        })
+      }
+    }
+  }
+
+  const handleSkillChange = (value: string) => {
+    setSelectedSkills((prev) => {
+      if (prev.includes(value)) {
+        return prev.filter((id) => id !== value)
+      }
+      return [...prev, value]
     })
+  }
+
+  const handleRaciChange = (userId: string, role: RaciRole) => {
+    console.log("Manual RACI change:", userId, role)
+
+    setRaciUsers((prev) => {
+      const existing = prev.find((u) => u.user_id === userId)
+
+      if (role === "R") {
+        if (existing?.role === "R") {
+          // If removing R, clear assigned_to
+          setNewTask((prev) => ({ ...prev, assigned_to: "" }))
+          return prev.filter((u) => u.user_id !== userId)
+        }
+        // If setting R, update assigned_to
+        setNewTask((prev) => ({ ...prev, assigned_to: userId }))
+        return [{ user_id: userId, role: "R" }, ...prev.filter((u) => u.role !== "R" && u.user_id !== userId)]
+      }
+
+      if (existing) {
+        if (existing.role === role) {
+          return prev.filter((u) => u.user_id !== userId)
+        }
+        return prev.map((u) => (u.user_id === userId ? { ...u, role } : u))
+      }
+
+      return [...prev, { user_id: userId, role }]
+    })
+  }
+
+  // Get user skills for a specific user
+  const getUserSkills = (userId: string) => {
+    return userSkills.filter((skill) => skill.user_id === userId)
+  }
+
+  // Render skill level as stars
+  const renderSkillLevel = (level: number) => {
+    return Array(5)
+      .fill(0)
+      .map((_, i) => (
+        <span key={i} className={`text-xs ${i < level ? "text-yellow-500" : "text-gray-300"}`}>
+          ★
+        </span>
+      ))
   }
 
   async function handleSubmit() {
@@ -88,25 +226,33 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
       setIsSubmitting(true)
 
       // Validate required fields
-      if (!newTask.name || !newTask.description || !newTask.status || !newTask.due_date) {
+      if (!newTask.name || !newTask.status || !newTask.start_date || !newTask.end_date || !newTask.phase_id) {
         toast.error("Vui lòng điền đầy đủ thông tin bắt buộc")
         return
       }
 
-      // Calculate task dependencies
-      const dependencies = selectedDependencies.map(depId => ({
-        task_id: newTask.id,
-        depends_on_id: depId
-      }))
+      // Validate RACI roles
+      const hasR = raciUsers.some((u) => u.role === "R")
+      const hasA = raciUsers.some((u) => u.role === "A")
 
+      if (!hasR || !hasA) {
+        toast.error("Vui lòng chọn người thực hiện (R) và người chịu trách nhiệm (A)")
+        return
+      }
+
+      // Create task
       const response = await fetch(`/api/projects/${projectId}/tasks`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...newTask,
-          dependencies
+          name: newTask.name,
+          note: newTask.note || "",
+          status: newTask.status,
+          start_date: newTask.start_date,
+          end_date: newTask.end_date,
+          phase_id: newTask.phase_id,
+          assigned_to: newTask.assigned_to || null,
+          skill_ids: selectedSkills.map((id) => Number.parseInt(id)),
         }),
       })
 
@@ -115,240 +261,238 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
         throw new Error(error.message || "Có lỗi xảy ra")
       }
 
+      const { task } = await response.json()
+
+      // Create task_raci records
+      if (raciUsers.length > 0) {
+        await Promise.all(
+          raciUsers.map((raci) =>
+            fetch(`/api/tasks/${task.id}/raci`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(raci),
+            }),
+          ),
+        )
+      }
+
       toast.success("Tạo công việc thành công")
       setIsOpen(false)
       reset()
       onCreated()
     } catch (error) {
-      console.error("Lỗi:", error)
       toast.error(error instanceof Error ? error.message : "Có lỗi xảy ra")
     } finally {
       setIsSubmitting(false)
     }
   }
 
+  function reset() {
+    setNewTask({
+      project_id: projectId,
+      name: "",
+      status: "todo",
+      start_date: "",
+      end_date: "",
+      unit_in_charge: "",
+      legal_basis: "",
+      note: "",
+      assigned_to: "",
+      phase_id: "",
+    })
+    setSelectedSkills([])
+    setRaciUsers([])
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <Button>
-          <PlusIcon className="mr-2 h-4 w-4" />
+          <PlusIcon className="h-4 w-4 mr-2" />
           Thêm công việc
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Thêm công việc mới</DialogTitle>
-          <DialogDescription>
-            Thêm một công việc mới vào dự án. Các trường có dấu <span className="text-red-500">*</span> là bắt buộc.
-          </DialogDescription>
+          <DialogDescription>Nhập thông tin công việc mới. Các trường có dấu * là bắt buộc.</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
-            <Label htmlFor="name" className="flex items-center gap-1">
-              Tên công việc <span className="text-red-500">*</span>
-            </Label>
+            <Label htmlFor="name">Tên công việc *</Label>
             <Input
               id="name"
               value={newTask.name}
               onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
               placeholder="Nhập tên công việc"
             />
-            <p className="text-sm text-muted-foreground">Tên công việc phải ngắn gọn và mô tả rõ ràng</p>
           </div>
-
           <div className="grid gap-2">
-            <Label htmlFor="description" className="flex items-center gap-1">
-              Mô tả <span className="text-red-500">*</span>
-            </Label>
-            <Textarea
-              id="description"
-              value={newTask.description || ""}
-              onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-              placeholder="Nhập mô tả chi tiết công việc"
-            />
-            <p className="text-sm text-muted-foreground">Mô tả chi tiết về công việc cần thực hiện</p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="status" className="flex items-center gap-1">
-                Trạng thái <span className="text-red-500">*</span>
-              </Label>
-              <Select
-                value={newTask.status}
-                onValueChange={(value) => setNewTask({ ...newTask, status: value as Task["status"] })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn trạng thái" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todo">Chưa bắt đầu</SelectItem>
-                  <SelectItem value="in_progress">Đang thực hiện</SelectItem>
-                  <SelectItem value="done">Hoàn thành</SelectItem>
-                  <SelectItem value="cancelled">Đã hủy</SelectItem>
-                  <SelectItem value="archived">Lưu trữ</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">Trạng thái hiện tại của công việc</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="due_date" className="flex items-center gap-1">
-                Hạn hoàn thành <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="due_date"
-                type="date"
-                value={newTask.due_date}
-                onChange={(e) => setNewTask({ ...newTask, due_date: e.target.value })}
-              />
-              <p className="text-sm text-muted-foreground">Ngày dự kiến hoàn thành công việc</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="priority" className="flex items-center gap-1">
-                Mức ưu tiên <span className="text-red-500">*</span>
-              </Label>
-              <Select
-                value={newTask.priority?.toString()}
-                onValueChange={(value) => setNewTask({ ...newTask, priority: Number.parseInt(value) })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn mức ưu tiên" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 - Cao nhất</SelectItem>
-                  <SelectItem value="2">2 - Cao</SelectItem>
-                  <SelectItem value="3">3 - Trung bình</SelectItem>
-                  <SelectItem value="4">4 - Thấp</SelectItem>
-                  <SelectItem value="5">5 - Thấp nhất</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">Mức độ ưu tiên của công việc (1 là cao nhất)</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="assigned_to">Người thực hiện</Label>
-              <Select
-                value={newTask.assigned_to || "unassigned"}
-                onValueChange={(value) => setNewTask({ ...newTask, assigned_to: value === "unassigned" ? null : value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn người thực hiện" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">Chưa giao</SelectItem>
-                  {users.map((user) => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.full_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">Người được giao thực hiện công việc</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="estimate_low">Ước tính tối thiểu (giờ)</Label>
-              <Input
-                id="estimate_low"
-                type="number"
-                min="1"
-                value={newTask.estimate_low}
-                onChange={(e) => setNewTask({ ...newTask, estimate_low: Number.parseInt(e.target.value) })}
-              />
-              <p className="text-sm text-muted-foreground">Số giờ tối thiểu cần để hoàn thành công việc</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="estimate_high">Ước tính tối đa (giờ)</Label>
-              <Input
-                id="estimate_high"
-                type="number"
-                min="1"
-                value={newTask.estimate_high}
-                onChange={(e) => setNewTask({ ...newTask, estimate_high: Number.parseInt(e.target.value) })}
-              />
-              <p className="text-sm text-muted-foreground">Số giờ tối đa cần để hoàn thành công việc</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="risk_level">Mức độ rủi ro (1-5)</Label>
-              <Select
-                value={newTask.risk_level?.toString()}
-                onValueChange={(value) => setNewTask({ ...newTask, risk_level: Number.parseInt(value) })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn mức độ" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 - Thấp nhất</SelectItem>
-                  <SelectItem value="2">2 - Thấp</SelectItem>
-                  <SelectItem value="3">3 - Trung bình</SelectItem>
-                  <SelectItem value="4">4 - Cao</SelectItem>
-                  <SelectItem value="5">5 - Cao nhất</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">Mức độ rủi ro của công việc (1 là thấp nhất)</p>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="complexity">Độ phức tạp (1-5)</Label>
-              <Select
-                value={newTask.complexity?.toString()}
-                onValueChange={(value) => setNewTask({ ...newTask, complexity: Number.parseInt(value) })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn mức độ" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1">1 - Đơn giản</SelectItem>
-                  <SelectItem value="2">2 - Dễ</SelectItem>
-                  <SelectItem value="3">3 - Trung bình</SelectItem>
-                  <SelectItem value="4">4 - Phức tạp</SelectItem>
-                  <SelectItem value="5">5 - Rất phức tạp</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-sm text-muted-foreground">Độ phức tạp của công việc (1 là đơn giản nhất)</p>
-            </div>
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="dependencies">Công việc phụ thuộc</Label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="w-full justify-start">
-                  {selectedDependencies.length > 0 
-                    ? `${selectedDependencies.length} công việc đã chọn`
-                    : "Chọn công việc phụ thuộc"}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56">
-                {tasks.map((task) => (
-                  <DropdownMenuCheckboxItem
-                    key={task.id}
-                    checked={selectedDependencies.includes(task.id)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        setSelectedDependencies([...selectedDependencies, task.id])
-                      } else {
-                        setSelectedDependencies(selectedDependencies.filter(id => id !== task.id))
-                      }
-                    }}
-                  >
-                    {task.name}
-                  </DropdownMenuCheckboxItem>
+            <Label htmlFor="phase_id">Giai đoạn dự án *</Label>
+            <Select
+              value={newTask.phase_id}
+              onValueChange={(value) => setNewTask((prev) => ({ ...prev, phase_id: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn giai đoạn" />
+              </SelectTrigger>
+              <SelectContent>
+                {phases?.map((phase) => (
+                  <SelectItem key={phase.id} value={phase.id}>
+                    {phase.name}
+                  </SelectItem>
                 ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="status">Trạng thái *</Label>
+            <Select
+              value={newTask.status}
+              onValueChange={(value) => setNewTask((prev) => ({ ...prev, status: value as TaskStatus }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn trạng thái" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todo">Chưa bắt đầu</SelectItem>
+                <SelectItem value="in_progress">Đang thực hiện</SelectItem>
+                <SelectItem value="review">Đang xem xét</SelectItem>
+                <SelectItem value="done">Hoàn thành</SelectItem>
+                <SelectItem value="on_hold">Tạm dừng</SelectItem>
+                <SelectItem value="archived">Lưu trữ</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="start_date">Ngày bắt đầu *</Label>
+            <Input
+              id="start_date"
+              type="datetime-local"
+              value={newTask.start_date || ""}
+              onChange={(e) => setNewTask((prev) => ({ ...prev, start_date: e.target.value }))}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="end_date">Ngày kết thúc *</Label>
+            <Input
+              id="end_date"
+              type="datetime-local"
+              value={newTask.end_date || ""}
+              onChange={(e) => setNewTask((prev) => ({ ...prev, end_date: e.target.value }))}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="unit_in_charge">Đơn vị thực hiện</Label>
+            <Input
+              id="unit_in_charge"
+              value={newTask.unit_in_charge || ""}
+              onChange={(e) => setNewTask((prev) => ({ ...prev, unit_in_charge: e.target.value }))}
+              placeholder="Nhập đơn vị thực hiện"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="legal_basis">Căn cứ thực hiện</Label>
+            <Input
+              id="legal_basis"
+              value={newTask.legal_basis || ""}
+              onChange={(e) => setNewTask((prev) => ({ ...prev, legal_basis: e.target.value }))}
+              placeholder="Nhập căn cứ thực hiện"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="note">Ghi chú</Label>
+            <Textarea
+              id="note"
+              value={newTask.note || ""}
+              onChange={(e) => setNewTask((prev) => ({ ...prev, note: e.target.value }))}
+              placeholder="Nhập ghi chú"
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="skills">Lĩnh vực liên quan</Label>
+            <div className="flex flex-wrap gap-2">
+              {skills?.map((skill) => (
+                <Badge
+                  key={skill.id}
+                  variant={selectedSkills.includes(skill.id.toString()) ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => handleSkillChange(skill.id.toString())}
+                >
+                  {skill.name}
+                </Badge>
+              ))}
+            </div>
+            <p className="text-sm text-muted-foreground">Chọn lĩnh vực để gợi ý người thực hiện phù hợp</p>
+          </div>
+          <div className="grid gap-2">
+            <Label>Phân công trách nhiệm (RACI) *</Label>
+            <div className="space-y-4">
+              {users?.map((user) => {
+                const userRaci = raciUsers.find((u) => u.user_id === user.id)
+                const isRecommended = recommendedUsers.some((ru) => ru.id === user.id)
+                const userSkillsData = getUserSkills(user.id)
+
+                return (
+                  <div key={user.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span>{user.full_name}</span>
+                      {isRecommended && selectedSkills.length > 0 && (
+                        <HoverCard>
+                          <HoverCardTrigger asChild>
+                            <Badge variant="secondary" className="text-xs cursor-help">
+                              Phù hợp với lĩnh vực
+                            </Badge>
+                          </HoverCardTrigger>
+                          <HoverCardContent className="w-80">
+                            <div className="space-y-2">
+                              <h4 className="font-medium">Kỹ năng của {user.full_name}</h4>
+                              {userSkillsData.length > 0 ? (
+                                <div className="grid gap-2">
+                                  {userSkillsData.map((skill) => {
+                                    const skillName =
+                                      skills.find((s) => s.id === skill.skill_id)?.name || `Kỹ năng #${skill.skill_id}`
+                                    const isSelected = selectedSkills.includes(skill.skill_id.toString())
+
+                                    return (
+                                      <div key={skill.skill_id} className="flex justify-between items-center">
+                                        <span className={isSelected ? "font-bold" : ""}>
+                                          {skillName} {isSelected && "✓"}
+                                        </span>
+                                        <div className="flex">{renderSkillLevel(skill.level)}</div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">Không có dữ liệu kỹ năng</p>
+                              )}
+                            </div>
+                          </HoverCardContent>
+                        </HoverCard>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {(["R", "A", "C", "I"] as RaciRole[]).map((role) => (
+                        <Badge
+                          key={role}
+                          variant={userRaci?.role === role ? "default" : "outline"}
+                          className="cursor-pointer"
+                          onClick={() => handleRaciChange(user.id, role)}
+                        >
+                          {role}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
             <p className="text-sm text-muted-foreground">
-              Chọn các công việc cần hoàn thành trước khi bắt đầu công việc này
+              R: Người thực hiện, A: Người chịu trách nhiệm, C: Người tư vấn, I: Người được thông báo
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <span className="text-red-500">*</span> Bắt buộc phải có R và A
             </p>
           </div>
         </div>

@@ -13,14 +13,14 @@ export async function GET(request: Request, { params }: { params: { id: string; 
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
 
-  const { taskId } = params
+  const { taskId } = await params
 
   // Lấy thông tin chi tiết nhiệm vụ
   const { data: task, error } = await supabase
     .from("tasks")
     .select(`
       *,
-      users!assigned_to:user_id (
+      users!assigned_to: (
         full_name,
         position,
         org_unit
@@ -55,7 +55,7 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
 
-  const { taskId } = params
+  const { taskId } = await params
 
   try {
     const body = await request.json()
@@ -72,14 +72,12 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
         name: body.name,
         description: body.description,
         status: body.status,
-        estimate_low: body.estimate_low,
-        estimate_high: body.estimate_high,
-        weight: body.weight,
+        min_duration_hours: body.min_duration_hours,
+        max_duration_hours: body.max_duration_hours,
+        max_retries: body.max_retries,
+        dependencies: body.dependencies,
         due_date: body.due_date,
-        risk_level: body.risk_level,
-        complexity: body.complexity,
-        max_rejections: body.max_rejections,
-        user_id: body.user_id,
+        assigned_to: body.assigned_to,
       })
       .eq("id", taskId)
       .select()
@@ -107,7 +105,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
 
-  const { taskId } = params
+  const { taskId } = await params
 
   try {
     const body = await request.json()
@@ -138,26 +136,53 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string; taskId: string } }) {
-  const supabase = await createClient()
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string; taskId: string } }
+) {
+  try {
+    const supabase = await createClient()
+    const { taskId } = params
 
-  const {
-    data: { user: authUser },
-    error: authError,
-  } = await supabase.auth.getUser()
+    // First, delete related records in task_skills
+    const { error: taskSkillsError } = await supabase
+      .from("task_skills")
+      .delete()
+      .eq("task_id", taskId)
 
-  if (authError || !authUser) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
+    if (taskSkillsError) {
+      console.error("Error deleting task_skills:", taskSkillsError)
+      return NextResponse.json({ error: taskSkillsError.message }, { status: 500 })
+    }
+
+    // Then, delete related records in task_raci
+    const { error: taskRaciError } = await supabase
+      .from("task_raci")
+      .delete()
+      .eq("task_id", taskId)
+
+    if (taskRaciError) {
+      console.error("Error deleting task_raci:", taskRaciError)
+      return NextResponse.json({ error: taskRaciError.message }, { status: 500 })
+    }
+
+    // Finally, delete the task itself
+    const { error: taskError } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", taskId)
+
+    if (taskError) {
+      console.error("Error deleting task:", taskError)
+      return NextResponse.json({ error: taskError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("Error in DELETE /api/projects/[id]/tasks/[taskId]:", error)
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
   }
-
-  const { taskId } = params
-
-  // Xóa nhiệm vụ
-  const { error: deleteError } = await supabase.from("tasks").delete().eq("id", taskId)
-
-  if (deleteError) {
-    return NextResponse.json({ error: deleteError.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ success: true })
 }
