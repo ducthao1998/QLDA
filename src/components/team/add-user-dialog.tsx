@@ -26,12 +26,11 @@ export function AddUserDialog({ onUserAdded }: { onUserAdded: () => void }) {
     phone_number: "",
     email: "",
     org_unit: "",
-    capacity_hrs: 8,
     password: "password123"
   })
 
   const positions = [
-    "Trưởng nhóm",
+    "Chỉ huy",
     "Cán bộ"
   ]
 
@@ -82,7 +81,6 @@ export function AddUserDialog({ onUserAdded }: { onUserAdded: () => void }) {
         phone_number: "",
         email: "",
         org_unit: "",
-        capacity_hrs: 8,
         password: "password123"
       })
       // Gọi callback để cập nhật danh sách
@@ -175,19 +173,6 @@ export function AddUserDialog({ onUserAdded }: { onUserAdded: () => void }) {
               onChange={(e) => setNewUser({ ...newUser, phone_number: e.target.value })}
               placeholder="0123456789"
               required
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="capacity_hrs">
-              Số giờ làm việc tối đa mỗi ngày
-            </Label>
-            <Input
-              id="capacity_hrs"
-              type="number"
-              min="1"
-              max="24"
-              value={newUser.capacity_hrs}
-              onChange={(e) => setNewUser({ ...newUser, capacity_hrs: Number.parseInt(e.target.value) })}
             />
           </div>
         </div>

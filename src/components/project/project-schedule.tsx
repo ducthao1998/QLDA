@@ -53,7 +53,6 @@ export function ProjectSchedule({ projectId }: ProjectScheduleProps) {
           team: team.users.map((user: any) => ({
             id: user.id,
             name: user.full_name,
-            capacity: user.capacity_hrs,
             skills: user.skills || []
           })),
           project: {

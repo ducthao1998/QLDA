@@ -18,7 +18,6 @@ export interface User {
   org_unit: string
   email: string
   phone_number: string | null
-  capacity_hrs: number
   created_at: string
   updated_at: string
 }
@@ -65,12 +64,6 @@ export interface Task {
 }
 
 ////////////////////////////////////////////////////
-// 5. task_dependencies
-export interface TaskDependency {
-  id: number            // serial PK
-  task_id: string       // FK → tasks.id
-  depends_on_id: string // FK → tasks.id
-}
 
 ////////////////////////////////////////////////////
 // 6. task_raci
@@ -96,7 +89,7 @@ export interface Worklog {
   task_id: string       // FK → tasks.id
   user_id: string       // FK → users.id
   spent_hours: number
-  log_date: string      // "YYYY-MM-DD"
+  log_date: Date      // "YYYY-MM-DD"
   note: string | null
 }
 
@@ -148,16 +141,6 @@ export interface UserSkill {
 }
 
 ////////////////////////////////////////////////////
-// 13. user_task_perf
-export interface UserTaskPerf {
-  id: number            // serial PK
-  user_id: string       // FK → users.id
-  task_id: string       // FK → tasks.id
-  planned_hours: number
-  actual_hours: number
-  on_time: boolean
-  qual_score: number    // 1..5
-}
 
 ////////////////////////////////////////////////////
 // 14. user_performance (VIEW)

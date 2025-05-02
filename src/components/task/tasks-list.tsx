@@ -3,7 +3,7 @@ import { useState, useEffect } from "react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MoreHorizontalIcon, CalendarIcon, ClockIcon, AlertCircleIcon, BarChartIcon, Trash2Icon, PencilIcon, EyeIcon } from "lucide-react"
+import { MoreHorizontalIcon, ClockIcon, Trash2Icon, PencilIcon, EyeIcon } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { toast } from "sonner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format } from "date-fns"
@@ -27,7 +27,17 @@ interface Task {
     name: string
   }
   description: string
-  status: "todo" | "in_progress" | "review" | "completed" | "blocked" | "archived" | "planning" | "on_hold" | "cancelled" | "done"
+  status:
+    | "todo"
+    | "in_progress"
+    | "review"
+    | "completed"
+    | "blocked"
+    | "archived"
+    | "planning"
+    | "on_hold"
+    | "cancelled"
+    | "done"
   estimate_low: number
   estimate_high: number
   weight: number
@@ -69,7 +79,7 @@ interface Project {
   name: string
 }
 
-const statusColors: Record<string, { variant: "default" | "secondary" | "destructive" | "outline", label: string }> = {
+const statusColors: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
   todo: { variant: "secondary", label: "Chưa bắt đầu" },
   in_progress: { variant: "default", label: "Đang thực hiện" },
   review: { variant: "secondary", label: "Đang xem xét" },
@@ -79,7 +89,7 @@ const statusColors: Record<string, { variant: "default" | "secondary" | "destruc
   planning: { variant: "secondary", label: "Lập kế hoạch" },
   on_hold: { variant: "destructive", label: "Tạm dừng" },
   cancelled: { variant: "destructive", label: "Đã hủy" },
-  done: { variant: "outline", label: "Hoàn thành" }
+  done: { variant: "outline", label: "Hoàn thành" },
 }
 
 export function TasksList() {
@@ -89,6 +99,7 @@ export function TasksList() {
   const [isLoading, setIsLoading] = useState(true)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([])
 
   useEffect(() => {
     loadProjects()
@@ -173,6 +184,54 @@ export function TasksList() {
     }
   }
 
+  async function bulkDeleteTasks() {
+    if (selectedTasks.length === 0) return
+
+    try {
+      // Show confirmation dialog
+      if (!window.confirm(`Bạn có chắc chắn muốn xóa ${selectedTasks.length} công việc đã chọn không?`)) {
+        return
+      }
+
+      // Delete each selected task
+      const promises = selectedTasks.map((taskId) =>
+        fetch(`/api/projects/${selectedProject}/tasks/${taskId}`, {
+          method: "DELETE",
+        }),
+      )
+
+      const results = await Promise.allSettled(promises)
+      const successCount = results.filter((result) => result.status === "fulfilled").length
+
+      if (successCount > 0) {
+        toast.success(`Đã xóa ${successCount} công việc thành công`)
+        if (successCount < selectedTasks.length) {
+          toast.error(`Không thể xóa ${selectedTasks.length - successCount} công việc`)
+        }
+        setSelectedTasks([]) // Clear selection
+        loadTasks() // Reload tasks
+      } else {
+        toast.error("Không thể xóa các công việc đã chọn")
+      }
+    } catch (err) {
+      toast.error("Lỗi", { description: "Không thể xóa các công việc đã chọn" })
+    }
+  }
+
+  function toggleSelectAll() {
+    if (selectedTasks.length === tasks.length) {
+      // If all tasks are selected, deselect all
+      setSelectedTasks([])
+    } else {
+      // Otherwise, select all tasks
+      setSelectedTasks(tasks.map((task) => task.id))
+    }
+  }
+
+  function toggleTaskSelection(taskId: string) {
+    setSelectedTasks((prev) => (prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]))
+  }
+
   function calculateProgress(task: Task): number {
     if (!task.task_progress) return 0
     const { planned_start, planned_finish, actual_start, actual_finish } = task.task_progress
@@ -192,18 +251,27 @@ export function TasksList() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <Select value={selectedProject} onValueChange={setSelectedProject}>
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Chọn dự án" />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((project) => (
-              <SelectItem key={project.id} value={project.id}>
-                {project.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={selectedProject} onValueChange={setSelectedProject}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Chọn dự án" />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {selectedTasks.length > 0 && (
+            <Button variant="destructive" size="sm" onClick={bulkDeleteTasks} className="ml-2">
+              <Trash2Icon className="h-4 w-4 mr-2" />
+              Xóa {selectedTasks.length} công việc đã chọn
+            </Button>
+          )}
+        </div>
 
         <AddTaskDialog projectId={selectedProject} onCreated={loadTasks} />
       </div>
@@ -212,6 +280,14 @@ export function TasksList() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-[40px]">
+                <input
+                  type="checkbox"
+                  checked={selectedTasks.length === tasks.length && tasks.length > 0}
+                  onChange={toggleSelectAll}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+              </TableHead>
               <TableHead>Tên công việc</TableHead>
               <TableHead>Thời gian thực hiện</TableHead>
               <TableHead>Người thực hiện</TableHead>
@@ -221,82 +297,89 @@ export function TasksList() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {Array.isArray(tasks) && tasks.map((task) => (
-              <TableRow key={task.id}>
-                <TableCell className="font-medium">{task.name}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1 text-xs">
-                    <ClockIcon className="h-3 w-3" />
-                    {task.min_duration_hours && task.max_duration_hours 
-                      ? `${task.min_duration_hours}-${task.max_duration_hours}h`
-                      : task.start_date && task.end_date
-                        ? `${format(new Date(task.start_date), "dd/MM/yyyy")} - ${format(new Date(task.end_date), "dd/MM/yyyy")}`
-                        : "Chưa có thời gian"
-                    }
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-6 w-6">
-                      <AvatarFallback>{task.users?.full_name?.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-xs">{task.users?.full_name || "Chưa gán"}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col gap-1">
-                    {task.task_raci?.map((raci) => (
-                      <div key={raci.user_id} className="flex items-center gap-1 text-xs">
-                        <span className="font-medium">{raci.role}:</span>
-                        <span>{raci.users?.full_name}</span>
-                      </div>
-                    ))}
-                    {(!task.task_raci || task.task_raci.length === 0) && (
-                      <span className="text-xs text-muted-foreground">Chưa gán RACI</span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={statusColors[task.status]?.variant || "secondary"}>
-                    {statusColors[task.status]?.label || task.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="h-8 w-8 p-0">
-                        <span className="sr-only">Mở menu</span>
-                        <MoreHorizontalIcon className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/tasks/${task.id}`}>
-                          <EyeIcon className="mr-2 h-4 w-4" />
-                          Xem chi tiết
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => {
-                        setSelectedTask(task)
-                        setIsEditDialogOpen(true)
-                      }}>
-                        <PencilIcon className="mr-2 h-4 w-4" />
-                        Chỉnh sửa
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-red-600"
-                        onClick={() => deleteTask(task.id)}
-                      >
-                        <Trash2Icon className="mr-2 h-4 w-4" />
-                        Xóa
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
+            {Array.isArray(tasks) &&
+              tasks.map((task) => (
+                <TableRow key={task.id} className={selectedTasks.includes(task.id) ? "bg-muted/50" : ""}>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      checked={selectedTasks.includes(task.id)}
+                      onChange={() => toggleTaskSelection(task.id)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium">{task.name}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1 text-xs">
+                      <ClockIcon className="h-3 w-3" />
+                      {task.min_duration_hours && task.max_duration_hours
+                        ? `${task.min_duration_hours}-${task.max_duration_hours}h`
+                        : task.start_date && task.end_date
+                          ? `${format(new Date(task.start_date), "dd/MM/yyyy")} - ${format(new Date(task.end_date), "dd/MM/yyyy")}`
+                          : "Chưa có thời gian"}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback>{task.users?.full_name?.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs">{task.users?.full_name || "Chưa gán"}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {task.task_raci?.map((raci) => (
+                        <div key={raci.user_id} className="flex items-center gap-1 text-xs">
+                          <span className="font-medium">{raci.role}:</span>
+                          <span>{raci.users?.full_name}</span>
+                        </div>
+                      ))}
+                      {(!task.task_raci || task.task_raci.length === 0) && (
+                        <span className="text-xs text-muted-foreground">Chưa gán RACI</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={statusColors[task.status]?.variant || "secondary"}>
+                      {statusColors[task.status]?.label || task.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" className="h-8 w-8 p-0">
+                          <span className="sr-only">Mở menu</span>
+                          <MoreHorizontalIcon className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
+                        <DropdownMenuItem asChild>
+                          <Link href={`/dashboard/tasks/${task.id}`}>
+                            <EyeIcon className="mr-2 h-4 w-4" />
+                            Xem chi tiết
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setSelectedTask(task)
+                            setIsEditDialogOpen(true)
+                          }}
+                        >
+                          <PencilIcon className="mr-2 h-4 w-4" />
+                          Chỉnh sửa
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-red-600" onClick={() => deleteTask(task.id)}>
+                          <Trash2Icon className="mr-2 h-4 w-4" />
+                          Xóa
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
           </TableBody>
         </Table>
       </div>

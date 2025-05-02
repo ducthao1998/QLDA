@@ -60,29 +60,42 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
   try {
     const body = await request.json()
 
-    // Validate required fields
-    if (!body.name || !body.description || !body.status || !body.due_date) {
-      return NextResponse.json({ error: "Thiếu thông tin bắt buộc" }, { status: 400 })
+    // First get the current task data
+    const { data: currentTask, error: fetchError } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("id", taskId)
+      .single()
+
+    if (fetchError) {
+      console.error("Error fetching current task:", fetchError)
+      return NextResponse.json({ error: "Không tìm thấy nhiệm vụ" }, { status: 404 })
     }
 
-    // Update task
+    // Prepare update data, only include fields that are provided and not empty
+    const updateData: Record<string, any> = {}
+    
+    // Only update fields that are provided and not empty
+    if (body.name) updateData.name = body.name
+    if (body.note !== undefined) updateData.note = body.note
+    if (body.status) updateData.status = body.status
+    if (body.start_date) updateData.start_date = body.start_date
+    if (body.end_date) updateData.end_date = body.end_date
+    if (body.phase_id) updateData.phase_id = body.phase_id
+    if (body.assigned_to !== undefined) updateData.assigned_to = body.assigned_to
+    if (body.unit_in_charge !== undefined) updateData.unit_in_charge = body.unit_in_charge
+    if (body.legal_basis !== undefined) updateData.legal_basis = body.legal_basis
+    if (body.max_retries !== undefined) updateData.max_retries = body.max_retries
+
+    // Update task with only changed fields
     const { data, error } = await supabase
       .from("tasks")
-      .update({
-        name: body.name,
-        description: body.description,
-        status: body.status,
-        min_duration_hours: body.min_duration_hours,
-        max_duration_hours: body.max_duration_hours,
-        max_retries: body.max_retries,
-        dependencies: body.dependencies,
-        due_date: body.due_date,
-        assigned_to: body.assigned_to,
-      })
+      .update(updateData)
       .eq("id", taskId)
       .select()
 
     if (error) {
+      console.error("Error updating task:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
