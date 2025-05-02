@@ -22,7 +22,6 @@ interface TeamMember {
   position: string
   org_unit: string
   email: string
-  capacity_hrs: number
 }
 
 export function TeamList() {
@@ -108,7 +107,6 @@ export function TeamList() {
               <TableHead>Chức Vụ</TableHead>
               <TableHead>Đơn Vị</TableHead>
               <TableHead>Email</TableHead>
-              <TableHead>Số giờ làm việc</TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -127,9 +125,7 @@ export function TeamList() {
                 <TableCell>{member.position}</TableCell>
                 <TableCell>{member.org_unit}</TableCell>
                 <TableCell>{member.email}</TableCell>
-                <TableCell>
-                  <Badge>{member.capacity_hrs}</Badge>
-                </TableCell>
+              
                 <TableCell>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>

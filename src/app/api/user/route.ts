@@ -16,7 +16,7 @@ export async function GET() {
   // Lấy danh sách người dùng
   const { data: users, error } = await supabase
     .from("users")
-    .select("id, full_name, position, org_unit, capacity_hrs")
+    .select("id, full_name, position, org_unit")
     .order("full_name", { ascending: true })
 
   if (error) {

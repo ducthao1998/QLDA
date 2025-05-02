@@ -36,7 +36,6 @@ export async function GET(request: Request, { params }: { params: { id: string }
           full_name,
           position,
           org_unit,
-          capacity_hrs,
           email
         )
       `)

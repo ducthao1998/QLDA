@@ -1,7 +1,7 @@
 import type React from "react"
 import { notFound } from "next/navigation"
 import { headers } from "next/headers"
-import { format } from "date-fns"
+import { format, formatDuration } from "date-fns"
 import { vi } from "date-fns/locale"
 import {
   ClockIcon,
@@ -36,7 +36,7 @@ import { calculateRiskPrediction } from "@/algorithm/risk-prediction"
 import { calculateTaskWeight } from "@/algorithm/task-weight"
 import { calculateEstimatedTime } from "@/algorithm/estimated-time"
 import { createClient } from "@/lib/supabase/server"
-import { RaciRole, Skill, TaskDependency } from "@/app/types/table-types"
+import { RaciRole, Skill } from "@/app/types/table-types"
 
 type Params = { id: string }
 
@@ -159,8 +159,8 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
     })
 
     const estimatedTime = calculateEstimatedTime({
-      min_duration_hours: minDurationHours,
-      max_duration_hours: maxDurationHours,
+      start_date: processedTask.start_date,
+      end_date: processedTask.end_date,
       max_retries: processedTask.max_retries,
       dependencies: processedTask.dependencies,
     })
@@ -356,30 +356,7 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                       </div>
                     </div>
 
-                    {/* Dependencies */}
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                        <LinkIcon className="h-4 w-4 mr-2" />
-                        Phụ thuộc
-                      </h3>
-                      <div>
-                        {processedTask.dependencies && processedTask.dependencies.length > 0 ? (
-                          <div className="space-y-1">
-                            {processedTask.dependencies.map((dep: TaskDependency, index: number) => (
-                              <Link
-                                key={index}
-                                href={`/dashboard/tasks/${typeof dep === "string" ? dep : dep.task_id || dep.depends_on_id}`}
-                                className="block text-sm text-blue-500 hover:underline"
-                              >
-                                Công việc #{typeof dep === "string" ? dep : dep.task_id || dep.depends_on_id}
-                              </Link>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">Không có phụ thuộc</span>
-                        )}
-                      </div>
-                    </div>
+                  
                   </div>
                 </CardContent>
               </Card>
@@ -397,8 +374,8 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                     <h3 className="font-medium text-sm text-muted-foreground">Thời gian ước tính:</h3>
                     <div className="flex items-center justify-center bg-muted/50 py-4 rounded-md">
                       <span className="text-2xl font-bold">
-                        {minDurationHours} - {maxDurationHours}
-                        <span className="text-base font-normal ml-1">giờ</span>
+                      {formatDuration(processedTask.min_duration_hours || 0)} -{" "}
+                      {formatDuration(processedTask.max_duration_hours || 0)}
                       </span>
                     </div>
                   </div>
@@ -406,7 +383,13 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                   <div className="space-y-2">
                     <h3 className="font-medium text-sm text-muted-foreground">Thời gian ước tính thực tế:</h3>
                     <div className="flex items-center justify-between">
-                      <span className="text-xl font-semibold">{estimatedTime.estimatedTime.toFixed(1)} giờ</span>
+                    <span className="text-xl font-semibold">
+                        {estimatedTime.displayTime} {estimatedTime.timeUnit === "hour" && "giờ"}
+                        {estimatedTime.timeUnit === "day" && "ngày"}
+                        {estimatedTime.timeUnit === "week" && "tuần"}
+                        {estimatedTime.timeUnit === "month" && "tháng"}
+                        {estimatedTime.timeUnit === "year" && "năm"}
+                      </span>
                       <Badge variant="outline" className="ml-2">
                         Độ tin cậy: {(estimatedTime.confidence * 100).toFixed(0)}%
                       </Badge>

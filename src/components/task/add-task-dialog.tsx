@@ -10,14 +10,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Button } from "../ui/button"
+import { Button } from "@/components/ui/button"
 import { PlusIcon } from "lucide-react"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select"
-import { Label } from "../ui/label"
-import { Textarea } from "../ui/textarea"
-import { Input } from "../ui/input"
-import { Badge } from "../ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
+import { Separator } from "@/components/ui/separator"
 import type { Task, TaskStatus, User, ProjectPhase, Skill, RaciRole } from "@/app/types/table-types"
 
 interface RecommendedUser {
@@ -53,7 +54,7 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
   const [selectedSkills, setSelectedSkills] = useState<string[]>([])
   const [raciUsers, setRaciUsers] = useState<TaskRaciInput[]>([])
   const [userSkills, setUserSkills] = useState<UserSkill[]>([])
-  const [loadingUserSkills, setLoadingUserSkills] = useState(false)
+  const [maxRetries, setMaxRetries] = useState<number>(0)
   const [newTask, setNewTask] = useState<Partial<Task>>({
     project_id: projectId,
     name: "",
@@ -253,6 +254,7 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           phase_id: newTask.phase_id,
           assigned_to: newTask.assigned_to || null,
           skill_ids: selectedSkills.map((id) => Number.parseInt(id)),
+          max_retries: maxRetries,
         }),
       })
 
@@ -275,6 +277,18 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           ),
         )
       }
+
+      // Create initial task history record
+      await fetch(`/api/tasks/${task.id}/history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_id: task.id,
+          action: "task_created",
+          from_val: null,
+          to_val: newTask.status,
+        }),
+      })
 
       toast.success("Tạo công việc thành công")
       setIsOpen(false)
@@ -302,6 +316,7 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
     })
     setSelectedSkills([])
     setRaciUsers([])
+    setMaxRetries(0)
   }
 
   return (
@@ -317,7 +332,9 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           <DialogTitle>Thêm công việc mới</DialogTitle>
           <DialogDescription>Nhập thông tin công việc mới. Các trường có dấu * là bắt buộc.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
+
+        <div className="space-y-4 py-4">
+          {/* Thông tin cơ bản */}
           <div className="grid gap-2">
             <Label htmlFor="name">Tên công việc *</Label>
             <Input
@@ -357,30 +374,41 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
               <SelectContent>
                 <SelectItem value="todo">Chưa bắt đầu</SelectItem>
                 <SelectItem value="in_progress">Đang thực hiện</SelectItem>
-                <SelectItem value="review">Đang xem xét</SelectItem>
                 <SelectItem value="done">Hoàn thành</SelectItem>
-                <SelectItem value="on_hold">Tạm dừng</SelectItem>
-                <SelectItem value="archived">Lưu trữ</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="start_date">Ngày bắt đầu *</Label>
-            <Input
-              id="start_date"
-              type="datetime-local"
-              value={newTask.start_date || ""}
-              onChange={(e) => setNewTask((prev) => ({ ...prev, start_date: e.target.value }))}
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="start_date">Ngày bắt đầu *</Label>
+              <Input
+                id="start_date"
+                type="datetime-local"
+                value={newTask.start_date || ""}
+                onChange={(e) => setNewTask((prev) => ({ ...prev, start_date: e.target.value }))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="end_date">Ngày kết thúc *</Label>
+              <Input
+                id="end_date"
+                type="datetime-local"
+                value={newTask.end_date || ""}
+                onChange={(e) => setNewTask((prev) => ({ ...prev, end_date: e.target.value }))}
+              />
+            </div>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="end_date">Ngày kết thúc *</Label>
+            <Label htmlFor="max_retries">Số lần cho phép trình sai</Label>
             <Input
-              id="end_date"
-              type="datetime-local"
-              value={newTask.end_date || ""}
-              onChange={(e) => setNewTask((prev) => ({ ...prev, end_date: e.target.value }))}
+              id="max_retries"
+              type="number"
+              min="0"
+              value={maxRetries}
+              onChange={(e) => setMaxRetries(Number(e.target.value))}
+              placeholder="0"
             />
+            <p className="text-xs text-muted-foreground">Số lần tối đa được phép trình lại khi không đạt yêu cầu</p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="unit_in_charge">Đơn vị thực hiện</Label>
@@ -425,6 +453,10 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
             </div>
             <p className="text-sm text-muted-foreground">Chọn lĩnh vực để gợi ý người thực hiện phù hợp</p>
           </div>
+
+          <Separator className="my-4" />
+
+          {/* Phân công RACI */}
           <div className="grid gap-2">
             <Label>Phân công trách nhiệm (RACI) *</Label>
             <div className="space-y-4">
@@ -437,6 +469,9 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
                   <div key={user.id} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span>{user.full_name}</span>
+                      <Badge variant="outline" className="text-xs">
+                        {user.position}
+                      </Badge>
                       {isRecommended && selectedSkills.length > 0 && (
                         <HoverCard>
                           <HoverCardTrigger asChild>
@@ -472,6 +507,7 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
                         </HoverCard>
                       )}
                     </div>
+
                     <div className="flex gap-2">
                       {(["R", "A", "C", "I"] as RaciRole[]).map((role) => (
                         <Badge
@@ -496,6 +532,7 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
             </p>
           </div>
         </div>
+
         <DialogFooter>
           <Button variant="outline" onClick={() => setIsOpen(false)}>
             Hủy

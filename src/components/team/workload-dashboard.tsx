@@ -56,7 +56,6 @@ export function WorkloadDashboard() {
   const chartData = workloads.map((workload) => ({
     name: workload.user.full_name.split(" ").pop() || workload.user.full_name,
     "Số giờ đã phân công": workload.totalHours,
-    "Công suất tối đa": workload.user.capacity_hrs * (timeframe === "week" ? 5 : timeframe === "month" ? 22 : 66),
   }))
 
   if (isLoading) {
@@ -117,12 +116,7 @@ export function WorkloadDashboard() {
                   <span>Tổng số giờ đã phân công:</span>
                   <span>{workload.totalHours} giờ</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span>Công suất tối đa:</span>
-                  <span>
-                    {workload.user.capacity_hrs * (timeframe === "week" ? 5 : timeframe === "month" ? 22 : 66)} giờ
-                  </span>
-                </div>
+               
               </div>
             </CardContent>
           </Card>

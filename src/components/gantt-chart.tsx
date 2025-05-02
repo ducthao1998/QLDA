@@ -3,99 +3,54 @@
 import { useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ChevronLeftIcon, ChevronRightIcon, ZoomInIcon, ZoomOutIcon } from "lucide-react"
+import { ChevronLeftIcon, ChevronRightIcon, ZoomInIcon, ZoomOutIcon, RefreshCwIcon } from "lucide-react"
+import { toast } from "sonner"
 
-export function GanttChart() {
-  const canvasRef = useRef(null)
+interface GanttChartProps {
+  projectId: string
+  onOptimize?: (optimizedData: any) => void
+}
+
+export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   const [zoom, setZoom] = useState(1)
   const [scrollPosition, setScrollPosition] = useState(0)
+  const [projectData, setProjectData] = useState<any>(null)
+  const [optimizedData, setOptimizedData] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [showOptimized, setShowOptimized] = useState(false)
 
-  // Dữ liệu dự án mẫu
-  const project = {
-    name: "Dự Án Xây Dựng Đường Cao Tốc",
-    startDate: new Date(2025, 0, 15), // 15/01/2025
-    endDate: new Date(2025, 11, 30), // 30/12/2025
-    tasks: [
-      {
-        id: 1,
-        name: "Lập Kế Hoạch Dự Án",
-        startDate: new Date(2025, 0, 15),
-        endDate: new Date(2025, 1, 28),
-        progress: 100,
-        dependencies: [],
-        color: "#4338ca",
-      },
-      {
-        id: 2,
-        name: "Đánh Giá Môi Trường",
-        startDate: new Date(2025, 1, 1),
-        endDate: new Date(2025, 3, 30),
-        progress: 80,
-        dependencies: [1],
-        color: "#0891b2",
-      },
-      {
-        id: 3,
-        name: "Thu Hồi Đất",
-        startDate: new Date(2025, 2, 15),
-        endDate: new Date(2025, 5, 30),
-        progress: 60,
-        dependencies: [1],
-        color: "#0d9488",
-      },
-      {
-        id: 4,
-        name: "Giai Đoạn Thiết Kế",
-        startDate: new Date(2025, 3, 1),
-        endDate: new Date(2025, 5, 30),
-        progress: 70,
-        dependencies: [2],
-        color: "#0284c7",
-      },
-      {
-        id: 5,
-        name: "Mua Sắm",
-        startDate: new Date(2025, 5, 1),
-        endDate: new Date(2025, 6, 31),
-        progress: 40,
-        dependencies: [3, 4],
-        color: "#7c3aed",
-      },
-      {
-        id: 6,
-        name: "Xây Dựng Giai Đoạn 1",
-        startDate: new Date(2025, 7, 1),
-        endDate: new Date(2025, 9, 31),
-        progress: 20,
-        dependencies: [5],
-        color: "#e11d48",
-      },
-      {
-        id: 7,
-        name: "Xây Dựng Giai Đoạn 2",
-        startDate: new Date(2025, 9, 1),
-        endDate: new Date(2025, 11, 15),
-        progress: 0,
-        dependencies: [6],
-        color: "#ea580c",
-      },
-      {
-        id: 8,
-        name: "Kiểm Tra Cuối Cùng",
-        startDate: new Date(2025, 11, 15),
-        endDate: new Date(2025, 11, 30),
-        progress: 0,
-        dependencies: [7],
-        color: "#4f46e5",
-      },
-    ],
-  }
+  // Tải dữ liệu dự án
+  useEffect(() => {
+    if (!projectId) return
 
+    async function fetchProjectData() {
+      try {
+        setIsLoading(true)
+        const response = await fetch(`/api/projects/${projectId}/gantt`)
+        if (!response.ok) throw new Error("Không thể tải dữ liệu dự án")
+
+        const data = await response.json()
+        setProjectData(data)
+      } catch (error) {
+        console.error("Error fetching project data:", error)
+        toast.error("Lỗi khi tải dữ liệu dự án")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchProjectData()
+  }, [projectId])
+
+  // Vẽ biểu đồ Gantt
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || !projectData) return
 
     const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
     const dpr = window.devicePixelRatio || 1
 
     // Thiết lập kích thước canvas
@@ -113,8 +68,14 @@ export function GanttChart() {
     const rowHeight = 40
     const headerHeight = 60
 
+    // Lấy dữ liệu hiển thị (gốc hoặc đã tối ưu)
+    const displayData = showOptimized && optimizedData ? optimizedData : projectData
+    const { project, tasks, phases } = displayData
+
     // Tính toán phạm vi ngày
-    const projectDuration = (project.endDate - project.startDate) / (1000 * 60 * 60 * 24)
+    const startDate = new Date(project.start_date)
+    const endDate = new Date(project.end_date)
+    const projectDuration = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
     const dayWidth = (chartWidth / projectDuration) * zoom
 
     // Vẽ tiêu đề
@@ -130,7 +91,7 @@ export function GanttChart() {
     ctx.lineWidth = 1
 
     // Vẽ đường lưới ngang
-    for (let i = 0; i <= project.tasks.length; i++) {
+    for (let i = 0; i <= tasks.length; i++) {
       const y = headerHeight + i * rowHeight
       ctx.beginPath()
       ctx.moveTo(0, y)
@@ -140,11 +101,11 @@ export function GanttChart() {
 
     // Vẽ đường lưới dọc và nhãn tháng
     const months = ["Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12"]
-    const currentDate = new Date(project.startDate)
+    const currentDate = new Date(startDate)
     currentDate.setDate(1) // Bắt đầu từ đầu tháng
 
-    while (currentDate <= project.endDate) {
-      const days = (currentDate - project.startDate) / (1000 * 60 * 60 * 24)
+    while (currentDate <= endDate) {
+      const days = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
       const x = chartStartX + days * dayWidth - scrollPosition
 
       if (x >= chartStartX && x <= chartStartX + chartWidth) {
@@ -170,33 +131,44 @@ export function GanttChart() {
     ctx.font = "12px Inter, sans-serif"
     ctx.textAlign = "left"
 
-    project.tasks.forEach((task, index) => {
+    tasks.forEach((task: any, index: number) => {
       const y = headerHeight + index * rowHeight + rowHeight / 2 + 4
       ctx.fillText(task.name, 10, y)
     })
 
     // Vẽ thanh nhiệm vụ
-    project.tasks.forEach((task, index) => {
-      const taskStartDays = (task.startDate - project.startDate) / (1000 * 60 * 60 * 24)
-      const taskDuration = (task.endDate - task.startDate) / (1000 * 60 * 60 * 24)
+    tasks.forEach((task: any, index: number) => {
+      // Xác định ngày bắt đầu và kết thúc (gốc hoặc đã tối ưu)
+      const taskStartDate = new Date(showOptimized && task.optimized_start ? task.optimized_start : task.start_date)
+      const taskEndDate = new Date(showOptimized && task.optimized_end ? task.optimized_end : task.end_date)
+
+      const taskStartDays = (taskStartDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+      const taskDuration = (taskEndDate.getTime() - taskStartDate.getTime()) / (1000 * 60 * 60 * 24)
 
       const x = chartStartX + taskStartDays * dayWidth - scrollPosition
       const y = headerHeight + index * rowHeight + 10
       const width = taskDuration * dayWidth
       const height = rowHeight - 20
 
+      // Xác định màu sắc dựa trên giai đoạn hoặc trạng thái
+      const phaseIndex = phases.findIndex((phase: any) => phase.id === task.phase_id)
+      const colors = ["#4338ca", "#0891b2", "#0d9488", "#0284c7", "#7c3aed", "#e11d48", "#ea580c", "#4f46e5"]
+      const color = colors[phaseIndex % colors.length] || "#64748b"
+
       // Chỉ vẽ nếu nhìn thấy được
       if (x + width >= chartStartX && x <= chartStartX + chartWidth) {
         // Vẽ nền thanh nhiệm vụ
-        ctx.fillStyle = task.color + "40" // Thêm độ trong suốt
+        ctx.fillStyle = color + "40" // Thêm độ trong suốt
         ctx.fillRect(x, y, width, height)
 
-        // Vẽ tiến độ
-        ctx.fillStyle = task.color
-        ctx.fillRect(x, y, width * (task.progress / 100), height)
+        // Vẽ tiến độ nếu có
+        if (task.progress !== undefined) {
+          ctx.fillStyle = color
+          ctx.fillRect(x, y, width * (task.progress / 100), height)
+        }
 
         // Vẽ viền thanh nhiệm vụ
-        ctx.strokeStyle = task.color
+        ctx.strokeStyle = color
         ctx.lineWidth = 1
         ctx.strokeRect(x, y, width, height)
 
@@ -205,7 +177,7 @@ export function GanttChart() {
           ctx.fillStyle = "#ffffff"
           ctx.font = "10px Inter, sans-serif"
           ctx.textAlign = "left"
-          ctx.fillText(`${task.progress}%`, x + 5, y + height / 2 + 3)
+          ctx.fillText(task.name, x + 5, y + height / 2 + 3)
         }
       }
     })
@@ -214,18 +186,23 @@ export function GanttChart() {
     ctx.strokeStyle = "#94a3b8"
     ctx.lineWidth = 1
 
-    project.tasks.forEach((task) => {
-      if (task.dependencies.length > 0) {
-        const taskStartDays = (task.startDate - project.startDate) / (1000 * 60 * 60 * 24)
+    tasks.forEach((task: any, taskIndex: number) => {
+      if (task.dependencies && task.dependencies.length > 0) {
+        const taskStartDate = new Date(showOptimized && task.optimized_start ? task.optimized_start : task.start_date)
+        const taskStartDays = (taskStartDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
         const taskStartX = chartStartX + taskStartDays * dayWidth - scrollPosition
-        const taskStartY = headerHeight + project.tasks.findIndex((t) => t.id === task.id) * rowHeight + rowHeight / 2
+        const taskStartY = headerHeight + taskIndex * rowHeight + rowHeight / 2
 
-        task.dependencies.forEach((depId) => {
-          const depTask = project.tasks.find((t) => t.id === depId)
-          if (depTask) {
-            const depEndDays = (depTask.endDate - project.startDate) / (1000 * 60 * 60 * 24)
+        task.dependencies.forEach((depId: string) => {
+          const depTaskIndex = tasks.findIndex((t: any) => t.id === depId)
+          if (depTaskIndex !== -1) {
+            const depTask = tasks[depTaskIndex]
+            const depEndDate = new Date(
+              showOptimized && depTask.optimized_end ? depTask.optimized_end : depTask.end_date,
+            )
+            const depEndDays = (depEndDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
             const depEndX = chartStartX + depEndDays * dayWidth - scrollPosition
-            const depEndY = headerHeight + project.tasks.findIndex((t) => t.id === depId) * rowHeight + rowHeight / 2
+            const depEndY = headerHeight + depTaskIndex * rowHeight + rowHeight / 2
 
             // Vẽ mũi tên từ điểm kết thúc phụ thuộc đến điểm bắt đầu nhiệm vụ
             ctx.beginPath()
@@ -251,7 +228,38 @@ export function GanttChart() {
         })
       }
     })
-  }, [zoom, scrollPosition])
+
+    // Vẽ đường găng nếu có dữ liệu tối ưu
+    if (showOptimized && optimizedData && optimizedData.criticalPath) {
+      const criticalPath = optimizedData.criticalPath
+
+      // Vẽ đường găng
+      ctx.strokeStyle = "#ef4444"
+      ctx.lineWidth = 2
+
+      criticalPath.forEach((taskId: string) => {
+        const taskIndex = tasks.findIndex((t: any) => t.id === taskId)
+        if (taskIndex !== -1) {
+          const task = tasks[taskIndex]
+          const taskStartDate = new Date(task.optimized_start || task.start_date)
+          const taskEndDate = new Date(task.optimized_end || task.end_date)
+
+          const taskStartDays = (taskStartDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+          const taskDuration = (taskEndDate.getTime() - taskStartDate.getTime()) / (1000 * 60 * 60 * 24)
+
+          const x = chartStartX + taskStartDays * dayWidth - scrollPosition
+          const y = headerHeight + taskIndex * rowHeight + rowHeight / 2
+          const width = taskDuration * dayWidth
+
+          // Vẽ đường dưới thanh công việc
+          ctx.beginPath()
+          ctx.moveTo(x, y + 10)
+          ctx.lineTo(x + width, y + 10)
+          ctx.stroke()
+        }
+      })
+    }
+  }, [projectData, optimizedData, zoom, scrollPosition, showOptimized])
 
   const handleZoomIn = () => {
     setZoom((prev) => Math.min(prev * 1.2, 3))
@@ -266,32 +274,120 @@ export function GanttChart() {
   }
 
   const handleScrollRight = () => {
+    if (!projectData) return
+
     // Tính toán cuộn tối đa dựa trên thời gian dự án và zoom
-    const projectDuration = (project.endDate - project.startDate) / (1000 * 60 * 60 * 24)
+    const { project } = projectData
+    const startDate = new Date(project.start_date)
+    const endDate = new Date(project.end_date)
+    const projectDuration = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
     const maxScroll = projectDuration * 10 * zoom - 500 // Tính toán gần đúng
     setScrollPosition((prev) => Math.min(prev + 100, maxScroll))
+  }
+
+  const handleOptimize = async () => {
+    if (!projectId) return
+
+    try {
+      setIsLoading(true)
+      const response = await fetch(`/api/projects/${projectId}/optimize`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          algorithm: "genetic", // Có thể thay đổi thành "cpm" hoặc "resource-leveling"
+          objective: "multi", // Có thể thay đổi thành "time", "resource", hoặc "balance"
+        }),
+      })
+
+      if (!response.ok) throw new Error("Không thể tối ưu hóa lịch trình")
+
+      const data = await response.json()
+      setOptimizedData(data.schedule)
+      setShowOptimized(true)
+
+      // Gọi callback nếu có
+      if (onOptimize) {
+        onOptimize(data.schedule)
+      }
+
+      toast.success("Đã tối ưu hóa lịch trình thành công")
+    } catch (error) {
+      console.error("Error optimizing schedule:", error)
+      toast.error("Lỗi khi tối ưu hóa lịch trình")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const toggleOptimizedView = () => {
+    setShowOptimized((prev) => !prev)
   }
 
   return (
     <Card>
       <CardContent className="p-4">
-        <div className="flex justify-end gap-2 mb-4">
-          <Button variant="outline" size="icon" onClick={handleZoomOut}>
-            <ZoomOutIcon className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" onClick={handleZoomIn}>
-            <ZoomInIcon className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" onClick={handleScrollLeft}>
-            <ChevronLeftIcon className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" size="icon" onClick={handleScrollRight}>
-            <ChevronRightIcon className="h-4 w-4" />
-          </Button>
+        <div className="flex justify-between gap-2 mb-4">
+          <div>
+            {optimizedData && (
+              <Button variant={showOptimized ? "default" : "outline"} onClick={toggleOptimizedView} className="mr-2">
+                {showOptimized ? "Xem lịch gốc" : "Xem lịch tối ưu"}
+              </Button>
+            )}
+            <Button variant="outline" onClick={handleOptimize} disabled={isLoading || !projectData}>
+              {isLoading ? (
+                <>
+                  <RefreshCwIcon className="h-4 w-4 mr-2 animate-spin" />
+                  Đang tối ưu...
+                </>
+              ) : (
+                "Tối ưu lịch trình"
+              )}
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={handleZoomOut}>
+              <ZoomOutIcon className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleZoomIn}>
+              <ZoomInIcon className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleScrollLeft}>
+              <ChevronLeftIcon className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleScrollRight}>
+              <ChevronRightIcon className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
         <div className="w-full h-[500px] overflow-hidden">
-          <canvas ref={canvasRef} className="w-full h-full" style={{ width: "100%", height: "100%" }} />
+          {isLoading && !projectData ? (
+            <div className="flex items-center justify-center h-full">
+              <RefreshCwIcon className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <canvas ref={canvasRef} className="w-full h-full" style={{ width: "100%", height: "100%" }} />
+          )}
         </div>
+        {showOptimized && optimizedData && (
+          <div className="mt-4 text-sm">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="border rounded-md p-3">
+                <div className="font-medium mb-1">Thời gian hoàn thành</div>
+                <div className="text-lg">{optimizedData.makespan} giờ</div>
+              </div>
+              <div className="border rounded-md p-3">
+                <div className="font-medium mb-1">Tỷ lệ sử dụng tài nguyên</div>
+                <div className="text-lg">{Math.round(optimizedData.resourceUtilization * 100)}%</div>
+              </div>
+              <div className="border rounded-md p-3">
+                <div className="font-medium mb-1">Cân bằng khối lượng</div>
+                <div className="text-lg">{Math.round(optimizedData.workloadBalance * 100)}%</div>
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

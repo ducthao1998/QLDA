@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     // Lấy danh sách người dùng
     const { data: users, error: usersError } = await supabase
       .from("users")
-      .select("id, full_name, position, org_unit, capacity_hrs")
+      .select("id, full_name, position, org_unit")
       .order("full_name", { ascending: true })
 
     if (usersError) {
@@ -81,24 +81,13 @@ export async function GET(request: Request) {
         return sum + estimatedHours
       }, 0)
 
-      // Tính công suất tối đa dựa trên khoảng thời gian
-      let maxCapacity = 0
-      if (period === "week") {
-        maxCapacity = user.capacity_hrs * 5 // 5 ngày làm việc trong tuần
-      } else if (period === "month") {
-        maxCapacity = user.capacity_hrs * 22 // ~22 ngày làm việc trong tháng
-      } else if (period === "quarter") {
-        maxCapacity = user.capacity_hrs * 66 // ~66 ngày làm việc trong quý
-      }
+   
 
-      const utilizationPercent = Math.round((totalHours / maxCapacity) * 100)
 
       return {
         user,
         activeTasks: userTasks.length,
         totalHours,
-        utilizationPercent,
-        overloaded: utilizationPercent > 100,
         tasks: userTasks,
       }
     })

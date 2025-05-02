@@ -46,5 +46,12 @@ export interface TaskWeightResult {
 // Estimated time calculation result type
 export interface EstimatedTimeResult {
   estimatedTime: number
+  displayTime: number
+  timeUnit: "hour" | "day" | "week" | "month" | "year"
   confidence: number
+  details: {
+    weeks: number
+    days: number
+    hours: number
+  }
 }
