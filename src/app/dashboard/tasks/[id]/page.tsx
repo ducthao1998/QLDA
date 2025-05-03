@@ -75,6 +75,12 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
       ),
       phases:phase_id (
         name
+      ),
+      task_skills (
+        skill:skills (
+          id,
+          name
+        )
       )
     `)
       .eq("id", id)
@@ -127,8 +133,7 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
       min_duration_hours: task.min_duration_hours || 0,
       max_duration_hours: task.max_duration_hours || 0,
       max_retries: task.max_retries || 0,
-      dependencies: task.dependencies || [],
-      skills: task.skills || [],
+      skills: task.task_skills?.map((ts: any) => ts.skill) || [],
       task_raci: task.task_raci || [],
     }
 

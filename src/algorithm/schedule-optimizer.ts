@@ -55,7 +55,5 @@ export function optimizeSchedule({
     tasks: optimizedSchedule.tasks,
     criticalPath: optimizedSchedule.criticalPath,
     makespan: optimizedSchedule.makespan,
-    resourceUtilization: optimizedSchedule.resourceUtilization,
-    workloadBalance: optimizedSchedule.workloadBalance,
   }
 }
