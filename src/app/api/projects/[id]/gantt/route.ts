@@ -3,10 +3,9 @@ import { NextResponse } from "next/server"
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
+  const projectId = params.id
 
   try {
-    const { id: projectId } = params
-
     // Lấy thông tin dự án
     const { data: project, error: projectError } = await supabase
       .from("projects")
@@ -45,19 +44,6 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
     if (tasksError) {
       throw tasksError
-    }
-
-    // Lấy danh sách phụ thuộc giữa các công việc
-    const { data: dependencies, error: dependenciesError } = await supabase
-      .from("task_dependencies")
-      .select("task_id, depends_on_id")
-      .in(
-        "task_id",
-        tasks.map((task) => task.id),
-      )
-
-    if (dependenciesError) {
-      throw dependenciesError
     }
 
     // Lấy danh sách giai đoạn của dự án
@@ -107,26 +93,12 @@ export async function GET(request: Request, { params }: { params: { id: string }
       throw raciError
     }
 
-    // Xử lý dữ liệu để thêm thông tin phụ thuộc và kỹ năng vào công việc
-    const tasksWithDependencies = tasks.map((task) => {
-      const taskDependencies = dependencies.filter((dep) => dep.task_id === task.id).map((dep) => dep.depends_on_id)
-
-      const skills = taskSkills.filter((skill) => skill.task_id === task.id).map((skill) => skill.skills)
-
-      const raci = raciData.filter((r) => r.task_id === task.id)
-
-      return {
-        ...task,
-        dependencies: taskDependencies,
-        skills,
-        raci,
-      }
-    })
-
     return NextResponse.json({
       project,
-      tasks: tasksWithDependencies,
       phases,
+      tasks,
+      taskSkills,
+      raciData
     })
   } catch (error) {
     console.error("Error fetching gantt data:", error)

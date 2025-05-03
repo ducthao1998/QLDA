@@ -151,9 +151,9 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       const height = rowHeight - 20
 
       // Xác định màu sắc dựa trên giai đoạn hoặc trạng thái
-      const phaseIndex = phases.findIndex((phase: any) => phase.id === task.phase_id)
+      const phaseIndex = phases?.findIndex((phase: any) => phase.id === task.phase_id) ?? -1
       const colors = ["#4338ca", "#0891b2", "#0d9488", "#0284c7", "#7c3aed", "#e11d48", "#ea580c", "#4f46e5"]
-      const color = colors[phaseIndex % colors.length] || "#64748b"
+      const color = phaseIndex >= 0 ? colors[phaseIndex % colors.length] : "#64748b"
 
       // Chỉ vẽ nếu nhìn thấy được
       if (x + width >= chartStartX && x <= chartStartX + chartWidth) {
@@ -181,84 +181,6 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
         }
       }
     })
-
-    // Vẽ các phụ thuộc
-    ctx.strokeStyle = "#94a3b8"
-    ctx.lineWidth = 1
-
-    tasks.forEach((task: any, taskIndex: number) => {
-      if (task.dependencies && task.dependencies.length > 0) {
-        const taskStartDate = new Date(showOptimized && task.optimized_start ? task.optimized_start : task.start_date)
-        const taskStartDays = (taskStartDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-        const taskStartX = chartStartX + taskStartDays * dayWidth - scrollPosition
-        const taskStartY = headerHeight + taskIndex * rowHeight + rowHeight / 2
-
-        task.dependencies.forEach((depId: string) => {
-          const depTaskIndex = tasks.findIndex((t: any) => t.id === depId)
-          if (depTaskIndex !== -1) {
-            const depTask = tasks[depTaskIndex]
-            const depEndDate = new Date(
-              showOptimized && depTask.optimized_end ? depTask.optimized_end : depTask.end_date,
-            )
-            const depEndDays = (depEndDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-            const depEndX = chartStartX + depEndDays * dayWidth - scrollPosition
-            const depEndY = headerHeight + depTaskIndex * rowHeight + rowHeight / 2
-
-            // Vẽ mũi tên từ điểm kết thúc phụ thuộc đến điểm bắt đầu nhiệm vụ
-            ctx.beginPath()
-            ctx.moveTo(depEndX, depEndY)
-
-            // Tạo đường dẫn với góc vuông
-            const midX = (depEndX + taskStartX) / 2
-            ctx.lineTo(midX, depEndY)
-            ctx.lineTo(midX, taskStartY)
-            ctx.lineTo(taskStartX, taskStartY)
-
-            ctx.stroke()
-
-            // Vẽ đầu mũi tên
-            ctx.beginPath()
-            ctx.moveTo(taskStartX, taskStartY)
-            ctx.lineTo(taskStartX - 5, taskStartY - 3)
-            ctx.lineTo(taskStartX - 5, taskStartY + 3)
-            ctx.closePath()
-            ctx.fillStyle = "#94a3b8"
-            ctx.fill()
-          }
-        })
-      }
-    })
-
-    // Vẽ đường găng nếu có dữ liệu tối ưu
-    if (showOptimized && optimizedData && optimizedData.criticalPath) {
-      const criticalPath = optimizedData.criticalPath
-
-      // Vẽ đường găng
-      ctx.strokeStyle = "#ef4444"
-      ctx.lineWidth = 2
-
-      criticalPath.forEach((taskId: string) => {
-        const taskIndex = tasks.findIndex((t: any) => t.id === taskId)
-        if (taskIndex !== -1) {
-          const task = tasks[taskIndex]
-          const taskStartDate = new Date(task.optimized_start || task.start_date)
-          const taskEndDate = new Date(task.optimized_end || task.end_date)
-
-          const taskStartDays = (taskStartDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-          const taskDuration = (taskEndDate.getTime() - taskStartDate.getTime()) / (1000 * 60 * 60 * 24)
-
-          const x = chartStartX + taskStartDays * dayWidth - scrollPosition
-          const y = headerHeight + taskIndex * rowHeight + rowHeight / 2
-          const width = taskDuration * dayWidth
-
-          // Vẽ đường dưới thanh công việc
-          ctx.beginPath()
-          ctx.moveTo(x, y + 10)
-          ctx.lineTo(x + width, y + 10)
-          ctx.stroke()
-        }
-      })
-    }
   }, [projectData, optimizedData, zoom, scrollPosition, showOptimized])
 
   const handleZoomIn = () => {

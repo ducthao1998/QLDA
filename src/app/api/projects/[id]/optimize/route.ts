@@ -1,17 +1,19 @@
-import { optimizeSchedule } from "@/algorithm/schedule-optimizer";
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { optimizeSchedule } from "@/algorithm/schedule-optimizer"
+import type { Task } from "@/algorithm/critical-path"
 
-interface OptimizedTask {
-  id: string | number;
-  optimized_start?: string;
-  optimized_end?: string;
-  assigned_to?: string;
+interface TaskSkill {
+  task_id: string;
+  skill: {
+    id: string;
+    name: string;
+  };
 }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id: projectId } = params
+  const projectId = params.id
   const body = await request.json()
   const { algorithm = "cpm", objective = "time" } = body
 
@@ -26,7 +28,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if (projectError) {
       throw projectError
     }
-
+      
     // Lấy danh sách công việc của dự án
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
@@ -38,9 +40,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         end_date, 
         phase_id,
         assigned_to,
-        max_retries,
-        min_duration_hours,
-        max_duration_hours
+        max_retries
       `)
       .eq("project_id", projectId)
 
@@ -48,36 +48,33 @@ export async function POST(request: Request, { params }: { params: { id: string 
       throw tasksError
     }
 
-    // Lấy danh sách phụ thuộc giữa các công việc
-    const { data: dependencies, error: dependenciesError } = await supabase
-      .from("task_dependencies")
-      .select("task_id, depends_on_id")
-      .in(
-        "task_id",
-        tasks.map((task) => task.id),
-      )
-
-    if (dependenciesError) {
-      throw dependenciesError
-    }
-
     // Lấy danh sách kỹ năng của các công việc
     const { data: taskSkills, error: taskSkillsError } = await supabase
       .from("task_skills")
-      .select("task_id, skill_id")
+      .select(`
+        task_id,
+        skill:skills (
+          id,
+          name
+        )
+      `)
       .in(
         "task_id",
         tasks.map((task) => task.id),
-      )
+      ) as { data: TaskSkill[] | null, error: any }
 
     if (taskSkillsError) {
       throw taskSkillsError
     }
 
+    if (!taskSkills) {
+      throw new Error("Không thể lấy thông tin kỹ năng của công việc")
+    }
+
     // Lấy danh sách người dùng và kỹ năng của họ
     const { data: users, error: usersError } = await supabase
       .from("users")
-      .select("id, full_name, position, capacity_hrs")
+      .select("id, full_name, position")
 
     if (usersError) {
       throw usersError
@@ -91,22 +88,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
       throw userSkillsError
     }
 
-    // Lấy hiệu suất người dùng
-    const { data: userPerformance, error: perfError } = await supabase.from("user_performance").select("id, perf_score")
-
-    if (perfError) {
-      throw perfError
-    }
-
     // Chuẩn bị dữ liệu đầu vào cho thuật toán tối ưu hóa
     const tasksWithDependencies = tasks.map((task) => {
-      const taskDependencies = dependencies.filter((dep) => dep.task_id === task.id).map((dep) => dep.depends_on_id)
-
-      const skills = taskSkills.filter((skill) => skill.task_id === task.id).map((skill) => skill.skill_id)
+      const skills = taskSkills
+        .filter((skill) => skill.task_id === task.id)
+        .map((skill) => ({
+          id: skill.skill.id,
+          name: skill.skill.name
+        }))
 
       return {
         ...task,
-        dependencies: taskDependencies,
+        dependencies: [], // Không còn dependencies nữa
         skills,
       }
     })
@@ -116,11 +109,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
       project,
       tasks: tasksWithDependencies,
       users: users.map((user) => {
-        const userPerf = userPerformance.find((perf) => perf.id === user.id)
         const skills = userSkills.filter((skill) => skill.user_id === user.id)
         return {
           ...user,
-          perf_score: userPerf?.perf_score || 0.5,
           skills,
         }
       }),
@@ -145,7 +136,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     // Lưu chi tiết lịch trình
-    const scheduleDetails = optimizedSchedule.tasks.map((task: OptimizedTask) => ({
+    const scheduleDetails = optimizedSchedule.tasks.map((task: Task) => ({
       run_id: scheduleRun.id,
       task_id: task.id,
       start_ts: task.optimized_start,

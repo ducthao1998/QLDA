@@ -4,62 +4,93 @@ import { NextResponse } from "next/server"
 export async function GET() {
   const supabase = await createClient()
 
-  const {
-    data: { user: authUser },
-    error: authError,
-  } = await supabase.auth.getUser()
+  try {
+    const { data: skills, error } = await supabase
+      .from("skills")
+      .select("*")
+      .order("name")
 
-  if (authError || !authUser) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
+    if (error) {
+      throw error
+    }
+
+    return NextResponse.json({ skills })
+  } catch (error) {
+    console.error("Error fetching skills:", error)
+    return NextResponse.json({ error: "Không thể lấy danh sách lĩnh vực" }, { status: 500 })
   }
-
-  // Lấy danh sách kỹ năng
-  const { data: skills, error } = await supabase.from("skills").select("id, name").order("name", { ascending: true })
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  return NextResponse.json({ skills })
 }
 
 export async function POST(request: Request) {
   const supabase = await createClient()
+  const body = await request.json()
+  const { name } = body
 
-  const {
-    data: { user: authUser },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !authUser) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
+  if (!name?.trim()) {
+    return NextResponse.json({ error: "Tên lĩnh vực không được để trống" }, { status: 400 })
   }
 
   try {
-    const body = await request.json()
+    const { data: skill, error } = await supabase
+      .from("skills")
+      .insert({ name: name.trim() })
+      .select()
+      .single()
 
-    // Validate required fields
-    if (!body.name) {
-      return NextResponse.json({ error: "Tên kỹ năng không được để trống" }, { status: 400 })
+    if (error) {
+      throw error
     }
 
-    // Kiểm tra xem kỹ năng đã tồn tại chưa
-    const { data: existingSkill } = await supabase.from("skills").select("id").eq("name", body.name).maybeSingle()
-
-    if (existingSkill) {
-      return NextResponse.json({ error: "Kỹ năng này đã tồn tại trong hệ thống" }, { status: 400 })
-    }
-
-    // Tạo kỹ năng mới
-    const { data: skill, error: skillError } = await supabase.from("skills").insert({ name: body.name }).select()
-
-    if (skillError) {
-      return NextResponse.json({ error: skillError.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ skill: skill[0] })
+    return NextResponse.json({ skill })
   } catch (error) {
     console.error("Error creating skill:", error)
-    return NextResponse.json({ error: "Lỗi khi tạo kỹ năng" }, { status: 500 })
+    return NextResponse.json({ error: "Không thể thêm lĩnh vực mới" }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: Request) {
+  const supabase = await createClient()
+  const body = await request.json()
+  const { skillIds } = body
+
+  if (!Array.isArray(skillIds) || skillIds.length === 0) {
+    return NextResponse.json({ error: "Vui lòng chọn ít nhất một lĩnh vực để xóa" }, { status: 400 })
+  }
+
+  try {
+    // Xóa các task_skills liên quan trước
+    const { error: taskSkillsError } = await supabase
+      .from("task_skills")
+      .delete()
+      .in("skill_id", skillIds)
+
+    if (taskSkillsError) {
+      throw taskSkillsError
+    }
+
+    // Xóa các user_skills liên quan
+    const { error: userSkillsError } = await supabase
+      .from("user_skills")
+      .delete()
+      .in("skill_id", skillIds)
+
+    if (userSkillsError) {
+      throw userSkillsError
+    }
+
+    // Xóa các skills
+    const { error: skillsError } = await supabase
+      .from("skills")
+      .delete()
+      .in("id", skillIds)
+
+    if (skillsError) {
+      throw skillsError
+    }
+
+    return NextResponse.json({ message: "Đã xóa lĩnh vực thành công" })
+  } catch (error) {
+    console.error("Error deleting skills:", error)
+    return NextResponse.json({ error: "Không thể xóa lĩnh vực" }, { status: 500 })
   }
 }
