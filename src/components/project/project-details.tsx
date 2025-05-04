@@ -17,6 +17,7 @@ import {
   ClipboardListIcon,
   PlusIcon,
 } from "lucide-react"
+import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -59,6 +60,10 @@ interface ProjectDetailsProps {
   projectId: string
   initialProject?: Project
   initialPhases?: ProjectPhase[]
+  userPermissions: {
+    canEdit: boolean
+    canDelete: boolean
+  }
 }
 
 const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; color: string; icon: React.ReactNode }> = {
@@ -116,15 +121,15 @@ const priorityColorMap: Record<number, string> = {
   5: "bg-gray-100 text-gray-800",
 }
 
-export function ProjectDetails({ projectId, initialProject, initialPhases }: ProjectDetailsProps) {
+export function ProjectDetails({ projectId, initialProject, initialPhases, userPermissions }: ProjectDetailsProps) {
   return (
     <Suspense fallback={<LoadingSpinner />}>
-      <ProjectDetailsContent projectId={projectId} initialProject={initialProject} initialPhases={initialPhases} />
+      <ProjectDetailsContent projectId={projectId} initialProject={initialProject} initialPhases={initialPhases} userPermissions={userPermissions} />
     </Suspense>
   )
 }
 
-function ProjectDetailsContent({ projectId, initialProject, initialPhases }: ProjectDetailsProps) {
+function ProjectDetailsContent({ projectId, initialProject, initialPhases, userPermissions }: ProjectDetailsProps) {
   const router = useRouter()
   const [project, setProject] = useState<Project | null>(initialProject || null)
   const [phases, setPhases] = useState<ProjectPhase[]>(initialPhases || [])
@@ -246,131 +251,136 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases }: Pro
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
-          <div className="flex items-center gap-2 mt-2">
-            <Badge className={status.color}>
-              <span className="flex items-center gap-1">
-                {status.icon}
-                {status.label}
-              </span>
-            </Badge>
-          </div>
+          <h1 className="text-3xl font-bold tracking-tight">{initialProject?.name}</h1>
+          <p className="text-muted-foreground mt-2">{initialProject?.description}</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.push(`/dashboard/projects/${project.id}/edit`)}>
-            <FileEditIcon className="mr-2 h-4 w-4" />
-            Chỉnh sửa
+        {userPermissions.canEdit && (
+          <Button asChild>
+            <Link href={`/dashboard/projects/${projectId}/edit`}>
+              <FileEditIcon className="mr-2 h-4 w-4" />
+              Chỉnh sửa dự án
+            </Link>
           </Button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive">Xóa dự án</Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Bạn có chắc chắn muốn xóa?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Hành động này không thể hoàn tác. Dự án này sẽ bị xóa vĩnh viễn khỏi hệ thống.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Hủy</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">
-                  {isDeleting ? "Đang xóa..." : "Xóa dự án"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Thời gian</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col space-y-2">
-              <div className="flex items-center">
-                <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                <span className="text-sm">
-                  Bắt đầu: {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })}
-                </span>
-              </div>
-              <div className="flex items-center">
-                <ClockIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                <span className="text-sm">
-                  Kết thúc: {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
-                </span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Người tạo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center">
-              <UsersIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-              <span className="text-sm">{project.users?.full_name || "Không xác định"}</span>
-            </div>
-            <div className="text-xs text-muted-foreground mt-1">
-              {project.users?.position && project.users?.org_unit
-                ? `${project.users.position}, ${project.users.org_unit}`
-                : ""}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Mô tả dự án</CardTitle>
-          <CardDescription>Chi tiết phạm vi và mục tiêu</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="prose prose-sm max-w-none">
-            <p>{project.description}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="phases">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="phases">Các giai đoạn</TabsTrigger>
-          <TabsTrigger value="tasks">Nhiệm vụ</TabsTrigger>
-          <TabsTrigger value="raci">Ma trận RACI</TabsTrigger>
-          <TabsTrigger value="gantt">Biểu đồ Gantt</TabsTrigger>
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="overview">Tổng quan</TabsTrigger>
+          <TabsTrigger value="phases">Giai đoạn</TabsTrigger>
+          <TabsTrigger value="tasks">Công việc</TabsTrigger>
+          {userPermissions.canEdit && (
+            <TabsTrigger value="team">Đội ngũ</TabsTrigger>
+          )}
         </TabsList>
 
-        <TabsContent value="phases" className="mt-6">
-        <ProjectPhases projectId={project.id} phases={phases} onRefresh={fetchPhases} />
-        </TabsContent>
+        <TabsContent value="overview" className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+              <div className="flex items-center gap-2 mt-2">
+                <Badge className={status.color}>
+                  <span className="flex items-center gap-1">
+                    {status.icon}
+                    {status.label}
+                  </span>
+                </Badge>
+              </div>
+            </div>
+            {userPermissions.canDelete && (
+              <div className="flex gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive">Xóa dự án</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Bạn có chắc chắn muốn xóa?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Hành động này không thể hoàn tác. Dự án này sẽ bị xóa vĩnh viễn khỏi hệ thống.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Hủy</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">
+                        {isDeleting ? "Đang xóa..." : "Xóa dự án"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            )}
+          </div>
 
-        <TabsContent value="tasks" className="mt-6">
-          <ProjectTasks projectId={project.id} />
-        </TabsContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Thời gian</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col space-y-2">
+                  <div className="flex items-center">
+                    <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span className="text-sm">
+                      Bắt đầu: {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })}
+                    </span>
+                  </div>
+                  <div className="flex items-center">
+                    <ClockIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span className="text-sm">
+                      Kết thúc: {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        <TabsContent value="raci" className="mt-6">
-          <ProjectRaci projectId={project.id} />
-        </TabsContent>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Người tạo</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center">
+                  <UsersIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span className="text-sm">{project.users?.full_name || "Không xác định"}</span>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {project.users?.position && project.users?.org_unit
+                    ? `${project.users.position}, ${project.users.org_unit}`
+                    : ""}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        <TabsContent value="gantt" className="mt-6">
           <Card>
             <CardHeader>
-              <CardTitle>Biểu đồ Gantt</CardTitle>
-              <CardDescription>Lịch trình và tiến độ dự án theo thời gian</CardDescription>
+              <CardTitle>Mô tả dự án</CardTitle>
+              <CardDescription>Chi tiết phạm vi và mục tiêu</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="h-96 flex items-center justify-center border rounded-md bg-muted/20">
-                <p className="text-muted-foreground">Tính năng biểu đồ Gantt đang được phát triển</p>
+              <div className="prose prose-sm max-w-none">
+                <p>{project.description}</p>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="phases">
+          <ProjectPhases projectId={project.id} phases={phases} onRefresh={fetchPhases} userPermissions={userPermissions} />
+        </TabsContent>
+
+        <TabsContent value="tasks">
+          <ProjectTasks projectId={project.id} />
+        </TabsContent>
+
+        {userPermissions.canEdit && (
+          <TabsContent value="team">
+            <ProjectRaci projectId={project.id} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

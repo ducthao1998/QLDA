@@ -30,6 +30,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { LoadingSpinner } from "@/components/ui/loading"
+import Link from "next/link"
+import { ClockIcon } from "lucide-react"
 
 const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   planning: { label: "Lập kế hoạch", variant: "secondary" },
@@ -53,6 +55,15 @@ function ProjectsListContent() {
   const [loading, setLoading] = useState(true)
   const [projectToDelete, setProjectToDelete] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [userPermissions, setUserPermissions] = useState<{
+    canCreate: boolean
+    canEdit: boolean
+    canDelete: boolean
+  }>({
+    canCreate: false,
+    canEdit: false,
+    canDelete: false
+  })
 
   useEffect(() => {
     fetchProjects()
@@ -69,6 +80,7 @@ function ProjectsListContent() {
 
       const data = await response.json()
       setProjects(data.projects || [])
+      setUserPermissions(data.userPermissions)
     } catch (error) {
       console.error("Lỗi khi tải dự án:", error)
       toast.error("Lỗi",{
@@ -168,57 +180,70 @@ function ProjectsListContent() {
             {projects.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
-                  Chưa có dự án nào. Hãy tạo dự án mới.
+                  Chưa có dự án nào. {userPermissions.canCreate && "Hãy tạo dự án mới."}
                 </TableCell>
               </TableRow>
             ) : (
               projects.map((project) => {
                 const status = statusMap[project.status] || { label: project.status, variant: "secondary" }
-
                 return (
                   <TableRow key={project.id}>
-                    <TableCell className="font-medium">{project.id.substring(0, 8)}</TableCell>
-                    <TableCell>{project.name}</TableCell>
+                    <TableCell>{project.id}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/dashboard/projects/${project.id}`} className="font-medium hover:underline">
+                          {project.name}
+                        </Link>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <Badge variant={status.variant}>{status.label}</Badge>
                     </TableCell>
-                  
-                    <TableCell className="text-xs">
-                      {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })} -{" "}
-                      {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">
+                          {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })} -{" "}
+                          {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontalIcon className="h-4 w-4" />
+                          <Button variant="ghost" className="h-8 w-8 p-0">
                             <span className="sr-only">Mở menu</span>
+                            <MoreHorizontalIcon className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Hành động</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => router.push(`/dashboard/projects/${project.id}`)}>
-                            <EyeIcon className="h-4 w-4 mr-2" />
-                            Xem chi tiết
+                          <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/projects/${project.id}`}>
+                              <EyeIcon className="mr-2 h-4 w-4" />
+                              Xem chi tiết
+                            </Link>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => router.push(`/dashboard/projects/${project.id}/edit`)}>
-                            <FileEditIcon className="h-4 w-4 mr-2" />
-                            Chỉnh sửa dự án
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => router.push(`/dashboard/projects/${project.id}?tab=tasks`)}>
-                            <ListTodoIcon className="h-4 w-4 mr-2" />
-                            Xem nhiệm vụ
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => router.push(`/dashboard/projects/${project.id}?tab=raci`)}>
-                            <UsersIcon className="h-4 w-4 mr-2" />
-                            Ma trận RACI
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600" onClick={() => setProjectToDelete(project.id)}>
-                            <TrashIcon className="h-4 w-4 mr-2" />
-                            Xóa dự án
-                          </DropdownMenuItem>
+                          {userPermissions.canEdit && (
+                            <DropdownMenuItem asChild>
+                              <Link href={`/dashboard/projects/${project.id}/edit`}>
+                                <FileEditIcon className="mr-2 h-4 w-4" />
+                                Chỉnh sửa
+                              </Link>
+                            </DropdownMenuItem>
+                          )}
+                          {userPermissions.canDelete && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600"
+                                onClick={() => setProjectToDelete(project.id)}
+                              >
+                                <TrashIcon className="mr-2 h-4 w-4" />
+                                Xóa
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>

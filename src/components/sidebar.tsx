@@ -1,8 +1,10 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { createClient } from "@/lib/supabase/client"
 
 import {
   Sidebar as ShadSidebar,
@@ -166,38 +168,59 @@ export function Sidebar(
   props: React.ComponentProps<typeof ShadSidebar>
 ) {
   const pathname = usePathname()
+  const [isManager, setIsManager] = useState(false)
+  const supabase = createClient()
+
+  useEffect(() => {
+    const checkUserRole = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('position')
+          .eq('id', user.id)
+          .single()
+        
+        setIsManager(userData?.position === 'quản lý')
+      }
+    }
+
+    checkUserRole()
+  }, [])
 
   return (
     <ShadSidebar collapsible="icon" variant="floating" {...props}>
       {/* header */}
       <SidebarHeader className="flex items-center gap-2 px-4 py-3">
-    {/* ② logo nhỏ hiển thị luôn */}
-    <ShadLogo className="h-5 w-5 shrink-0 text-slate-900 dark:text-slate-100" />
-
-    {/* ③ tiêu đề ẩn khi ở chế độ rail */}
-    <span className="text-base font-semibold sidebar:hidden">
-      HTQL Dự Án
-    </span>
-  </SidebarHeader>
+        <ShadLogo className="h-5 w-5 shrink-0 text-slate-900 dark:text-slate-100" />
+        <span className="text-base font-semibold sidebar:hidden">
+          HTQL Dự Án
+        </span>
+      </SidebarHeader>
       <Separator />
       {/* menu */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {navItems.map(({ title, href, icon: Icon }) => (
-              <SidebarMenuItem key={href}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === href}
-                  tooltip={title}
-                >
-                  <Link href={href}>
-                    <Icon className="h-5 w-5" />
-                    <span>{title}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {navItems.map(({ title, href, icon: Icon }) => {
+              if (href === "/dashboard/team" && !isManager) {
+                return null
+              }
+              return (
+                <SidebarMenuItem key={href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname === href}
+                    tooltip={title}
+                  >
+                    <Link href={href}>
+                      <Icon className="h-5 w-5" />
+                      <span>{title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
