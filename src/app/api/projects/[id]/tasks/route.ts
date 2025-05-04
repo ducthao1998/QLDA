@@ -27,6 +27,37 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    // Get current user's org_unit
+    const { data: currentUser, error: userError } = await supabase
+      .from("users")
+      .select("org_unit")
+      .eq("id", user.id)
+      .single()
+
+    if (userError || !currentUser) {
+      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+    }
+
+    // Check if project belongs to user's org_unit
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select(`
+        *,
+        users!created_by (
+          org_unit
+        )
+      `)
+      .eq("id", projectId)
+      .single()
+
+    if (projectError || !project) {
+      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
+    }
+
+    if (project.users.org_unit !== currentUser.org_unit) {
+      return NextResponse.json({ error: "Bạn không có quyền truy cập dự án này" }, { status: 403 })
+    }
+
     const { data: tasks, error: tasksError } = await supabase
       .from("tasks")
       .select(`
@@ -73,55 +104,198 @@ export async function POST(
     const supabase = await createClient()
     const { id: projectId } = await params
 
-    const body = await request.json()
-    const { skill_ids, ...taskData } = body
-    
-    // Validate dates if provided
-    if (taskData.start_date && taskData.end_date) {
-      const startDate = new Date(taskData.start_date)
-      const endDate = new Date(taskData.end_date)
-      if (endDate < startDate) {
-        return NextResponse.json({ error: "Ngày kết thúc phải sau ngày bắt đầu" }, { status: 400 })
-      }
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Tạo task mới
-    const { data: task, error: taskError } = await supabase
+    // Get current user's org_unit
+    const { data: currentUser, error: userError } = await supabase
+      .from("users")
+      .select("org_unit")
+      .eq("id", user.id)
+      .single()
+
+    if (userError || !currentUser) {
+      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+    }
+
+    // Check if project belongs to user's org_unit
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select(`
+        *,
+        users!created_by (
+          org_unit
+        )
+      `)
+      .eq("id", projectId)
+      .single()
+
+    if (projectError || !project) {
+      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
+    }
+
+    if (project.users.org_unit !== currentUser.org_unit) {
+      return NextResponse.json({ error: "Bạn không có quyền tạo công việc cho dự án này" }, { status: 403 })
+    }
+
+    const body = await request.json()
+    const { data: task, error } = await supabase
       .from("tasks")
       .insert({
-        ...taskData,
-        project_id: projectId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        ...body,
+        project_id: projectId
       })
       .select()
       .single()
 
-    if (taskError) {
-      console.error("Error creating task:", taskError)
-      return NextResponse.json({ error: taskError.message }, { status: 500 })
-    }
-
-    // Nếu có skill_ids, tạo các record trong task_skills
-    if (skill_ids && skill_ids.length > 0) {
-      const taskSkills = skill_ids.map((skill_id: number) => ({
-        task_id: task.id,
-        skill_id: skill_id
-      }))
-
-      const { error: taskSkillError } = await supabase
-        .from("task_skills")
-        .insert(taskSkills)
-
-      if (taskSkillError) {
-        console.error("Error creating task_skills:", taskSkillError)
-        return NextResponse.json({ error: taskSkillError.message }, { status: 500 })
-      }
+    if (error) {
+      console.error("Error creating task:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     return NextResponse.json({ task })
   } catch (error) {
     console.error("Error in POST /api/projects/[id]/tasks:", error)
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
+
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await createClient()
+    const { id: projectId } = await params
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Get current user's org_unit
+    const { data: currentUser, error: userError } = await supabase
+      .from("users")
+      .select("org_unit")
+      .eq("id", user.id)
+      .single()
+
+    if (userError || !currentUser) {
+      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+    }
+
+    // Check if project belongs to user's org_unit
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select(`
+        *,
+        users!created_by (
+          org_unit
+        )
+      `)
+      .eq("id", projectId)
+      .single()
+
+    if (projectError || !project) {
+      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
+    }
+
+    if (project.users.org_unit !== currentUser.org_unit) {
+      return NextResponse.json({ error: "Bạn không có quyền chỉnh sửa công việc của dự án này" }, { status: 403 })
+    }
+
+    const body = await request.json()
+    const { data: task, error } = await supabase
+      .from("tasks")
+      .update(body)
+      .eq("id", body.id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error("Error updating task:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ task })
+  } catch (error) {
+    console.error("Error in PUT /api/projects/[id]/tasks:", error)
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = await createClient()
+    const { id: projectId } = await params
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // Get current user's org_unit
+    const { data: currentUser, error: userError } = await supabase
+      .from("users")
+      .select("org_unit")
+      .eq("id", user.id)
+      .single()
+
+    if (userError || !currentUser) {
+      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+    }
+
+    // Check if project belongs to user's org_unit
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select(`
+        *,
+        users!created_by (
+          org_unit
+        )
+      `)
+      .eq("id", projectId)
+      .single()
+
+    if (projectError || !project) {
+      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
+    }
+
+    if (project.users.org_unit !== currentUser.org_unit) {
+      return NextResponse.json({ error: "Bạn không có quyền xóa công việc của dự án này" }, { status: 403 })
+    }
+
+    const url = new URL(request.url)
+    const taskId = url.searchParams.get('taskId')
+
+    if (!taskId) {
+      return NextResponse.json({ error: 'Task ID is required' }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", taskId)
+
+    if (error) {
+      console.error("Error deleting task:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("Error in DELETE /api/projects/[id]/tasks:", error)
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 }

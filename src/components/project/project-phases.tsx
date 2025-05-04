@@ -50,7 +50,11 @@ interface ProjectPhase {
 interface ProjectPhasesProps {
   projectId: string
   phases: ProjectPhase[]
-  onRefresh: () => void
+  onRefresh: () => Promise<void>
+  userPermissions: {
+    canEdit: boolean
+    canDelete: boolean
+  }
 }
 
 interface PhaseProgress {
@@ -68,7 +72,7 @@ const statusLabels: Record<string, string> = {
   cancelled: "Đã hủy",
 }
 
-export function ProjectPhases({ projectId, phases, onRefresh }: ProjectPhasesProps) {
+export function ProjectPhases({ projectId, phases, onRefresh, userPermissions }: ProjectPhasesProps) {
   const router = useRouter()
   const [isAddingPhase, setIsAddingPhase] = useState(false)
   const [isEditingPhase, setIsEditingPhase] = useState(false)
@@ -212,53 +216,55 @@ export function ProjectPhases({ projectId, phases, onRefresh }: ProjectPhasesPro
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Các giai đoạn dự án</h2>
-        <Dialog open={isAddingPhase} onOpenChange={setIsAddingPhase}>
-          <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              <PlusIcon className="mr-2 h-4 w-4" />
-              Thêm giai đoạn
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Thêm giai đoạn mới</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Tên giai đoạn</Label>
-                <Input
-                  id="name"
-                  value={newPhase.name}
-                  onChange={(e) => setNewPhase({ ...newPhase, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Mô tả</Label>
-                <Textarea
-                  id="description"
-                  value={newPhase.description}
-                  onChange={(e) => setNewPhase({ ...newPhase, description: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="order">Thứ tự</Label>
-                <Input
-                  id="order"
-                  type="number"
-                  min="1"
-                  value={newPhase.order_no}
-                  onChange={(e) => setNewPhase({ ...newPhase, order_no: Number.parseInt(e.target.value) })}
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setIsAddingPhase(false)}>
-                Hủy
+        {userPermissions.canEdit && (
+          <Dialog open={isAddingPhase} onOpenChange={setIsAddingPhase}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <PlusIcon className="mr-2 h-4 w-4" />
+                Thêm giai đoạn
               </Button>
-              <Button onClick={handleAddPhase}>Thêm</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Thêm giai đoạn mới</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Tên giai đoạn</Label>
+                  <Input
+                    id="name"
+                    value={newPhase.name}
+                    onChange={(e) => setNewPhase({ ...newPhase, name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">Mô tả</Label>
+                  <Textarea
+                    id="description"
+                    value={newPhase.description}
+                    onChange={(e) => setNewPhase({ ...newPhase, description: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="order">Thứ tự</Label>
+                  <Input
+                    id="order"
+                    type="number"
+                    min="1"
+                    value={newPhase.order_no}
+                    onChange={(e) => setNewPhase({ ...newPhase, order_no: Number.parseInt(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsAddingPhase(false)}>
+                  Hủy
+                </Button>
+                <Button onClick={handleAddPhase}>Thêm</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {phases.length === 0 ? (
@@ -266,10 +272,12 @@ export function ProjectPhases({ projectId, phases, onRefresh }: ProjectPhasesPro
           <div className="text-center space-y-3">
             <h3 className="text-lg font-medium">Chưa có giai đoạn nào</h3>
             <p className="text-sm text-muted-foreground">Thêm giai đoạn đầu tiên để bắt đầu quản lý dự án</p>
-            <Button variant="outline" onClick={() => setIsAddingPhase(true)}>
-              <PlusIcon className="mr-2 h-4 w-4" />
-              Thêm giai đoạn
-            </Button>
+            {userPermissions.canEdit && (
+              <Button variant="outline" onClick={() => setIsAddingPhase(true)}>
+                <PlusIcon className="mr-2 h-4 w-4" />
+                Thêm giai đoạn
+              </Button>
+            )}
           </div>
         </div>
       ) : (
@@ -343,30 +351,34 @@ export function ProjectPhases({ projectId, phases, onRefresh }: ProjectPhasesPro
                           <ExternalLink className="h-4 w-4 mr-2" />
                           Chi tiết
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleEditClick(phase)}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Chỉnh sửa
-                        </DropdownMenuItem>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Xóa
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Xóa giai đoạn</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Bạn có chắc chắn muốn xóa giai đoạn này? Hành động này không thể hoàn tác.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Hủy</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleDeletePhase(phase.id)}>Xóa</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                        {userPermissions.canEdit && (
+                          <DropdownMenuItem onClick={() => handleEditClick(phase)}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Chỉnh sửa
+                          </DropdownMenuItem>
+                        )}
+                        {userPermissions.canDelete && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Xóa
+                              </DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Xóa giai đoạn</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Bạn có chắc chắn muốn xóa giai đoạn này? Hành động này không thể hoàn tác.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Hủy</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeletePhase(phase.id)}>Xóa</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

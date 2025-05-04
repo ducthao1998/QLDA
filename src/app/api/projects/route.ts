@@ -13,6 +13,17 @@ export async function GET() {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
 
+  // Get current user's org_unit and position
+  const { data: currentUser, error: userError } = await supabase
+    .from("users")
+    .select("org_unit, position")
+    .eq("id", authUser.id)
+    .single()
+
+  if (userError || !currentUser) {
+    return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+  }
+
   // Lấy danh sách dự án
   const { data: projects, error } = await supabase
     .from("projects")
@@ -25,16 +36,26 @@ export async function GET() {
       status,
       created_by,
       users!created_by (
-        full_name
+        full_name,
+        org_unit,
+        position
       )
     `)
+    .eq("users.org_unit", currentUser.org_unit)
     .order("end_date", { ascending: true })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ projects })
+  return NextResponse.json({ 
+    projects,
+    userPermissions: {
+      canCreate: currentUser.position === "quản lý",
+      canEdit: currentUser.position === "quản lý",
+      canDelete: currentUser.position === "quản lý"
+    }
+  })
 }
 
 export async function POST(request: Request) {
@@ -47,6 +68,21 @@ export async function POST(request: Request) {
 
   if (authError || !authUser) {
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
+  }
+
+  // Check if user has permission to create projects
+  const { data: currentUser, error: userError } = await supabase
+    .from("users")
+    .select("position")
+    .eq("id", authUser.id)
+    .single()
+
+  if (userError || !currentUser) {
+    return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+  }
+
+  if (currentUser.position !== "quản lý") {
+    return NextResponse.json({ error: "Bạn không có quyền tạo dự án" }, { status: 403 })
   }
 
   try {
