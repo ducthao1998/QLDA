@@ -76,6 +76,12 @@ export async function GET(
           users (
             full_name
           )
+        ),
+        task_skills!inner (
+          skills (
+            id,
+            name
+          )
         )
       `)
       .eq("project_id", projectId)
