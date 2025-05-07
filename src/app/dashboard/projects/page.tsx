@@ -19,7 +19,7 @@ export default async function ProjectsPage() {
     .eq("id", authUser.id)
     .single()
 
-  const isManager = currentUser?.position === "quản lý"
+  const isManager = currentUser?.position?.toLowerCase() === "quản lý"
 
   return (
     <div className="space-y-6">

@@ -1,16 +1,20 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Task, TaskStatus } from "@/app/types/table-types"
+import type { Task, TaskStatus } from "@/app/types/table-types"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
-import { Calendar, Clock, User } from "lucide-react"
+import { Calendar, Tag, User } from "lucide-react"
 import Link from "next/link"
 
 interface TaskCardProps {
   task: Task & {
-    min_duration_hours?: number
-    max_duration_hours?: number
+    task_skills?: {
+      skills: {
+        id: number
+        name: string
+      }
+    }[]
     users?: {
       full_name: string
       position?: string
@@ -34,12 +38,18 @@ export function TaskCard({ task, projectId, onStatusChange }: TaskCardProps) {
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Clock className="mr-2 h-4 w-4" />
-            <span>
-              {task.min_duration_hours || 0} - {task.max_duration_hours || 0} giờ
-            </span>
-          </div>
+          {task.task_skills && task.task_skills.length > 0 && (
+            <div className="flex items-center text-sm text-muted-foreground">
+              <Tag className="mr-2 h-4 w-4" />
+              <div className="flex flex-wrap gap-1">
+                {task.task_skills.map((taskSkill) => (
+                  <Badge key={taskSkill.skills.id} variant="outline" className="text-xs">
+                    {taskSkill.skills.name}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
           
           {task.start_date && task.end_date && (
             <div className="flex items-center text-sm text-muted-foreground">

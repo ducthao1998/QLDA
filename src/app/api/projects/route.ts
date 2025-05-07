@@ -51,9 +51,9 @@ export async function GET() {
   return NextResponse.json({ 
     projects,
     userPermissions: {
-      canCreate: currentUser.position === "quản lý",
-      canEdit: currentUser.position === "quản lý",
-      canDelete: currentUser.position === "quản lý"
+      canCreate: currentUser.position?.toLowerCase() === "quản lý",
+      canEdit: currentUser.position?.toLowerCase() === "quản lý",
+      canDelete: currentUser.position?.toLowerCase() === "quản lý"
     }
   })
 }
