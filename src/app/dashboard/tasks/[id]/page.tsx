@@ -259,13 +259,13 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Description */}
+                  {/* Description
                   <div className="space-y-2">
                     <h3 className="font-medium text-sm text-muted-foreground">Mô tả:</h3>
                     <p className="text-sm border-l-2 border-muted pl-3 py-1">
                       {processedTask.description || "Không có mô tả"}
                     </p>
-                  </div>
+                  </div> */}
 
                   {/* Notes */}
                   {processedTask.note && (

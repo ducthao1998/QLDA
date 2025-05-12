@@ -157,20 +157,6 @@ export function TaskDetailsTab({ form, phases, users, skills, selectedSkills, on
                 </FormItem>
               )}
             />
-
-            <FormField
-              control={form.control}
-              name="legal_basis"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Căn cứ thực hiện</FormLabel>
-                  <FormControl>
-                    <Input {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
           </div>
         </CardContent>
       </Card>
@@ -179,77 +165,11 @@ export function TaskDetailsTab({ form, phases, users, skills, selectedSkills, on
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart2Icon className="h-5 w-5" />
-            Thông tin thuật toán
+            Lĩnh vực liên quan
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <FormField
-              control={form.control}
-              name="min_duration_hours"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Thời gian tối thiểu (giờ)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="0"
-                      {...field}
-                      value={field.value || 0}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormDescription>Thời gian tối thiểu để hoàn thành</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="max_duration_hours"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Thời gian tối đa (giờ)</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="0"
-                      {...field}
-                      value={field.value || 0}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormDescription>Thời gian tối đa để hoàn thành</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="max_retries"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Số lần thử lại tối đa</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="number"
-                      min="0"
-                      {...field}
-                      value={field.value || 0}
-                      onChange={(e) => field.onChange(Number(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormDescription>Số lần trình không đạt cho phép</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
           <div className="space-y-2">
-            <FormLabel>Lĩnh vực liên quan</FormLabel>
             <div className="flex flex-wrap gap-2">
               {skills.map((skill) => (
                 <Badge
