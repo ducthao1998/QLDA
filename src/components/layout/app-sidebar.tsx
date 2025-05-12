@@ -195,12 +195,12 @@ export function Sidebar(
       </SidebarContent>
 
       {/* avatar + dropdown */}
-      <SidebarFooter>
+   {/*   <SidebarFooter>
         <NavUser />
       </SidebarFooter>
-
+   */}
       {/* rail thu nhỏ */}
-      <SidebarRail />
+      {/*<SidebarRail /> */}
     </ShadSidebar>
   )
 }

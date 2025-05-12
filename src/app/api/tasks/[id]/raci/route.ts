@@ -5,7 +5,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const supabase = await createClient()
 
   try {
-    const { id } = params
+    const { id } = await params
 
     const { data, error } = await supabase
       .from("task_raci")
@@ -35,7 +35,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id } = params
+  const { id } = await params
   const body = await request.json()
 
   try {
@@ -68,7 +68,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id } = params
+  const { id } = await params
   const url = new URL(request.url)
   const userId = url.searchParams.get("user_id")
   const role = url.searchParams.get("role")

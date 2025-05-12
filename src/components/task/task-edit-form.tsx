@@ -40,10 +40,6 @@ const taskFormSchema = z.object({
   phase_id: z.string().min(1, { message: "Vui lòng chọn giai đoạn" }),
   assigned_to: z.string().optional(),
   unit_in_charge: z.string().optional(),
-  legal_basis: z.string().optional(),
-  max_retries: z.number().min(0).optional(),
-  min_duration_hours: z.number().min(0).optional(),
-  max_duration_hours: z.number().min(0).optional(),
 })
 
 export type TaskFormValues = z.infer<typeof taskFormSchema>
@@ -76,33 +72,11 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       name: initialData.name,
       note: initialData.note || "",
       status: initialData.status,
-      start_date: initialData.start_date,
-      end_date: initialData.end_date,
+      start_date: initialData.start_date ? format(new Date(initialData.start_date), "yyyy-MM-dd'T'HH:mm") : "",
+      end_date: initialData.end_date ? format(new Date(initialData.end_date), "yyyy-MM-dd'T'HH:mm") : "",
       phase_id: initialData.phase_id,
       assigned_to: initialData.assigned_to || "",
       unit_in_charge: initialData.unit_in_charge || "",
-      legal_basis: initialData.legal_basis || "",
-      max_retries: initialData.max_retries || 0,
-      min_duration_hours:
-        initialData.start_date && initialData.end_date
-          ? Math.max(
-              1,
-              Math.ceil(
-                (new Date(initialData.end_date).getTime() - new Date(initialData.start_date).getTime()) /
-                  (1000 * 60 * 60),
-              ),
-            )
-          : 0,
-      max_duration_hours:
-        initialData.start_date && initialData.end_date
-          ? Math.max(
-              1,
-              Math.ceil(
-                (new Date(initialData.end_date).getTime() - new Date(initialData.start_date).getTime()) /
-                  (1000 * 60 * 60),
-              ),
-            ) * 1.5
-          : 0,
     },
   })
 

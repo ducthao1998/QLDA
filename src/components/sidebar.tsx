@@ -226,9 +226,9 @@ export function Sidebar(
       </SidebarContent>
       <Separator />   
       {/* avatar + dropdown */}
-      <SidebarFooter>
+      {/* <SidebarFooter>
         <NavUser />
-      </SidebarFooter>
+      </SidebarFooter> */}
 
       {/* rail thu nhỏ */}
       <SidebarRail />

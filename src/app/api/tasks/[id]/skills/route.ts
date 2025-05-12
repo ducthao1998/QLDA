@@ -5,7 +5,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const supabase = await createClient()
 
   try {
-    const { id } = params
+    const { id } = await params
 
     const { data, error } = await supabase.from("task_skills").select("skill_id, skills(id, name)").eq("task_id", id)
 
@@ -22,7 +22,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id } = params
+  const { id } = await params
   const { skill_ids } = await request.json()
 
   try {
@@ -52,7 +52,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id } = params
+  const { id } = await params
 
   try {
     const { error } = await supabase.from("task_skills").delete().eq("task_id", id)

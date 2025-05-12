@@ -5,7 +5,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
   const supabase = await createClient()
 
   try {
-    const { id } = params
+    const id = await params.id
 
     const { data, error } = await supabase
       .from("worklogs")
@@ -37,7 +37,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id } = params
+  const id  = await params.id
   const body = await request.json()
 
   try {
