@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { Separator } from "@/components/ui/separator"
 import type { Task, TaskStatus, User, ProjectPhase, Skill, RaciRole } from "@/app/types/table-types"
+import { format } from "date-fns"
 
 interface RecommendedUser {
   id: string
@@ -55,6 +56,10 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
   const [raciUsers, setRaciUsers] = useState<TaskRaciInput[]>([])
   const [userSkills, setUserSkills] = useState<UserSkill[]>([])
   const [maxRetries, setMaxRetries] = useState<number>(0)
+  const [availableTasks, setAvailableTasks] = useState<Task[]>([])
+  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([])
+  const [projectData, setProjectData] = useState<{ start_date: string; end_date: string } | null>(null)
+  const [isAutoAssigning, setIsAutoAssigning] = useState(false)
   const [newTask, setNewTask] = useState<Partial<Task>>({
     project_id: projectId,
     name: "",
@@ -76,6 +81,17 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
         .then((data) => setUsers(data.users))
         .catch(() => toast.error("Không tải được danh sách người dùng"))
 
+      // Fetch project data
+      fetch(`/api/projects/${projectId}`)
+        .then((res) => res.json())
+        .then((data) =>
+          setProjectData({
+            start_date: data.project.start_date,
+            end_date: data.project.end_date,
+          }),
+        )
+        .catch(() => toast.error("Không tải được thông tin dự án"))
+
       // Fetch project phases
       fetch(`/api/projects/${projectId}/phases`)
         .then((res) => res.json())
@@ -95,13 +111,25 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           setUserSkills(data.userSkills || [])
         })
         .catch(() => toast.error("Không tải được danh sách kỹ năng người dùng"))
+
+      // Fetch available tasks for dependencies
+      fetch(`/api/projects/${projectId}/tasks`)
+        .then((res) => res.json())
+        .then((data) => setAvailableTasks(data.tasks || []))
+        .catch(() => toast.error("Không tải được danh sách công việc"))
     }
   }, [isOpen, projectId])
 
-  // Separate effect for skill selection to avoid dependency on raciUsers
+  // Effect for skill selection and auto-assignment
   useEffect(() => {
-    if (selectedSkills.length > 0) {
-      // Only fetch recommended users if skills are selected
+    if (selectedSkills.length > 0 && !isAutoAssigning) {
+      setIsAutoAssigning(true)
+
+      // Clear previous RACI assignments when changing skills
+      setRaciUsers([])
+      setNewTask((prev) => ({ ...prev, assigned_to: "" }))
+
+      // Fetch recommended users for the first selected skill
       fetch(`/api/projects/${projectId}/tasks/recommended-users?skill_id=${selectedSkills[0]}`)
         .then((res) => res.json())
         .then((data) => {
@@ -109,72 +137,95 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           const recommendedData = data.users || []
           setRecommendedUsers(recommendedData)
 
-          // Auto-assign after a short delay to ensure state is updated
-          setTimeout(() => {
+          // Auto-assign RACI roles immediately after setting recommended users
+          if (recommendedData.length > 0) {
             autoAssignRaciRoles(recommendedData)
-          }, 100)
+          }
         })
         .catch((error) => {
           console.error("Error fetching recommended users:", error)
           setRecommendedUsers([])
         })
-    } else {
+        .finally(() => {
+          setIsAutoAssigning(false)
+        })
+    } else if (selectedSkills.length === 0) {
+      // Clear recommendations and RACI when no skills selected
       setRecommendedUsers([])
+      setRaciUsers([])
+      setNewTask((prev) => ({ ...prev, assigned_to: "" }))
     }
   }, [selectedSkills, projectId])
 
   // Function to auto-assign RACI roles
   const autoAssignRaciRoles = (recommendedData: RecommendedUser[]) => {
-    if (recommendedData.length === 0) return
+    if (recommendedData.length === 0) {
+      console.log("No recommended users to assign")
+      return
+    }
 
     console.log("Auto-assigning RACI roles with data:", recommendedData)
 
-    // Find the top user (highest skill level)
-    const topUser = recommendedData[0]
+    const newRaciAssignments: TaskRaciInput[] = []
 
+    // Find the top user (highest skill level) for R role
+    const topUser = recommendedData[0]
     if (topUser && topUser.id) {
       console.log("Assigning R role to top user:", topUser.full_name)
+      newRaciAssignments.push({ user_id: topUser.id, role: "R" })
 
-      // Assign R role to top user
-      setRaciUsers((prev) => {
-        // Check if R role is already assigned
-        const hasR = prev.some((u) => u.role === "R")
-        if (hasR) return prev
-
-        // Update assigned_to in task
-        setNewTask((prevTask) => ({ ...prevTask, assigned_to: topUser.id }))
-
-        // Add R role
-        return [...prev.filter((u) => u.user_id !== topUser.id), { user_id: topUser.id, role: "R" }]
-      })
-
-      // Find a manager to assign as A
-      const potentialA = recommendedData.find(
-        (u) => u.position?.toLowerCase().includes("chỉ huy") || u.position?.toLowerCase().includes("quản lý"),
-      )
-
-      if (potentialA && potentialA.id) {
-        console.log("Assigning A role to manager:", potentialA.full_name)
-
-        // Assign A role to manager
-        setRaciUsers((prev) => {
-          // Check if A role is already assigned
-          const hasA = prev.some((u) => u.role === "A")
-          if (hasA) return prev
-
-          // Add A role
-          return [...prev.filter((u) => u.user_id !== potentialA.id), { user_id: potentialA.id, role: "A" }]
-        })
-      }
+      // Update assigned_to in task
+      setNewTask((prev) => ({ ...prev, assigned_to: topUser.id }))
     }
+
+    // Find a manager for A role (different from R if possible)
+    const potentialA = recommendedData.find(
+      (u) =>
+        u.id !== topUser?.id &&
+        (u.position?.toLowerCase().includes("chỉ huy") ||
+          u.position?.toLowerCase().includes("quản lý") ||
+          u.position?.toLowerCase().includes("trưởng") ||
+          u.position?.toLowerCase().includes("phó")),
+    )
+
+    if (potentialA && potentialA.id) {
+      console.log("Assigning A role to manager:", potentialA.full_name)
+      newRaciAssignments.push({ user_id: potentialA.id, role: "A" })
+    } else if (recommendedData.length > 1 && topUser) {
+      // If no manager found, assign A to second best user
+      const secondUser = recommendedData[1]
+      if (secondUser && secondUser.id) {
+        console.log("Assigning A role to second user:", secondUser.full_name)
+        newRaciAssignments.push({ user_id: secondUser.id, role: "A" })
+      }
+    } else if (topUser) {
+      // If only one user, they get both R and A (will be handled by allowing multiple roles per user)
+      console.log("Only one user available, assigning A role to same user:", topUser.full_name)
+      newRaciAssignments.push({ user_id: topUser.id, role: "A" })
+    }
+
+    // Assign C role to other relevant users
+    const consultUsers = recommendedData.slice(0, 3).filter((u) => !newRaciAssignments.some((r) => r.user_id === u.id))
+
+    consultUsers.forEach((user) => {
+      if (user.id) {
+        newRaciAssignments.push({ user_id: user.id, role: "C" })
+      }
+    })
+
+    // Update RACI assignments
+    setRaciUsers(newRaciAssignments)
+
+    // Show success message
+    toast.success(`Đã tự động phân công ${newRaciAssignments.length} người dựa trên lĩnh vực được chọn`)
   }
 
   const handleSkillChange = (value: string) => {
     setSelectedSkills((prev) => {
-      if (prev.includes(value)) {
-        return prev.filter((id) => id !== value)
-      }
-      return [...prev, value]
+      const newSkills = prev.includes(value) ? prev.filter((id) => id !== value) : [...prev, value]
+
+      console.log("Skills changed:", newSkills)
+      return newSkills
     })
   }
 
@@ -190,7 +241,7 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           setNewTask((prev) => ({ ...prev, assigned_to: "" }))
           return prev.filter((u) => u.user_id !== userId)
         }
-        // If setting R, update assigned_to
+        // If setting R, update assigned_to and remove R from others
         setNewTask((prev) => ({ ...prev, assigned_to: userId }))
         return [{ user_id: userId, role: "R" }, ...prev.filter((u) => u.role !== "R" && u.user_id !== userId)]
       }
@@ -206,9 +257,51 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
     })
   }
 
+  const handleDependencyChange = (taskId: string) => {
+    setSelectedDependencies((prev) => {
+      if (prev.includes(taskId)) {
+        return prev.filter((id) => id !== taskId)
+      }
+      return [...prev, taskId]
+    })
+  }
+
   // Get user skills for a specific user
   const getUserSkills = (userId: string) => {
     return userSkills.filter((skill) => skill.user_id === userId)
+  }
+
+  // Validate task dates against project dates
+  const validateTaskDates = (startDate: string, endDate: string) => {
+    if (!projectData) return { isValid: true, message: "" }
+
+    const taskStart = new Date(startDate)
+    const taskEnd = new Date(endDate)
+    const projectStart = new Date(projectData.start_date)
+    const projectEnd = new Date(projectData.end_date)
+
+    if (taskStart < projectStart) {
+      return {
+        isValid: false,
+        message: `Ngày bắt đầu công việc không được trước ngày bắt đầu dự án (${format(projectStart, "dd/MM/yyyy")})`,
+      }
+    }
+
+    if (taskEnd > projectEnd) {
+      return {
+        isValid: false,
+        message: `Ngày kết thúc công việc không được sau ngày kết thúc dự án (${format(projectEnd, "dd/MM/yyyy")})`,
+      }
+    }
+
+    if (taskStart > taskEnd) {
+      return {
+        isValid: false,
+        message: "Ngày bắt đầu không được sau ngày kết thúc",
+      }
+    }
+
+    return { isValid: true, message: "" }
   }
 
   // Render skill level as stars
@@ -241,6 +334,13 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
         return
       }
 
+      // Validate task dates
+      const validationResult = validateTaskDates(newTask.start_date, newTask.end_date)
+      if (!validationResult.isValid) {
+        toast.error(validationResult.message)
+        return
+      }
+
       // Create task
       const response = await fetch(`/api/projects/${projectId}/tasks`, {
         method: "POST",
@@ -253,8 +353,8 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           end_date: newTask.end_date,
           phase_id: newTask.phase_id,
           assigned_to: newTask.assigned_to || null,
-          skill_ids: selectedSkills.map((id) => Number.parseInt(id)),
           max_retries: maxRetries,
+          dependencies: selectedDependencies,
         }),
       })
 
@@ -264,6 +364,17 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
       }
 
       const { task } = await response.json()
+
+      // Create task skills if any selected
+      if (selectedSkills.length > 0) {
+        await fetch(`/api/tasks/${task.id}/skills`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            skill_ids: selectedSkills.map((id) => Number.parseInt(id))
+          }),
+        })
+      }
 
       // Create task_raci records
       if (raciUsers.length > 0) {
@@ -317,6 +428,9 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
     setSelectedSkills([])
     setRaciUsers([])
     setMaxRetries(0)
+    setSelectedDependencies([])
+    setRecommendedUsers([])
+    setIsAutoAssigning(false)
   }
 
   return (
@@ -385,8 +499,16 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
                 id="start_date"
                 type="datetime-local"
                 value={newTask.start_date || ""}
+                min={projectData?.start_date ? new Date(projectData.start_date).toISOString().slice(0, 16) : undefined}
+                max={projectData?.end_date ? new Date(projectData.end_date).toISOString().slice(0, 16) : undefined}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, start_date: e.target.value }))}
               />
+              {projectData && (
+                <p className="text-xs text-muted-foreground">
+                  Từ {format(new Date(projectData.start_date), "dd/MM/yyyy")} đến{" "}
+                  {format(new Date(projectData.end_date), "dd/MM/yyyy")}
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="end_date">Ngày kết thúc *</Label>
@@ -394,8 +516,16 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
                 id="end_date"
                 type="datetime-local"
                 value={newTask.end_date || ""}
+                min={projectData?.start_date ? new Date(projectData.start_date).toISOString().slice(0, 16) : undefined}
+                max={projectData?.end_date ? new Date(projectData.end_date).toISOString().slice(0, 16) : undefined}
                 onChange={(e) => setNewTask((prev) => ({ ...prev, end_date: e.target.value }))}
               />
+              {projectData && (
+                <p className="text-xs text-muted-foreground">
+                  Từ {format(new Date(projectData.start_date), "dd/MM/yyyy")} đến{" "}
+                  {format(new Date(projectData.end_date), "dd/MM/yyyy")}
+                </p>
+              )}
             </div>
           </div>
           <div className="grid gap-2">
@@ -451,7 +581,45 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
                 </Badge>
               ))}
             </div>
-            <p className="text-sm text-muted-foreground">Chọn lĩnh vực để gợi ý người thực hiện phù hợp</p>
+            <p className="text-sm text-muted-foreground">
+              Chọn lĩnh vực để gợi ý người thực hiện phù hợp. RACI sẽ được tự động phân công.
+            </p>
+            {isAutoAssigning && <p className="text-sm text-blue-600">Đang tự động phân công dựa trên lĩnh vực...</p>}
+          </div>
+
+          {/* Phụ thuộc công việc */}
+          <div className="grid gap-2">
+            <Label htmlFor="dependencies">Công việc phụ thuộc</Label>
+            <div className="space-y-2 max-h-40 overflow-y-auto">
+              {availableTasks?.map((task) => (
+                <div key={task.id} className="flex items-center justify-between p-2 border rounded">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{task.name}</span>
+                    <Badge variant="outline" className="text-xs">
+                      {task.status === "todo" && "Chưa bắt đầu"}
+                      {task.status === "in_progress" && "Đang thực hiện"}
+                      {task.status === "done" && "Hoàn thành"}
+                      {task.status === "review" && "Đang xem xét"}
+                      {task.status === "blocked" && "Bị chặn"}
+                    </Badge>
+                  </div>
+                  <Badge
+                    variant={selectedDependencies.includes(task.id.toString()) ? "default" : "outline"}
+                    className="cursor-pointer"
+                    onClick={() => handleDependencyChange(task.id.toString())}
+                  >
+                    {selectedDependencies.includes(task.id.toString()) ? "Đã chọn" : "Chọn"}
+                  </Badge>
+                </div>
+              ))}
+              {(!availableTasks || availableTasks.length === 0) && (
+                <p className="text-sm text-muted-foreground">Chưa có công việc nào trong dự án</p>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Chọn các công việc mà công việc này phụ thuộc vào. Công việc này chỉ có thể bắt đầu khi các công việc phụ
+              thuộc hoàn thành.
+            </p>
           </div>
 
           <Separator className="my-4" />
@@ -459,6 +627,30 @@ export function AddTaskDialog({ projectId, onCreated }: { projectId: string; onC
           {/* Phân công RACI */}
           <div className="grid gap-2">
             <Label>Phân công trách nhiệm (RACI) *</Label>
+            {recommendedUsers.length > 0 && (
+              <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-sm text-blue-800 font-medium mb-2">
+                  Đã tự động phân công dựa trên lĩnh vực được chọn:
+                </p>
+                <div className="space-y-1">
+                  {raciUsers.map((raci) => {
+                    const user = users.find((u) => u.id === raci.user_id)
+                    return (
+                      <p key={`${raci.user_id}-${raci.role}`} className="text-sm text-blue-700">
+                        • {user?.full_name} -{" "}
+                        {raci.role === "R"
+                          ? "Người thực hiện"
+                          : raci.role === "A"
+                            ? "Người chịu trách nhiệm"
+                            : raci.role === "C"
+                              ? "Người tư vấn"
+                              : "Người được thông báo"}
+                      </p>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             <div className="space-y-4">
               {users?.map((user) => {
                 const userRaci = raciUsers.find((u) => u.user_id === user.id)

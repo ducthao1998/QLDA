@@ -115,8 +115,28 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
       console.error("Error fetching RACI data:", raciError)
     }
 
-    // Add RACI data to task
+    // Fetch task dependencies
+    const { data: dependenciesData, error: dependenciesError } = await (await createClient())
+      .from("task_dependencies")
+      .select(`
+        id,
+        depends_on_id,
+        dependency_task:depends_on_id (
+          id,
+          name,
+          status,
+          end_date
+        )
+      `)
+      .eq("task_id", id)
+
+    if (dependenciesError) {
+      console.error("Error fetching dependencies:", dependenciesError)
+    }
+
+    // Add RACI and dependencies data to task
     task.task_raci = raciData || []
+    task.dependencies = dependenciesData || []
 
     console.log("Fetched task data:", task)
 
@@ -129,12 +149,13 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
       note: task.note || "",
       unit_in_charge: task.unit_in_charge || "",
       legal_basis: task.legal_basis || "",
+      max_retries: task.max_retries || 0,
       // These properties might not exist in the actual task data
       min_duration_hours: task.min_duration_hours || 0,
       max_duration_hours: task.max_duration_hours || 0,
-      max_retries: task.max_retries || 0,
       skills: task.task_skills?.map((ts: any) => ts.skill) || [],
       task_raci: task.task_raci || [],
+      dependencies: task.dependencies || [],
     }
 
     console.log("Processed task data:", processedTask)
@@ -184,8 +205,6 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
     const startDateTime = formatDateTime(processedTask.start_date)
     const endDateTime = formatDateTime(processedTask.end_date)
     const dueDateTime = formatDateTime(processedTask.due_date)
-
-    // Remove the raciUsers variable since we're now using processedTask.task_raci directly
 
     return (
       <div className="container px-4 py-6 space-y-6 max-w-7xl mx-auto">
@@ -242,10 +261,11 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
 
         {/* Main content with tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid grid-cols-3 max-w-md">
+          <TabsList className="grid grid-cols-4 max-w-lg">
             <TabsTrigger value="overview">Tổng quan</TabsTrigger>
-            <TabsTrigger value="technical">Phân tích kỹ thuật</TabsTrigger>
+            <TabsTrigger value="technical">Phân tích</TabsTrigger>
             <TabsTrigger value="assignments">Phân công</TabsTrigger>
+            <TabsTrigger value="dependencies">Phụ thuộc</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="space-y-6">
@@ -259,14 +279,6 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {/* Description
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-muted-foreground">Mô tả:</h3>
-                    <p className="text-sm border-l-2 border-muted pl-3 py-1">
-                      {processedTask.description || "Không có mô tả"}
-                    </p>
-                  </div> */}
-
                   {/* Notes */}
                   {processedTask.note && (
                     <div className="space-y-2">
@@ -276,7 +288,7 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                   )}
 
                   {/* Dates */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <h3 className="font-medium text-sm text-muted-foreground flex items-center">
                         <CalendarIcon className="h-4 w-4 mr-2" />
@@ -292,7 +304,6 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                       </h3>
                       <p className="text-sm">{endDateTime?.full || "Chưa thiết lập"}</p>
                     </div>
-
                   </div>
 
                   {/* Assigned User */}
@@ -341,27 +352,33 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                     )}
                   </div>
 
-                  {/* Skills and dependencies */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Skills */}
+                  {/* Max retries */}
+                  {processedTask.max_retries > 0 && (
                     <div className="space-y-2">
                       <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                        <TagIcon className="h-4 w-4 mr-2" />
-                        Lĩnh vực
+                        <AlertCircleIcon className="h-4 w-4 mr-2" />
+                        Số lần cho phép trình sai
                       </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {processedTask.skills?.map((skill: Skill) => (
-                          <Badge key={skill.id} variant="outline">
-                            {skill.name}
-                          </Badge>
-                        ))}
-                        {(!processedTask.skills || processedTask.skills.length === 0) && (
-                          <span className="text-sm text-muted-foreground">Không có lĩnh vực được chỉ định</span>
-                        )}
-                      </div>
+                      <p className="text-sm">{processedTask.max_retries} lần</p>
                     </div>
+                  )}
 
-                  
+                  {/* Skills */}
+                  <div className="space-y-2">
+                    <h3 className="font-medium text-sm text-muted-foreground flex items-center">
+                      <TagIcon className="h-4 w-4 mr-2" />
+                      Lĩnh vực
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {processedTask.skills?.map((skill: Skill) => (
+                        <Badge key={skill.id} variant="outline">
+                          {skill.name}
+                        </Badge>
+                      ))}
+                      {(!processedTask.skills || processedTask.skills.length === 0) && (
+                        <span className="text-sm text-muted-foreground">Không có lĩnh vực được chỉ định</span>
+                      )}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -379,8 +396,7 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                     <h3 className="font-medium text-sm text-muted-foreground">Thời gian ước tính:</h3>
                     <div className="flex items-center justify-center bg-muted/50 py-4 rounded-md">
                       <span className="text-2xl font-bold">
-                      {formatDuration(processedTask.min_duration_hours || 0)} -{" "}
-                      {formatDuration(processedTask.max_duration_hours || 0)}
+                      {minDurationHours > 0 ? `${minDurationHours}h` : "Chưa xác định"}
                       </span>
                     </div>
                   </div>
@@ -599,6 +615,62 @@ export default async function TaskDetailPage({ params }: { params: Params }) {
                       <h3 className="mt-4 font-medium">Chưa có người được phân công</h3>
                       <p className="text-sm text-muted-foreground mt-1">
                         Công việc này chưa có ai được phân công trách nhiệm
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="dependencies" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <LinkIcon className="h-5 w-5" />
+                  Phụ thuộc công việc
+                </CardTitle>
+                <CardDescription>
+                  Các công việc mà công việc này phụ thuộc vào
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {processedTask.dependencies && processedTask.dependencies.length > 0 ? (
+                    <div className="space-y-3">
+                      {processedTask.dependencies.map((dependency: any) => {
+                        const depTask = dependency.dependency_task
+                        if (!depTask) return null
+
+                        return (
+                          <div key={dependency.id} className="flex items-center justify-between p-3 border rounded-md bg-card">
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{depTask.name}</span>
+                                <Badge variant="outline" className="text-xs">
+                                  {depTask.status === "todo" && "Chưa bắt đầu"}
+                                  {depTask.status === "in_progress" && "Đang thực hiện"}
+                                  {depTask.status === "done" && "Hoàn thành"}
+                                  {depTask.status === "review" && "Đang xem xét"}
+                                  {depTask.status === "blocked" && "Bị chặn"}
+                                </Badge>
+                              </div>
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {depTask.end_date && (
+                                <span>Kết thúc: {format(new Date(depTask.end_date), "dd/MM/yyyy", { locale: vi })}</span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <LinkIcon className="mx-auto h-12 w-12 text-muted-foreground/30" />
+                      <h3 className="mt-4 font-medium">Không có phụ thuộc</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Công việc này không phụ thuộc vào công việc nào khác
                       </p>
                     </div>
                   )}

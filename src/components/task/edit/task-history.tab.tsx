@@ -25,7 +25,7 @@ export function TaskHistoryTab({ taskHistory, taskProgress }: TaskHistoryTabProp
             <div className="space-y-4">
               {taskHistory.map((history) => (
                 <div key={history.id} className="flex items-start gap-3 p-2 border-b last:border-0">
-                  <div className="w-12 text-xs text-muted-foreground">{format(new Date(history.at), "dd/MM/yy")}</div>
+                  <div className="w-12 text-xs text-muted-foreground">{format(new Date(history.created_at), "dd/MM/yy")}</div>
                   <div>
                     <p className="text-sm font-medium">
                       {history.action === "status_changed" && "Thay đổi trạng thái"}

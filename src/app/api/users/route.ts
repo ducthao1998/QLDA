@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   }
 
   // Kiểm tra xem người dùng có phải là quản lý không
-  if (currentUserData.position !== "quản lý" && currentUserData.position !== "Quản lý") {
+  if (currentUserData.position?.toLowerCase() !== "quản lý") {
     return NextResponse.json({ error: "Chỉ quản lý mới có quyền thêm người dùng mới" }, { status: 403 })
   }
 

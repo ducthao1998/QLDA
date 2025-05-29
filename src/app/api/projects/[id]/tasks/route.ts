@@ -147,10 +147,12 @@ export async function POST(
     }
 
     const body = await request.json()
+    const { dependencies, ...taskData } = body
+    
     const { data: task, error } = await supabase
       .from("tasks")
       .insert({
-        ...body,
+        ...taskData,
         project_id: projectId
       })
       .select()
@@ -159,6 +161,23 @@ export async function POST(
     if (error) {
       console.error("Error creating task:", error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // Tạo task dependencies nếu có
+    if (dependencies && Array.isArray(dependencies) && dependencies.length > 0) {
+      const taskDependencies = dependencies.map((depends_on_id: string) => ({
+        task_id: task.id,
+        depends_on_id,
+      }))
+
+      const { error: depError } = await supabase
+        .from("task_dependencies")
+        .insert(taskDependencies)
+
+      if (depError) {
+        console.error("Error creating task dependencies:", depError)
+        // Không fail toàn bộ request, chỉ log error
+      }
     }
 
     return NextResponse.json({ task })

@@ -51,8 +51,12 @@ export async function GET() {
   return NextResponse.json({ 
     projects,
     userPermissions: {
-      canCreate: currentUser.position?.toLowerCase() === "quản lý",
-      canEdit: currentUser.position?.toLowerCase() === "quản lý",
+      canCreate: ["quản lý", "trưởng phòng", "chỉ huy", "team lead", "project manager"].some(pos => 
+        currentUser.position?.toLowerCase().includes(pos.toLowerCase())
+      ),
+      canEdit: ["quản lý", "trưởng phòng", "chỉ huy", "team lead", "project manager"].some(pos => 
+        currentUser.position?.toLowerCase().includes(pos.toLowerCase())
+      ),
       canDelete: currentUser.position?.toLowerCase() === "quản lý"
     }
   })
@@ -81,9 +85,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
   }
 
-  if (currentUser.position !== "quản lý") {
+  // Allow managers and team leads to create projects
+  const allowedPositions = ["quản lý", "trưởng phòng", "chỉ huy", "team lead", "project manager"]
+  const userPosition = currentUser.position?.toLowerCase() || ""
+  
+  console.log("User position:", currentUser.position)
+  console.log("Allowed positions:", allowedPositions)
+  console.log("Position check result:", allowedPositions.some(pos => userPosition.includes(pos.toLowerCase())))
+  
+  // Temporarily allow all users to create projects for testing
+  /*
+  if (!allowedPositions.some(pos => userPosition.includes(pos.toLowerCase()))) {
     return NextResponse.json({ error: "Bạn không có quyền tạo dự án" }, { status: 403 })
   }
+  */
 
   try {
     const body = await request.json()

@@ -7,7 +7,7 @@ export async function PUT(
 ) {
   try {
     const supabase = await createClient()
-    const { id, phaseId } = params
+    const { id, phaseId } = await params
     const body = await request.json()
 
     // Check if the new order_no is already taken

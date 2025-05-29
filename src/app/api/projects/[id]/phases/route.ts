@@ -68,8 +68,8 @@ export async function GET(
     return NextResponse.json({ 
       phases: phases as ProjectPhase[],
       userPermissions: {
-        canEdit: currentUser.position === "quản lý",
-        canDelete: currentUser.position === "quản lý"
+        canEdit: currentUser.position?.toLowerCase() === "quản lý",
+        canDelete: currentUser.position?.toLowerCase() === "quản lý"
       }
     })
   } catch (error) {
@@ -106,7 +106,7 @@ export async function POST(
       return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
     }
 
-    if (currentUser.position !== "quản lý") {
+    if (currentUser.position?.toLowerCase() !== "quản lý") {
       return NextResponse.json({ error: "Bạn không có quyền tạo giai đoạn" }, { status: 403 })
     }
 
@@ -180,7 +180,7 @@ export async function PUT(
       return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
     }
 
-    if (currentUser.position !== "quản lý") {
+    if (currentUser.position?.toLowerCase() !== "quản lý") {
       return NextResponse.json({ error: "Bạn không có quyền chỉnh sửa giai đoạn" }, { status: 403 })
     }
 
@@ -252,7 +252,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
     }
 
-    if (currentUser.position !== "quản lý") {
+    if (currentUser.position?.toLowerCase() !== "quản lý") {
       return NextResponse.json({ error: "Bạn không có quyền xóa giai đoạn" }, { status: 403 })
     }
 

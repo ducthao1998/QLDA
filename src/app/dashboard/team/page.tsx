@@ -16,8 +16,8 @@ export default function PersonnelPage() {
         <TabsList className="mb-4">
           <TabsTrigger value="team">Danh Sách Nhân Sự</TabsTrigger>
           <TabsTrigger value="skills">Ma Trận Kỹ Năng</TabsTrigger>
-          <TabsTrigger value="workload">Phân Tích Khối Lượng Công Việc</TabsTrigger>
-          <TabsTrigger value="performance">Hiệu Suất Nhân Sự</TabsTrigger>
+          {/* <TabsTrigger value="workload">Phân Tích Khối Lượng Công Việc</TabsTrigger>
+          <TabsTrigger value="performance">Hiệu Suất Nhân Sự</TabsTrigger> */}
         </TabsList>
         <TabsContent value="team">
           <TeamList />
@@ -25,12 +25,12 @@ export default function PersonnelPage() {
         <TabsContent value="skills">
           <SkillMatrix />
         </TabsContent>
-        <TabsContent value="workload">
+        {/* <TabsContent value="workload">
           <WorkloadDashboard />
         </TabsContent>
         <TabsContent value="performance">
           <UserPerformance />
-        </TabsContent>
+        </TabsContent> */}
       </Tabs>
     </div>
   )

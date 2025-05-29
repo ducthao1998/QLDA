@@ -155,7 +155,7 @@ export async function DELETE(
 ) {
   try {
     const supabase = await createClient()
-    const { taskId } = params
+    const { taskId } = await params
 
     // First, delete related records in task_skills
     const { error: taskSkillsError } = await supabase

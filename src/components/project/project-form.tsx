@@ -215,11 +215,79 @@ function ProjectFormContent({
                     </FormControl>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
+                    <div className="p-3 border-b">
+                      <div className="flex gap-2">
+                        <Select
+                          value={
+                            field.value ? field.value.getFullYear().toString() : new Date().getFullYear().toString()
+                          }
+                          onValueChange={(year) => {
+                            const currentDate = field.value || new Date()
+                            const newDate = new Date(currentDate)
+                            newDate.setFullYear(Number.parseInt(year))
+                            field.onChange(newDate)
+                          }}
+                        >
+                          <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 10 }, (_, i) => {
+                              const year = new Date().getFullYear() - 5 + i
+                              return (
+                                <SelectItem key={year} value={year.toString()}>
+                                  {year}
+                                </SelectItem>
+                              )
+                            })}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={field.value ? field.value.getMonth().toString() : new Date().getMonth().toString()}
+                          onValueChange={(month) => {
+                            const currentDate = field.value || new Date()
+                            const newDate = new Date(currentDate)
+                            newDate.setMonth(Number.parseInt(month))
+                            field.onChange(newDate)
+                          }}
+                        >
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[
+                              "Tháng 1",
+                              "Tháng 2",
+                              "Tháng 3",
+                              "Tháng 4",
+                              "Tháng 5",
+                              "Tháng 6",
+                              "Tháng 7",
+                              "Tháng 8",
+                              "Tháng 9",
+                              "Tháng 10",
+                              "Tháng 11",
+                              "Tháng 12",
+                            ].map((month, index) => (
+                              <SelectItem key={index} value={index.toString()}>
+                                {month}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                     <Calendar
                       mode="single"
                       selected={field.value}
                       onSelect={field.onChange}
-                      disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                      month={field.value || new Date()}
+                      onMonthChange={(date) => {
+                        const newDate = new Date(field.value || new Date())
+                        newDate.setFullYear(date.getFullYear())
+                        newDate.setMonth(date.getMonth())
+                        field.onChange(newDate)
+                      }}
                       initialFocus
                     />
                   </PopoverContent>
@@ -251,13 +319,78 @@ function ProjectFormContent({
                     </FormControl>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
+                    <div className="p-3 border-b">
+                      <div className="flex gap-2">
+                        <Select
+                          value={
+                            field.value ? field.value.getFullYear().toString() : new Date().getFullYear().toString()
+                          }
+                          onValueChange={(year) => {
+                            const currentDate = field.value || new Date()
+                            const newDate = new Date(currentDate)
+                            newDate.setFullYear(Number.parseInt(year))
+                            field.onChange(newDate)
+                          }}
+                        >
+                          <SelectTrigger className="w-[100px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 10 }, (_, i) => {
+                              const year = new Date().getFullYear() - 5 + i
+                              return (
+                                <SelectItem key={year} value={year.toString()}>
+                                  {year}
+                                </SelectItem>
+                              )
+                            })}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={field.value ? field.value.getMonth().toString() : new Date().getMonth().toString()}
+                          onValueChange={(month) => {
+                            const currentDate = field.value || new Date()
+                            const newDate = new Date(currentDate)
+                            newDate.setMonth(Number.parseInt(month))
+                            field.onChange(newDate)
+                          }}
+                        >
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[
+                              "Tháng 1",
+                              "Tháng 2",
+                              "Tháng 3",
+                              "Tháng 4",
+                              "Tháng 5",
+                              "Tháng 6",
+                              "Tháng 7",
+                              "Tháng 8",
+                              "Tháng 9",
+                              "Tháng 10",
+                              "Tháng 11",
+                              "Tháng 12",
+                            ].map((month, index) => (
+                              <SelectItem key={index} value={index.toString()}>
+                                {month}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
                     <Calendar
                       mode="single"
                       selected={field.value}
                       onSelect={field.onChange}
-                      disabled={(date) => {
-                        const startDate = form.getValues("start_date")
-                        return startDate && date < startDate
+                      month={field.value || new Date()}
+                      onMonthChange={(date) => {
+                        const newDate = new Date(field.value || new Date())
+                        newDate.setFullYear(date.getFullYear())
+                        newDate.setMonth(date.getMonth())
+                        field.onChange(newDate)
                       }}
                       initialFocus
                     />

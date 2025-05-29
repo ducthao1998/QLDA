@@ -181,7 +181,7 @@ export function Sidebar(
           .eq('id', user.id)
           .single()
         
-        setIsManager(userData?.position === 'quản lý')
+        setIsManager(userData?.position?.toLowerCase() === 'quản lý')
       }
     }
 

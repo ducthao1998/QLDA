@@ -48,6 +48,26 @@ export async function POST(request: Request, { params }: { params: { id: string 
       throw tasksError
     }
 
+    // Lấy danh sách task dependencies
+    const { data: taskDependencies, error: dependenciesError } = await supabase
+      .from("task_dependencies")
+      .select(`
+        task_id,
+        depends_on_id,
+        dependency_task:tasks!task_dependencies_depends_on_id_fkey (
+          id,
+          name,
+          status,
+          start_date,
+          end_date
+        )
+      `)
+      .in("task_id", tasks.map((task) => task.id))
+
+    if (dependenciesError) {
+      throw dependenciesError
+    }
+
     // Lấy danh sách kỹ năng của các công việc
     const { data: taskSkills, error: taskSkillsError } = await supabase
       .from("task_skills")
@@ -97,9 +117,47 @@ export async function POST(request: Request, { params }: { params: { id: string 
           name: skill.skill.name
         }))
 
+      // Lấy dependencies cho task này
+      const dependencies = (taskDependencies || [])
+        .filter((dep) => dep.task_id === task.id)
+        .map((dep) => {
+          let progressPercentage = 0
+          let depTask = null
+          
+          if (dep.dependency_task) {
+            depTask = Array.isArray(dep.dependency_task) ? dep.dependency_task[0] : dep.dependency_task
+            
+            if (depTask) {
+              // Tính progress dựa trên status
+              switch (depTask.status) {
+                case "done":
+                  progressPercentage = 100
+                  break
+                case "in_progress":
+                  progressPercentage = 50
+                  break
+                case "review":
+                  progressPercentage = 80
+                  break
+                case "blocked":
+                  progressPercentage = 25
+                  break
+                default:
+                  progressPercentage = 0
+              }
+            }
+          }
+
+          return {
+            id: dep.depends_on_id,
+            progress_percentage: progressPercentage,
+            status: depTask?.status || "todo"
+          }
+        })
+
       return {
         ...task,
-        dependencies: [], // Không còn dependencies nữa
+        dependencies,
         skills,
       }
     })

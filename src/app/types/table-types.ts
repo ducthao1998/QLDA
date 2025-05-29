@@ -200,6 +200,23 @@ export interface TaskSkill {
   skill_id: number;   // FK → skills.id
 }
 
+////////////////////////////////////////////////////
+// 5. task_dependencies
+export interface TaskDependency {
+  id: number            // serial PK (auto)
+  task_id: string       // FK → tasks.id
+  depends_on_id: string // FK → tasks.id
+  created_at?: string   // timestamp ISO
+  updated_at?: string   // timestamp ISO
+  // Thông tin task phụ thuộc (join)
+  dependency_task?: {
+    id: string
+    name: string
+    status: TaskStatus
+    progress_percentage?: number
+  }
+}
+
 export interface ProjectPhase {
   id: string
   project_id: string

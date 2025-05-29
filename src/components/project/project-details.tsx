@@ -293,7 +293,7 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
               <div className="flex gap-2">
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="destructive">Xóa dự án</Button>
+                    {/* <Button variant="destructive">Xóa dự án</Button> */}
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
