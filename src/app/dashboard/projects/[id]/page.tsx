@@ -52,8 +52,8 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   }
 
   const userPermissions = {
-    canEdit: currentUser.position === "quản lý",
-    canDelete: currentUser.position === "quản lý"
+    canEdit: currentUser.position.toLowerCase() === "quản lý",
+    canDelete: currentUser.position.toLowerCase() === "quản lý"
   }
 
   return <ProjectDetails 

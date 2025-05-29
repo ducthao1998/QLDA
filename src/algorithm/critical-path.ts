@@ -3,7 +3,7 @@ export interface Task {
   name: string
   start_date: string
   end_date: string
-  dependencies: (number | string)[]
+  dependencies: (number | string)[] | { id: string; progress_percentage: number; status: string }[]
   assigned_to?: string
   optimized_start?: string
   optimized_end?: string
@@ -46,10 +46,11 @@ export function calculateCriticalPath(tasks: Task[]): CriticalPathResult {
 
   tasksCopy.forEach((task) => {
     const taskId = String(task.id)
-    task.dependencies.forEach((depId) => {
-      const depIdStr = String(depId)
-      graph[depIdStr].push(taskId)
-      reverseGraph[taskId].push(depIdStr)
+    task.dependencies.forEach((dep) => {
+      // Xử lý cả dependencies cũ (string/number) và mới (object với progress)
+      const depId = typeof dep === 'object' ? dep.id : String(dep)
+      graph[depId].push(taskId)
+      reverseGraph[taskId].push(depId)
     })
   })
 
@@ -77,8 +78,24 @@ export function calculateCriticalPath(tasks: Task[]): CriticalPathResult {
         const nextTask = tasksCopy.find((t) => String(t.id) === nextId)!
         const currentTask = tasksCopy.find((t) => String(t.id) === currentId)!
 
+        // Tính toán thời gian hoàn thành của dependency dựa trên progress
+        let dependencyFinishTime = currentTask.earlyFinish
+        
+        // Tìm dependency object để lấy progress percentage
+        const dependencyInfo = nextTask.dependencies.find(dep => {
+          const depId = typeof dep === 'object' ? dep.id : String(dep)
+          return depId === currentId
+        })
+        
+        if (typeof dependencyInfo === 'object' && dependencyInfo.progress_percentage < 100) {
+          // Nếu dependency chưa hoàn thành 100%, điều chỉnh thời gian
+          const progressFactor = dependencyInfo.progress_percentage / 100
+          const remainingTime = currentTask.duration * (1 - progressFactor)
+          dependencyFinishTime = currentTask.earlyStart + currentTask.duration * progressFactor + remainingTime
+        }
+
         // Cập nhật Early Start và Early Finish
-        nextTask.earlyStart = Math.max(nextTask.earlyStart, currentTask.earlyFinish)
+        nextTask.earlyStart = Math.max(nextTask.earlyStart, dependencyFinishTime)
         nextTask.earlyFinish = nextTask.earlyStart + nextTask.duration
 
         // Kiểm tra xem tất cả các phụ thuộc đã được xử lý chưa

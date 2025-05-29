@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
   }
 
-  const { id } = params
+  const { id } = await params
 
   // Get current user's org_unit and position
   const { data: currentUser, error: userError } = await supabase
@@ -51,8 +51,8 @@ export async function GET(request: Request, { params }: { params: { id: string }
   return NextResponse.json({ 
     project,
     userPermissions: {
-      canEdit: currentUser.position === "quản lý",
-      canDelete: currentUser.position === "quản lý"
+      canEdit: currentUser.position?.toLowerCase() === "quản lý",
+      canDelete: currentUser.position?.toLowerCase() === "quản lý"
     }
   })
 }
@@ -80,7 +80,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
   }
 
-  if (currentUser.position !== "quản lý") {
+  if (currentUser.position?.toLowerCase() !== "quản lý") {
     return NextResponse.json({ error: "Bạn không có quyền chỉnh sửa dự án" }, { status: 403 })
   }
 
@@ -160,11 +160,11 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
   }
 
-  if (currentUser.position !== "quản lý") {
+  if (currentUser.position?.toLowerCase() !== "quản lý") {
     return NextResponse.json({ error: "Bạn không có quyền xóa dự án" }, { status: 403 })
   }
 
-  const { id } = params
+  const { id } = await params
 
   // Get project to check org_unit
   const { data: project, error: projectError } = await supabase

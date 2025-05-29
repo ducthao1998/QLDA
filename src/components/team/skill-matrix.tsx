@@ -299,50 +299,54 @@ export function SkillMatrix() {
         </div>
       </div>
 
-      <div className="border rounded-md overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[200px]">Nhân Sự</TableHead>
-              {skills.map((skill) => (
-                <TableHead key={skill.id} className="text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedSkills.includes(skill.id)}
-                      onChange={() => handleSkillSelect(skill.id)}
-                      className="h-4 w-4"
-                    />
-                    {skill.name}
-                  </div>
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {users.map((user) => (
-              <TableRow key={user.id}>
-                <TableCell className="font-medium">{user.full_name}</TableCell>
+      <div className="border rounded-md overflow-hidden">
+        <div className="overflow-auto max-h-[600px] max-w-full">
+          <Table>
+            <TableHeader className="sticky top-0 bg-background z-10">
+              <TableRow>
+                <TableHead className="min-w-[200px] sticky left-0 bg-background z-20 border-r">Nhân Sự</TableHead>
                 {skills.map((skill) => (
-                  <TableCell key={skill.id} className="text-center">
-                    <select
-                      className="w-12 h-8 rounded border text-center"
-                      value={getSkillLevel(user.id, skill.id)}
-                      onChange={(e) => handleSkillLevelChange(user.id, skill.id, Number.parseInt(e.target.value))}
-                    >
-                      <option value="0">-</option>
-                      <option value="1">1</option>
-                      <option value="2">2</option>
-                      <option value="3">3</option>
-                      <option value="4">4</option>
-                      <option value="5">5</option>
-                    </select>
-                  </TableCell>
+                  <TableHead key={skill.id} className="text-center min-w-[120px]">
+                    <div className="flex items-center justify-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedSkills.includes(skill.id)}
+                        onChange={() => handleSkillSelect(skill.id)}
+                        className="h-4 w-4"
+                      />
+                      <span className="truncate" title={skill.name}>{skill.name}</span>
+                    </div>
+                  </TableHead>
                 ))}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {users.map((user) => (
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium sticky left-0 bg-background z-10 border-r min-w-[200px]">
+                    <span className="truncate" title={user.full_name}>{user.full_name}</span>
+                  </TableCell>
+                  {skills.map((skill) => (
+                    <TableCell key={skill.id} className="text-center min-w-[120px]">
+                      <select
+                        className="w-12 h-8 rounded border text-center"
+                        value={getSkillLevel(user.id, skill.id)}
+                        onChange={(e) => handleSkillLevelChange(user.id, skill.id, Number.parseInt(e.target.value))}
+                      >
+                        <option value="0">-</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                      </select>
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </div>
       <div className="text-sm text-gray-500">
         <p>Mức độ lĩnh vực: 1 - Cơ bản, 2 - Trung cấp, 3 - Khá, 4 - Thành thạo, 5 - Chuyên gia</p>

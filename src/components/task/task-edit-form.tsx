@@ -40,6 +40,8 @@ const taskFormSchema = z.object({
   phase_id: z.string().min(1, { message: "Vui lòng chọn giai đoạn" }),
   assigned_to: z.string().optional(),
   unit_in_charge: z.string().optional(),
+  legal_basis: z.string().optional(),
+  max_retries: z.number().min(0).optional(),
 })
 
 export type TaskFormValues = z.infer<typeof taskFormSchema>
@@ -58,12 +60,14 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
   const [selectedSkills, setSelectedSkills] = useState<number[]>([])
   const [taskSkills, setTaskSkills] = useState<number[]>([])
   const [availableTasks, setAvailableTasks] = useState<Task[]>([])
+  const [selectedDependencies, setSelectedDependencies] = useState<string[]>([])
   const [raciUsers, setRaciUsers] = useState<{ id: number; user_id: string; role: RaciRole }[]>([])
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null)
   const [taskHistory, setTaskHistory] = useState<TaskHistory[]>([])
   const [worklogs, setWorklogs] = useState<Worklog[]>([])
   const [isOverdue, setIsOverdue] = useState(false)
   const [activeTab, setActiveTab] = useState("details")
+  const [projectData, setProjectData] = useState<{ start_date: string; end_date: string } | null>(null)
 
   // Form setup
   const form = useForm<TaskFormValues>({
@@ -77,6 +81,8 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       phase_id: initialData.phase_id,
       assigned_to: initialData.assigned_to || "",
       unit_in_charge: initialData.unit_in_charge || "",
+      legal_basis: initialData.legal_basis || "",
+      max_retries: initialData.max_retries || 0,
     },
   })
 
@@ -87,11 +93,13 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     loadSkills()
     loadTaskSkills()
     loadAvailableTasks()
+    loadTaskDependencies()
     loadRaciUsers()
     loadTaskProgress()
     loadTaskHistory()
     loadWorklogs()
     checkIfOverdue()
+    loadProjectData()
   }, [initialData.id])
 
   // Check if task is overdue
@@ -106,7 +114,7 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
   // Load users
   async function loadUsers() {
     try {
-      const res = await fetch("/api/users")
+      const res = await fetch("/api/user")
       if (!res.ok) throw new Error("Failed to load users")
       const data = await res.json()
       setUsers(data.users || [])
@@ -152,7 +160,6 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     }
   }
 
-
   // Load available tasks
   async function loadAvailableTasks() {
     try {
@@ -163,6 +170,21 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       setAvailableTasks((data.tasks || []).filter((task: Task) => task.id !== initialData.id))
     } catch (err) {
       toast.error("Lỗi", { description: "Không thể tải danh sách công việc" })
+    }
+  }
+
+  // Load task dependencies
+  async function loadTaskDependencies() {
+    try {
+      // Get current task dependencies directly from task_dependencies table
+      const res = await fetch(`/api/tasks/${initialData.id}/dependencies/simple`)
+      if (!res.ok) throw new Error("Failed to load dependencies")
+      const data = await res.json()
+      const dependencyIds = data.dependencies?.map((dep: any) => dep.depends_on_id.toString()) || []
+      setSelectedDependencies(dependencyIds)
+    } catch (err) {
+      console.error("Error loading dependencies:", err)
+      // Don't show error toast for dependencies as it's not critical
     }
   }
 
@@ -197,7 +219,6 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     }
   }
 
-
   // Load task history
   async function loadTaskHistory() {
     try {
@@ -222,6 +243,54 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     }
   }
 
+  // Load project data
+  async function loadProjectData() {
+    try {
+      const res = await fetch(`/api/projects/${projectId}`)
+      if (!res.ok) throw new Error("Failed to load project")
+      const data = await res.json()
+      setProjectData({
+        start_date: data.project.start_date,
+        end_date: data.project.end_date
+      })
+    } catch (err) {
+      toast.error("Lỗi", { description: "Không thể tải thông tin dự án" })
+    }
+  }
+
+  // Validate task dates against project dates
+  const validateTaskDates = (startDate: string, endDate: string) => {
+    if (!projectData) return { isValid: true, message: "" }
+    
+    const taskStart = new Date(startDate)
+    const taskEnd = new Date(endDate)
+    const projectStart = new Date(projectData.start_date)
+    const projectEnd = new Date(projectData.end_date)
+    
+    if (taskStart < projectStart) {
+      return { 
+        isValid: false, 
+        message: `Ngày bắt đầu công việc không được trước ngày bắt đầu dự án (${format(projectStart, "dd/MM/yyyy")})` 
+      }
+    }
+    
+    if (taskEnd > projectEnd) {
+      return { 
+        isValid: false, 
+        message: `Ngày kết thúc công việc không được sau ngày kết thúc dự án (${format(projectEnd, "dd/MM/yyyy")})` 
+      }
+    }
+    
+    if (taskStart > taskEnd) {
+      return { 
+        isValid: false, 
+        message: "Ngày bắt đầu không được sau ngày kết thúc" 
+      }
+    }
+    
+    return { isValid: true, message: "" }
+  }
+
   // Handle skill selection
   const handleSkillChange = (skillId: number) => {
     setSelectedSkills((prev) => {
@@ -229,6 +298,16 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
         return prev.filter((id) => id !== skillId)
       }
       return [...prev, skillId]
+    })
+  }
+
+  // Handle dependency selection
+  const handleDependencyChange = (taskId: string) => {
+    setSelectedDependencies((prev) => {
+      if (prev.includes(taskId)) {
+        return prev.filter((id) => id !== taskId)
+      }
+      return [...prev, taskId]
     })
   }
 
@@ -349,11 +428,21 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     try {
       setIsSubmitting(true)
 
+      // Validate task dates
+      const validationResult = validateTaskDates(values.start_date, values.end_date)
+      if (!validationResult.isValid) {
+        toast.error(validationResult.message)
+        return
+      }
+
       // Update task
       const response = await fetch(`/api/projects/${projectId}/tasks/${initialData.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          max_retries: values.max_retries || 0,
+        }),
       })
 
       if (!response.ok) {
@@ -365,6 +454,7 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       await updateTaskSkills()
 
       // Update dependencies
+      await updateTaskDependencies()
 
       // Update RACI
       await updateTaskRaci()
@@ -406,7 +496,33 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     }
   }
 
- 
+  // Update task dependencies
+  async function updateTaskDependencies() {
+    try {
+      // First, delete all existing dependencies
+      await fetch(`/api/tasks/${initialData.id}/dependencies`, {
+        method: "DELETE",
+      })
+
+      // Then add selected dependencies
+      if (selectedDependencies.length > 0) {
+        await Promise.all(
+          selectedDependencies.map((dependsOnId) =>
+            fetch(`/api/tasks/${initialData.id}/dependencies`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                task_id: initialData.id,
+                depends_on_id: dependsOnId,
+              }),
+            })
+          )
+        )
+      }
+    } catch (err) {
+      console.error("Error updating task dependencies:", err)
+    }
+  }
 
   // Update task RACI
   async function updateTaskRaci() {
@@ -501,7 +617,7 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
         <TabsList className="grid grid-cols-3 w-full md:w-auto">
           <TabsTrigger value="details">Chi tiết</TabsTrigger>
           <TabsTrigger value="assignments">Phân công</TabsTrigger>
-          <TabsTrigger value="history">Lịch sử</TabsTrigger>
+          <TabsTrigger value="dependencies">Phụ thuộc</TabsTrigger>
         </TabsList>
 
         <Form {...form}>
@@ -514,20 +630,51 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
                 skills={skills}
                 selectedSkills={selectedSkills}
                 onSkillChange={handleSkillChange}
+                projectData={projectData}
               />
             </TabsContent>
-
-           
 
             <TabsContent value="assignments">
               <TaskAssignmentsTab users={users} raciUsers={raciUsers} onRaciChange={handleRaciChange} />
             </TabsContent>
 
-            <TabsContent value="history">
-              <TaskHistoryTab taskHistory={taskHistory} taskProgress={taskProgress} />
+            <TabsContent value="dependencies">
+              <div className="space-y-6">
+                <div className="grid gap-4">
+                  <h3 className="text-lg font-medium">Phụ thuộc công việc</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Chọn các công việc mà công việc này phụ thuộc vào. Công việc này chỉ có thể bắt đầu khi các công việc phụ thuộc hoàn thành.
+                  </p>
+                  
+                  <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-4">
+                    {availableTasks?.map((task) => (
+                      <div key={task.id} className="flex items-center justify-between p-2 border rounded">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm">{task.name}</span>
+                          <Badge variant="outline" className="text-xs">
+                            {task.status === "todo" && "Chưa bắt đầu"}
+                            {task.status === "in_progress" && "Đang thực hiện"}
+                            {task.status === "done" && "Hoàn thành"}
+                            {task.status === "review" && "Đang xem xét"}
+                            {task.status === "blocked" && "Bị chặn"}
+                          </Badge>
+                        </div>
+                        <Badge
+                          variant={selectedDependencies.includes(task.id.toString()) ? "default" : "outline"}
+                          className="cursor-pointer"
+                          onClick={() => handleDependencyChange(task.id.toString())}
+                        >
+                          {selectedDependencies.includes(task.id.toString()) ? "Đã chọn" : "Chọn"}
+                        </Badge>
+                      </div>
+                    ))}
+                    {(!availableTasks || availableTasks.length === 0) && (
+                      <p className="text-sm text-muted-foreground text-center py-4">Chưa có công việc nào khác trong dự án</p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </TabsContent>
-
-          
 
             <div className="flex justify-end gap-4">
               <Button type="button" variant="outline" onClick={() => router.back()}>
