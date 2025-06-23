@@ -1,446 +1,226 @@
-"use client"
+'use client'
 
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import { useRouter } from "next/navigation"
-import { useMemo, useState, Suspense, useEffect } from "react"
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useForm } from 'react-hook-form'
+import * as z from 'zod'
+import { Button } from '@/components/ui/button'
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { Project } from '@/app/types/table-types'
+import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
+import { createClient } from '@/lib/supabase/client'
 
-import { Button } from "@/components/ui/button"
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { format } from "date-fns"
-import { CalendarIcon } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { toast } from "sonner"
-import type { Project } from "@/app/types/table-types"
-import { LoadingSpinner } from "@/components/ui/loading"
-
+// Cập nhật schema để bao gồm cả 'classification' và 'project_field'
 const formSchema = z.object({
-  name: z.string().min(3, { message: "Tên dự án phải có ít nhất 3 ký tự" }),
-  description: z.string().min(10, { message: "Mô tả dự án phải có ít nhất 10 ký tự" }),
-  start_date: z.date({ required_error: "Vui lòng chọn ngày bắt đầu" }),
-  end_date: z.date({ required_error: "Vui lòng chọn ngày kết thúc" }),
-  status: z.string().min(1, { message: "Vui lòng chọn trạng thái" }),
+  name: z.string().min(1, 'Tên dự án là bắt buộc'),
+  description: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  status: z.string().optional(),
+  classification: z.string({
+    required_error: 'Vui lòng chọn phân loại dự án.',
+  }),
+  project_field: z.string({
+    required_error: 'Vui lòng chọn lĩnh vực dự án.',
+  }),
 })
-type FormValues = z.infer<typeof formSchema>
 
 interface ProjectFormProps {
-  projectId?: string
-  initialData?: {
-    name: string
-    description?: string
-    start_date: string
-    end_date: string
-    status: "planning" | "in_progress" | "completed" | "on_hold" | "cancelled"
-  }
+  project?: Project
 }
 
-export function ProjectForm({ projectId, initialData }: ProjectFormProps) {
+export function ProjectForm({ project }: ProjectFormProps) {
   const router = useRouter()
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const supabase = createClient()
 
-  return (
-    <Suspense fallback={<LoadingSpinner />}>
-      <ProjectFormContent projectId={projectId} initialData={initialData} />
-    </Suspense>
-  )
-}
-
-function ProjectFormContent({
-  projectId,
-  initialData,
-}: { projectId?: string; initialData?: ProjectFormProps["initialData"] }) {
-  const router = useRouter()
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [projectState, setProject] = useState<Partial<Project>>({
-    name: "",
-    description: "",
-    start_date: "",
-    end_date: "",
-    status: "planning",
-  })
-
-  const defaultValues = useMemo<Partial<FormValues>>(() => {
-    if (!projectId) {
-      return {
-        name: "",
-        description: "",
-        start_date: undefined,
-        end_date: undefined,
-        status: "planning",
-      }
-    }
-    return {
-      name: projectState.name,
-      description: projectState.description ?? "",
-      start_date: projectState.start_date ? new Date(projectState.start_date) : undefined,
-      end_date: projectState.end_date ? new Date(projectState.end_date) : undefined,
-      status: projectState.status,
-    }
-  }, [projectId, projectState])
-
-  const form = useForm<FormValues>({
+  const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues,
+    defaultValues: {
+      name: project?.name || '',
+      description: project?.description || '',
+      start_date: project?.start_date || '',
+      end_date: project?.end_date || '',
+      status: project?.status || 'active',
+      classification: project?.classification || undefined,
+      project_field: project?.project_field || undefined,
+    },
   })
 
-  // Initialize project state with initialData if available
-  useEffect(() => {
-    if (initialData) {
-      setProject({
-        name: initialData.name,
-        description: initialData.description || "",
-        start_date: initialData.start_date,
-        end_date: initialData.end_date,
-        status: initialData.status,
-      })
-
-      // Reset form with initialData
-      form.reset({
-        name: initialData.name,
-        description: initialData.description || "",
-        start_date: initialData.start_date ? new Date(initialData.start_date) : undefined,
-        end_date: initialData.end_date ? new Date(initialData.end_date) : undefined,
-        status: initialData.status,
-      })
-    }
-  }, [initialData, form])
-
-  async function onSubmit(values: z.infer<typeof formSchema>) {
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      setIsSubmitting(true)
-
-      // Format dates for API
-      const formattedValues = {
-        ...values,
-        start_date: format(values.start_date, "yyyy-MM-dd"),
-        end_date: format(values.end_date, "yyyy-MM-dd"),
+      let error = null
+      if (project) {
+        // Chế độ chỉnh sửa
+        const { error: updateError } = await supabase
+          .from('projects')
+          .update(values)
+          .eq('id', project.id)
+        error = updateError
+      } else {
+        // Chế độ tạo mới
+        const { error: insertError } = await supabase
+          .from('projects')
+          .insert(values)
+        error = insertError
       }
 
-      const endpoint = projectId ? `/api/projects/${projectId}` : "/api/projects"
-      const method = projectId ? "PUT" : "POST"
-
-      const response = await fetch(endpoint, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formattedValues),
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.message || "Có lỗi xảy ra")
+      if (error) {
+        throw error
       }
 
-      const { project } = await response.json()
-
-      toast(projectId ? "Cập nhật dự án thành công" : "Tạo dự án thành công", {
-        description: projectId ? "Dự án đã được cập nhật" : "Dự án mới đã được tạo thành công",
-      })
-
-      router.push("/dashboard/projects")
-      router.refresh()
-    } catch (error) {
-      console.error("Lỗi:", error)
-      toast.error("Lỗi", {
-        description: error instanceof Error ? error.message : "Có lỗi xảy ra",
-      })
-    } finally {
-      setIsSubmitting(false)
+      toast.success(
+        project ? 'Cập nhật dự án thành công!' : 'Tạo dự án thành công!',
+      )
+      router.push('/dashboard/projects')
+      router.refresh() // Làm mới trang để cập nhật danh sách
+    } catch (error: any) {
+      toast.error('Đã xảy ra lỗi: ' + error.message)
     }
   }
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
         <FormField
           control={form.control}
           name="name"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="flex items-center gap-1">
-                Tên dự án <span className="text-red-500">*</span>
-              </FormLabel>
+              <FormLabel>Tên dự án</FormLabel>
               <FormControl>
-                <Input placeholder="Nhập tên dự án" {...field} />
+                <Input placeholder="Nhập tên dự án..." {...field} />
               </FormControl>
-              <FormDescription>Tên dự án nên ngắn gọn và mô tả được mục tiêu</FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
-
         <FormField
           control={form.control}
           name="description"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="flex items-center gap-1">
-                Mô tả dự án <span className="text-red-500">*</span>
-              </FormLabel>
+              <FormLabel>Mô tả</FormLabel>
               <FormControl>
-                <Textarea placeholder="Mô tả chi tiết phạm vi dự án" className="min-h-[120px]" {...field} />
+                <Textarea
+                  placeholder="Nhập mô tả chi tiết cho dự án..."
+                  {...field}
+                />
               </FormControl>
-              <FormDescription>Mô tả chi tiết phạm vi, mục tiêu và các yêu cầu chính của dự án</FormDescription>
               <FormMessage />
             </FormItem>
           )}
         />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* ---- TRƯỜNG MỚI: Lĩnh vực Dự án ---- */}
+          <FormField
+            control={form.control}
+            name="project_field"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Lĩnh vực Dự án</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Chọn lĩnh vực" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="Xây dựng">Xây dựng cơ bản</SelectItem>
+                    <SelectItem value="CNTT">Công nghệ thông tin</SelectItem>
+                    <SelectItem value="Cải cách TTHC">
+                      Cải cách TTHC
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {/* ---- TRƯỜNG MỚI: Phân loại Dự án ---- */}
+          <FormField
+            control={form.control}
+            name="classification"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Phân loại Dự án</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Chọn phân loại" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="A">Nhóm A</SelectItem>
+                    <SelectItem value="B">Nhóm B</SelectItem>
+                    <SelectItem value="C">Nhóm C</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <FormField
             control={form.control}
             name="start_date"
             render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel className="flex items-center gap-1">
-                  Ngày bắt đầu <span className="text-red-500">*</span>
-                </FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant={"outline"}
-                        className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                      >
-                        {field.value ? format(field.value, "dd/MM/yyyy") : <span>Chọn ngày</span>}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <div className="p-3 border-b">
-                      <div className="flex gap-2">
-                        <Select
-                          value={
-                            field.value ? field.value.getFullYear().toString() : new Date().getFullYear().toString()
-                          }
-                          onValueChange={(year) => {
-                            const currentDate = field.value || new Date()
-                            const newDate = new Date(currentDate)
-                            newDate.setFullYear(Number.parseInt(year))
-                            field.onChange(newDate)
-                          }}
-                        >
-                          <SelectTrigger className="w-[100px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: 10 }, (_, i) => {
-                              const year = new Date().getFullYear() - 5 + i
-                              return (
-                                <SelectItem key={year} value={year.toString()}>
-                                  {year}
-                                </SelectItem>
-                              )
-                            })}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={field.value ? field.value.getMonth().toString() : new Date().getMonth().toString()}
-                          onValueChange={(month) => {
-                            const currentDate = field.value || new Date()
-                            const newDate = new Date(currentDate)
-                            newDate.setMonth(Number.parseInt(month))
-                            field.onChange(newDate)
-                          }}
-                        >
-                          <SelectTrigger className="w-[120px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {[
-                              "Tháng 1",
-                              "Tháng 2",
-                              "Tháng 3",
-                              "Tháng 4",
-                              "Tháng 5",
-                              "Tháng 6",
-                              "Tháng 7",
-                              "Tháng 8",
-                              "Tháng 9",
-                              "Tháng 10",
-                              "Tháng 11",
-                              "Tháng 12",
-                            ].map((month, index) => (
-                              <SelectItem key={index} value={index.toString()}>
-                                {month}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      month={field.value || new Date()}
-                      onMonthChange={(date) => {
-                        const newDate = new Date(field.value || new Date())
-                        newDate.setFullYear(date.getFullYear())
-                        newDate.setMonth(date.getMonth())
-                        field.onChange(newDate)
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <FormDescription>Ngày dự kiến khởi động dự án</FormDescription>
+              <FormItem>
+                <FormLabel>Ngày bắt đầu</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-
           <FormField
             control={form.control}
             name="end_date"
             render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel className="flex items-center gap-1">
-                  Ngày kết thúc <span className="text-red-500">*</span>
-                </FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant={"outline"}
-                        className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                      >
-                        {field.value ? format(field.value, "dd/MM/yyyy") : <span>Chọn ngày</span>}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <div className="p-3 border-b">
-                      <div className="flex gap-2">
-                        <Select
-                          value={
-                            field.value ? field.value.getFullYear().toString() : new Date().getFullYear().toString()
-                          }
-                          onValueChange={(year) => {
-                            const currentDate = field.value || new Date()
-                            const newDate = new Date(currentDate)
-                            newDate.setFullYear(Number.parseInt(year))
-                            field.onChange(newDate)
-                          }}
-                        >
-                          <SelectTrigger className="w-[100px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: 10 }, (_, i) => {
-                              const year = new Date().getFullYear() - 5 + i
-                              return (
-                                <SelectItem key={year} value={year.toString()}>
-                                  {year}
-                                </SelectItem>
-                              )
-                            })}
-                          </SelectContent>
-                        </Select>
-                        <Select
-                          value={field.value ? field.value.getMonth().toString() : new Date().getMonth().toString()}
-                          onValueChange={(month) => {
-                            const currentDate = field.value || new Date()
-                            const newDate = new Date(currentDate)
-                            newDate.setMonth(Number.parseInt(month))
-                            field.onChange(newDate)
-                          }}
-                        >
-                          <SelectTrigger className="w-[120px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {[
-                              "Tháng 1",
-                              "Tháng 2",
-                              "Tháng 3",
-                              "Tháng 4",
-                              "Tháng 5",
-                              "Tháng 6",
-                              "Tháng 7",
-                              "Tháng 8",
-                              "Tháng 9",
-                              "Tháng 10",
-                              "Tháng 11",
-                              "Tháng 12",
-                            ].map((month, index) => (
-                              <SelectItem key={index} value={index.toString()}>
-                                {month}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      month={field.value || new Date()}
-                      onMonthChange={(date) => {
-                        const newDate = new Date(field.value || new Date())
-                        newDate.setFullYear(date.getFullYear())
-                        newDate.setMonth(date.getMonth())
-                        field.onChange(newDate)
-                      }}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <FormDescription>Ngày dự kiến kết thúc dự án</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField
-            control={form.control}
-            name="status"
-            render={({ field }) => (
               <FormItem>
-                <FormLabel className="flex items-center gap-1">
-                  Trạng thái <span className="text-red-500">*</span>
-                </FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn trạng thái" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="planning">Lập kế hoạch</SelectItem>
-                    <SelectItem value="in_progress">Đang thực hiện</SelectItem>
-                    <SelectItem value="completed">Hoàn thành</SelectItem>
-                    <SelectItem value="on_hold">Tạm dừng</SelectItem>
-                    <SelectItem value="archived">Lưu trữ</SelectItem>
-                    <SelectItem value="cancelled">Đã hủy</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormDescription>Trạng thái hiện tại của dự án</FormDescription>
+                <FormLabel>Ngày kết thúc</FormLabel>
+                <FormControl>
+                  <Input type="date" {...field} />
+                </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
-
-        <div className="flex justify-end gap-4">
-          <Button type="button" variant="outline" onClick={() => router.back()}>
+        <div className="flex justify-end space-x-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.back()}
+          >
             Hủy
           </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "Đang lưu..." : projectId ? "Cập nhật" : "Tạo dự án"}
-          </Button>
+          <Button type="submit">{project ? 'Lưu thay đổi' : 'Tạo dự án'}</Button>
         </div>
       </form>
     </Form>

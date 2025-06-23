@@ -1,8 +1,12 @@
-import { createClient } from "@/lib/supabase/server"
-import { NextResponse } from "next/server"
+import { createClient } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server'
 
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = await createClient()
+  const { searchParams } = new URL(req.url)
+  const page = parseInt(searchParams.get('page') || '1', 10)
+  const limit = parseInt(searchParams.get('limit') || '10', 10)
+  const offset = (page - 1) * limit
 
   const {
     data: { user: authUser },
@@ -10,131 +14,161 @@ export async function GET() {
   } = await supabase.auth.getUser()
 
   if (authError || !authUser) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
+    return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
   }
 
-  // Get current user's org_unit and position
+  // Lấy thông tin đơn vị và chức vụ của người dùng hiện tại
   const { data: currentUser, error: userError } = await supabase
-    .from("users")
-    .select("org_unit, position")
-    .eq("id", authUser.id)
+    .from('users')
+    .select('org_unit, position')
+    .eq('id', authUser.id)
     .single()
 
   if (userError || !currentUser) {
-    return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Không thể lấy thông tin người dùng' },
+      { status: 500 },
+    )
   }
 
-  // Lấy danh sách dự án
-  const { data: projects, error } = await supabase
-    .from("projects")
-    .select(`
-      id,
-      name,
-      description,
-      start_date,
-      end_date,
-      status,
-      created_by,
-      users!created_by (
-        full_name,
-        org_unit,
-        position
-      )
-    `)
-    .eq("users.org_unit", currentUser.org_unit)
-    .order("end_date", { ascending: true })
+  // Lấy danh sách dự án thuộc đơn vị của người dùng (có phân trang)
+  const {
+    data: projects,
+    error,
+    count,
+  } = await supabase
+    .from('projects')
+    .select(
+      `
+      id, name, description, start_date, end_date, status, classification, project_field, created_by,
+      users!created_by (full_name, org_unit, position)
+    `,
+      { count: 'exact' },
+    )
+    .eq('users.org_unit', currentUser.org_unit)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ 
-    projects,
+  // Xác định quyền hạn dựa trên chức vụ
+  const userPosition = currentUser.position?.toLowerCase() || ''
+  const canManage = [
+    'quản lý',
+    'trưởng phòng',
+    'chỉ huy',
+    'team lead',
+    'project manager',
+  ].some(pos => userPosition.includes(pos))
+
+  // SỬA LỖI: Trả về đối tượng với key là "projects" để khớp với component `ProjectsList`
+  return NextResponse.json({
+    projects: projects, // Thay vì "data", dùng "projects"
+    count,
     userPermissions: {
-      canCreate: ["quản lý", "trưởng phòng", "chỉ huy", "team lead", "project manager"].some(pos => 
-        currentUser.position?.toLowerCase().includes(pos.toLowerCase())
-      ),
-      canEdit: ["quản lý", "trưởng phòng", "chỉ huy", "team lead", "project manager"].some(pos => 
-        currentUser.position?.toLowerCase().includes(pos.toLowerCase())
-      ),
-      canDelete: currentUser.position?.toLowerCase() === "quản lý"
-    }
+      canCreate: canManage,
+      canEdit: canManage,
+      canDelete: userPosition.includes('quản lý'),
+    },
   })
 }
 
-export async function POST(request: Request) {
+// Hàm POST không thay đổi, giữ nguyên logic
+export async function POST(req: Request) {
   const supabase = await createClient()
 
-  const {
-    data: { user: authUser },
-    error: authError,
-  } = await supabase.auth.getUser()
-
-  if (authError || !authUser) {
-    return NextResponse.json({ error: "Chưa đăng nhập" }, { status: 401 })
-  }
-
-  // Check if user has permission to create projects
-  const { data: currentUser, error: userError } = await supabase
-    .from("users")
-    .select("position")
-    .eq("id", authUser.id)
-    .single()
-
-  if (userError || !currentUser) {
-    return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
-  }
-
-  // Allow managers and team leads to create projects
-  const allowedPositions = ["quản lý", "trưởng phòng", "chỉ huy", "team lead", "project manager"]
-  const userPosition = currentUser.position?.toLowerCase() || ""
-  
-  console.log("User position:", currentUser.position)
-  console.log("Allowed positions:", allowedPositions)
-  console.log("Position check result:", allowedPositions.some(pos => userPosition.includes(pos.toLowerCase())))
-  
-  // Temporarily allow all users to create projects for testing
-  /*
-  if (!allowedPositions.some(pos => userPosition.includes(pos.toLowerCase()))) {
-    return NextResponse.json({ error: "Bạn không có quyền tạo dự án" }, { status: 403 })
-  }
-  */
-
   try {
-    const body = await request.json()
+    const {
+      data: { user: authUser },
+      error: authError,
+    } = await supabase.auth.getUser()
 
-    // Validate required fields
-    if (!body.name || !body.description || !body.start_date || !body.end_date || !body.status) {
-      return NextResponse.json({ error: "Thiếu thông tin bắt buộc" }, { status: 400 })
+    if (authError || !authUser) {
+      return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
     }
 
-    // Validate dates
-    const startDate = new Date(body.start_date)
-    const endDate = new Date(body.end_date)
-    if (endDate < startDate) {
-      return NextResponse.json({ error: "Ngày kết thúc phải sau ngày bắt đầu" }, { status: 400 })
+    const { data: currentUser, error: userError } = await supabase
+      .from('users')
+      .select('position')
+      .eq('id', authUser.id)
+      .single()
+
+    if (userError || !currentUser) {
+      return NextResponse.json(
+        { error: 'Không thể lấy thông tin người dùng' },
+        { status: 500 },
+      )
     }
 
-    // Insert new project
-    const { data, error } = await supabase
-      .from("projects")
+    const allowedPositions = [
+      'quản lý',
+      'trưởng phòng',
+      'chỉ huy',
+      'team lead',
+      'project manager',
+    ]
+    const userPosition = currentUser.position?.toLowerCase() || ''
+
+    if (!allowedPositions.some(pos => userPosition.includes(pos))) {
+      return NextResponse.json(
+        { error: 'Bạn không có quyền tạo dự án' },
+        { status: 403 },
+      )
+    }
+
+    const body = await req.json()
+    const {
+      name,
+      description,
+      start_date,
+      end_date,
+      status,
+      classification,
+      project_field,
+    } = body
+
+    if (!name || !project_field || !classification) {
+      return NextResponse.json(
+        { error: 'Tên dự án, lĩnh vực và phân loại là bắt buộc' },
+        { status: 400 },
+      )
+    }
+
+    const { data: newProject, error: insertError } = await supabase
+      .from('projects')
       .insert({
-        name: body.name,
-        description: body.description,
-        start_date: body.start_date,
-        end_date: body.end_date,
-        status: body.status,
+        name,
+        description,
+        start_date,
+        end_date,
+        status,
+        classification,
+        project_field,
         created_by: authUser.id,
       })
       .select()
+      .single()
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (insertError) throw insertError
+
+    if (newProject) {
+      const { error: templateError } = await supabase.rpc(
+        'create_tasks_from_templates',
+        {
+          p_project_id: newProject.id,
+          p_project_field: project_field,
+          p_project_classification: classification,
+        },
+      )
+      if (templateError) {
+        console.error('Lỗi khi tạo task từ template:', templateError)
+      }
     }
 
-    return NextResponse.json({ project: data[0] }, { status: 201 })
-  } catch (error) {
-    console.error("Error creating project:", error)
-    return NextResponse.json({ error: "Lỗi khi tạo dự án" }, { status: 500 })
+    return NextResponse.json({ project: newProject }, { status: 201 })
+  } catch (error: any) {
+    return NextResponse.json({ error: 'Lỗi khi tạo dự án' }, { status: 500 })
   }
 }

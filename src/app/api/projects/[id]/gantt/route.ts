@@ -3,8 +3,8 @@ import { NextResponse } from "next/server"
 
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const projectId = params.id
-
+  const { id: projectId } = await params
+ 
   try {
     // Lấy thông tin dự án
     const { data: project, error: projectError } = await supabase
@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     // Lấy danh sách công việc của dự án
-    const { data: tasks, error: tasksError } = await supabase
+    const { data: tasks = [], error: tasksError } = await supabase
       .from("tasks")
       .select(`
         id, 
@@ -47,7 +47,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     // Lấy danh sách giai đoạn của dự án
-    const { data: phases, error: phasesError } = await supabase
+    const { data: phases = [], error: phasesError } = await supabase
       .from("project_phases")
       .select("id, name, order_no")
       .eq("project_id", projectId)
@@ -58,12 +58,12 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     // Lấy danh sách kỹ năng của các công việc
-    const { data: taskSkills, error: taskSkillsError } = await supabase
+    const { data: taskSkills = [], error: taskSkillsError } = await supabase
       .from("task_skills")
       .select("task_id, skill_id, skills(id, name)")
       .in(
         "task_id",
-        tasks.map((task) => task.id),
+        (tasks || []).map((task) => task.id),
       )
 
     if (taskSkillsError) {
@@ -71,7 +71,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     }
 
     // Lấy danh sách RACI của các công việc
-    const { data: raciData, error: raciError } = await supabase
+    const { data: raciData = [], error: raciError } = await supabase
       .from("task_raci")
       .select(`
         task_id, 
@@ -84,9 +84,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
           org_unit
         )
       `)
-      .in(
+      .in( 
         "task_id",
-        tasks.map((task) => task.id),
+        (tasks || []).map((task) => task.id),
       )
 
     if (raciError) {

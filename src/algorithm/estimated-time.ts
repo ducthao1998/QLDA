@@ -1,11 +1,23 @@
 import type { EstimatedTimeResult } from "@/app/types/task"
 import { differenceInDays, differenceInHours } from "date-fns"
+import { Task, User, TaskSkill, UserSkill } from "@/app/types/table-types"
 
 interface EstimatedTimeParams {
   start_date?: string
   end_date?: string
   max_retries?: number
   dependencies?: any[]
+}
+
+interface TimeEstimate {
+  minHours: number;
+  maxHours: number;
+  confidence: number;
+  factors: {
+    skillMatch: number;
+    complexity: number;
+    dependencies: number;
+  };
 }
 
 export function calculateEstimatedTime(params: EstimatedTimeParams): EstimatedTimeResult {
@@ -126,4 +138,129 @@ function convertToAppropriateTimeUnit(hours: number): {
       hours: remainingHoursInDay
     }
   }
+}
+
+export function calculateTaskTimeEstimate(
+  task: Task,
+  user: User,
+  taskSkills: TaskSkill[],
+  userSkills: UserSkill[]
+): TimeEstimate {
+  // 1. Calculate skill match factor
+  const skillMatch = calculateSkillMatch(String(task.id), user.id, taskSkills, userSkills);
+  
+  // 2. Calculate task complexity
+  const complexity = calculateTaskComplexity(task);
+  
+  // 3. Calculate dependency impact
+  const dependencies = calculateDependencyImpact(task);
+  
+  // 4. Calculate base time estimate
+  const baseHours = calculateBaseHours(task);
+  
+  // 5. Apply factors to get min and max estimates
+  const minHours = baseHours * (1 - (skillMatch * 0.2 + complexity * 0.3 + dependencies * 0.1));
+  const maxHours = baseHours * (1 + (skillMatch * 0.2 + complexity * 0.3 + dependencies * 0.1));
+  
+  // 6. Calculate confidence level
+  const confidence = calculateConfidence(skillMatch, complexity, dependencies);
+  
+  return {
+    minHours,
+    maxHours,
+    confidence,
+    factors: {
+      skillMatch,
+      complexity,
+      dependencies
+    }
+  };
+}
+
+function calculateSkillMatch(
+  taskId: string,
+  userId: string,
+  taskSkills: TaskSkill[],
+  userSkills: UserSkill[]
+): number {
+  // Get required skills for the task
+  const requiredSkills = taskSkills
+    .filter(ts => ts.task_id === taskId)
+    .map(ts => ts.skill_id);
+  
+  if (requiredSkills.length === 0) return 0.5; // Default if no skills required
+  
+  // Get user's skill levels
+  const userSkillLevels = userSkills
+    .filter(us => us.user_id === userId)
+    .map(us => ({
+      skillId: us.skill_id,
+      level: us.level
+    }));
+  
+  // Calculate average skill match
+  let totalMatch = 0;
+  let matchedSkills = 0;
+  
+  requiredSkills.forEach(skillId => {
+    const userSkill = userSkillLevels.find(us => us.skillId === skillId);
+    if (userSkill) {
+      totalMatch += userSkill.level / 5; // Normalize to 0-1
+      matchedSkills++;
+    }
+  });
+  
+  return matchedSkills > 0 ? totalMatch / matchedSkills : 0;
+}
+
+function calculateTaskComplexity(task: Task): number {
+  // Base complexity on task properties
+  let complexity = 0.5; // Default medium complexity
+  
+  // Adjust based on max retries
+  if (task.max_retries) {
+    complexity += (task.max_retries / 10); // Each retry adds 0.1 to complexity
+  }
+  
+  // Adjust based on note length (if available)
+  if (task.note) {
+    const noteLength = task.note.length;
+    complexity += Math.min(noteLength / 1000, 0.3); // Longer notes suggest more complexity
+  }
+  
+  // Normalize to 0-1
+  return Math.min(complexity, 1);
+}
+
+function calculateDependencyImpact(task: Task): number {
+  // This would normally use task dependencies
+  // For now, return a default value
+  return 0.3;
+}
+
+function calculateBaseHours(task: Task): number {
+  // Calculate base hours from start and end dates
+  const startDate = new Date(task.start_date);
+  const endDate = new Date(task.end_date);
+  
+  // Convert to hours
+  const hours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+  
+  // Ensure minimum of 1 hour
+  return Math.max(hours, 1);
+}
+
+function calculateConfidence(
+  skillMatch: number,
+  complexity: number,
+  dependencies: number
+): number {
+  // Calculate confidence based on factors
+  // Higher values mean more confidence in the estimate
+  
+  const skillConfidence = skillMatch * 0.4; // 40% weight
+  const complexityConfidence = (1 - complexity) * 0.3; // 30% weight
+  const dependencyConfidence = (1 - dependencies) * 0.3; // 30% weight
+  
+  return skillConfidence + complexityConfidence + dependencyConfidence;
 }

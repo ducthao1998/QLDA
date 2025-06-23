@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { optimizeSchedule } from "@/algorithm/schedule-optimizer"
-import type { Task } from "@/algorithm/critical-path"
 
 interface TaskSkill {
   task_id: string;
@@ -13,7 +12,7 @@ interface TaskSkill {
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
-  const projectId = params.id
+  const { id: projectId } = await params
   const body = await request.json()
   const { algorithm = "cpm", objective = "time" } = body
 
@@ -163,19 +162,28 @@ export async function POST(request: Request, { params }: { params: { id: string 
     })
 
     // Gọi thuật toán tối ưu hóa
-    const optimizedSchedule = optimizeSchedule({
-      project,
-      tasks: tasksWithDependencies,
-      users: users.map((user) => {
-        const skills = userSkills.filter((skill) => skill.user_id === user.id)
-        return {
-          ...user,
-          skills,
+    const optimizedSchedule = await optimizeSchedule(
+      tasksWithDependencies,
+      taskDependencies || [],
+      [], // scheduleDetails will be empty initially
+      { 
+        algorithm, 
+        objective: { type: objective },
+        constraints: {
+          max_duration: undefined,
+          max_cost: undefined,
+          min_resource_utilization: 0.7,
+          respect_dependencies: true,
+          respect_skills: true,
+          respect_availability: true
         }
-      }),
-      algorithm,
-      objective,
-    })
+      },
+      project,
+      users,
+      userSkills,
+      taskSkills,
+      null // scheduleRun will be created after optimization
+    )
 
     // Lưu kết quả tối ưu hóa vào cơ sở dữ liệu
     const { data: scheduleRun, error: runError } = await supabase
@@ -194,12 +202,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     // Lưu chi tiết lịch trình
-    const scheduleDetails = optimizedSchedule.tasks.map((task: Task) => ({
+    const scheduleDetails = optimizedSchedule.schedule_changes.map((change) => ({
       run_id: scheduleRun.id,
-      task_id: task.id,
-      start_ts: task.optimized_start,
-      finish_ts: task.optimized_end,
-      assigned_user: task.assigned_to,
+      task_id: change.task_id,
+      start_ts: change.new_start,
+      finish_ts: change.new_start, // You may want to calculate this based on task duration
+      assigned_user: change.new_assignee,
     }))
 
     const { error: detailsError } = await supabase.from("schedule_details").insert(scheduleDetails)

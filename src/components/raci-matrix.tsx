@@ -1,176 +1,185 @@
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+'use client'
+
+import { useEffect, useState, useMemo } from 'react'
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Project, RaciRole } from '@/app/types/table-types'
+
+// Define types for the data structure we expect from the RACI API
+interface RaciTask {
+  id: string
+  name: string
+}
+
+interface RaciUser {
+  id: string
+  full_name: string
+}
+
+interface RaciAssignment {
+  task_id: string
+  user_id: string
+  role: RaciRole
+}
+
+interface RaciData {
+  tasks: RaciTask[]
+  users: RaciUser[]
+  assignments: RaciAssignment[]
+}
 
 export function RaciMatrix() {
-  const tasks = [
-    "Đánh Giá Tác Động Môi Trường",
-    "Lập Kế Hoạch Ngân Sách",
-    "Tham Vấn Các Bên Liên Quan",
-    "Quy Trình Mua Sắm",
-    "Đảm Bảo Chất Lượng",
-    "Quản Lý Rủi Ro",
-    "Báo Cáo Tiến Độ",
-    "Quản Lý Hợp Đồng",
-  ]
+  const [projects, setProjects] = useState<Project[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [raciData, setRaciData] = useState<RaciData | null>(null)
+  const [loadingProjects, setLoadingProjects] = useState(true)
+  const [loadingRaci, setLoadingRaci] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const roles = [
-    "Quản Lý Dự Án",
-    "Chuyên Viên Tài Chính",
-    "Cố Vấn Pháp Lý",
-    "Kỹ Sư",
-    "Kiến Trúc Sư",
-    "Trưởng Phòng",
-    "Tư Vấn Bên Ngoài",
-  ]
-
-  // R: Responsible (Thực hiện), A: Accountable (Chịu trách nhiệm), C: Consulted (Tham vấn), I: Informed (Được thông báo)
-  const matrix = {
-    "Đánh Giá Tác Động Môi Trường": {
-      "Quản Lý Dự Án": "A",
-      "Chuyên Viên Tài Chính": "I",
-      "Cố Vấn Pháp Lý": "C",
-      "Kỹ Sư": "R",
-      "Kiến Trúc Sư": "C",
-      "Trưởng Phòng": "I",
-      "Tư Vấn Bên Ngoài": "R",
-    },
-    "Lập Kế Hoạch Ngân Sách": {
-      "Quản Lý Dự Án": "A",
-      "Chuyên Viên Tài Chính": "R",
-      "Cố Vấn Pháp Lý": "C",
-      "Kỹ Sư": "C",
-      "Kiến Trúc Sư": "I",
-      "Trưởng Phòng": "A",
-      "Tư Vấn Bên Ngoài": "I",
-    },
-    "Tham Vấn Các Bên Liên Quan": {
-      "Quản Lý Dự Án": "R",
-      "Chuyên Viên Tài Chính": "I",
-      "Cố Vấn Pháp Lý": "C",
-      "Kỹ Sư": "I",
-      "Kiến Trúc Sư": "I",
-      "Trưởng Phòng": "A",
-      "Tư Vấn Bên Ngoài": "C",
-    },
-    "Quy Trình Mua Sắm": {
-      "Quản Lý Dự Án": "A",
-      "Chuyên Viên Tài Chính": "R",
-      "Cố Vấn Pháp Lý": "R",
-      "Kỹ Sư": "C",
-      "Kiến Trúc Sư": "I",
-      "Trưởng Phòng": "A",
-      "Tư Vấn Bên Ngoài": "I",
-    },
-    "Đảm Bảo Chất Lượng": {
-      "Quản Lý Dự Án": "A",
-      "Chuyên Viên Tài Chính": "I",
-      "Cố Vấn Pháp Lý": "I",
-      "Kỹ Sư": "R",
-      "Kiến Trúc Sư": "R",
-      "Trưởng Phòng": "I",
-      "Tư Vấn Bên Ngoài": "C",
-    },
-    "Quản Lý Rủi Ro": {
-      "Quản Lý Dự Án": "R",
-      "Chuyên Viên Tài Chính": "C",
-      "Cố Vấn Pháp Lý": "C",
-      "Kỹ Sư": "C",
-      "Kiến Trúc Sư": "C",
-      "Trưởng Phòng": "A",
-      "Tư Vấn Bên Ngoài": "R",
-    },
-    "Báo Cáo Tiến Độ": {
-      "Quản Lý Dự Án": "R",
-      "Chuyên Viên Tài Chính": "C",
-      "Cố Vấn Pháp Lý": "I",
-      "Kỹ Sư": "R",
-      "Kiến Trúc Sư": "R",
-      "Trưởng Phòng": "A",
-      "Tư Vấn Bên Ngoài": "I",
-    },
-    "Quản Lý Hợp Đồng": {
-      "Quản Lý Dự Án": "A",
-      "Chuyên Viên Tài Chính": "C",
-      "Cố Vấn Pháp Lý": "R",
-      "Kỹ Sư": "I",
-      "Kiến Trúc Sư": "I",
-      "Trưởng Phòng": "I",
-      "Tư Vấn Bên Ngoài": "C",
-    },
-  }
-
-  const getBadgeVariant = (value:any) => {
-    switch (value) {
-      case "R":
-        return "default"
-      case "A":
-        return "destructive"
-      case "C":
-        return "secondary"
-      case "I":
-        return "outline"
-      default:
-        return "outline"
+  // Fetch all projects for the selector
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        setLoadingProjects(true)
+        // Assuming the projects API can return a simple list without pagination
+        const response = await fetch('/api/projects?limit=1000') 
+        if (!response.ok) throw new Error('Không thể tải danh sách dự án')
+        const result = await response.json()
+        setProjects(result.data || [])
+      } catch (err: any) {
+        setError(err.message)
+      } finally {
+        setLoadingProjects(false)
+      }
     }
-  }
+    fetchProjects()
+  }, [])
 
-  const getTooltipText = (value:any) => {
-    switch (value) {
-      case "R":
-        return "Thực hiện: Người thực hiện công việc"
-      case "A":
-        return "Chịu trách nhiệm: Người chịu trách nhiệm cuối cùng"
-      case "C":
-        return "Tham vấn: Người được hỏi ý kiến"
-      case "I":
-        return "Được thông báo: Người được cập nhật thông tin"
-      default:
-        return ""
+  // Fetch RACI data when a project is selected
+  useEffect(() => {
+    if (!selectedProjectId) {
+      setRaciData(null)
+      return
     }
+
+    const fetchRaciData = async () => {
+      try {
+        setLoadingRaci(true)
+        setError(null)
+        const response = await fetch(`/api/projects/${selectedProjectId}/raci`)
+        if (!response.ok) throw new Error('Không thể tải dữ liệu RACI cho dự án này')
+        const data = await response.json()
+        setRaciData(data)
+      } catch (err: any) {
+        setError(err.message)
+      } finally {
+        setLoadingRaci(false)
+      }
+    }
+    fetchRaciData()
+  }, [selectedProjectId])
+
+  const findRole = (taskId: string, userId: string): RaciRole | undefined => {
+    return raciData?.assignments.find(
+      a => a.task_id === taskId && a.user_id === userId,
+    )?.role
   }
 
   return (
-    <div className="rounded-md border overflow-x-auto">
-      <TooltipProvider>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="min-w-[200px]">Nhiệm Vụ / Vai Trò</TableHead>
-              {roles.map((role) => (
-                <TableHead key={role} className="text-center min-w-[120px]">
-                  {role}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {tasks.map((task) => (
-              <TableRow key={task}>
-                <TableCell className="font-medium">{task}</TableCell>
-                {roles.map((role) => (
-                  <TableCell key={`${task}-${role}`} className="text-center">
-                    {matrix[task][role] ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex justify-center">
-                            <Badge variant={getBadgeVariant(matrix[task][role])}>{matrix[task][role]}</Badge>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{getTooltipText(matrix[task][role])}</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      "-"
-                    )}
-                  </TableCell>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Ma trận Phân quyền (RACI)</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Hiển thị vai trò và trách nhiệm trong các công việc của dự án.
+          </p>
+        </div>
+        <div className="w-1/3">
+          {loadingProjects ? (
+            <Skeleton className="h-10 w-full" />
+          ) : (
+            <Select onValueChange={setSelectedProjectId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn một dự án" />
+              </SelectTrigger>
+              <SelectContent>
+                {projects.map(project => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.name}
+                  </SelectItem>
                 ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TooltipProvider>
-    </div>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          {loadingRaci ? (
+            <div className="space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : !selectedProjectId ? (
+            <div className="text-center py-10 text-muted-foreground">
+              <p>Vui lòng chọn một dự án để xem ma trận RACI.</p>
+            </div>
+          ) : error ? (
+            <div className="text-center py-10 text-destructive">
+              <p>{error}</p>
+            </div>
+          ) : raciData && raciData.tasks.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="sticky left-0 bg-background z-10 min-w-[250px]">
+                    Công việc
+                  </TableHead>
+                  {raciData.users.map(user => (
+                    <TableHead key={user.id} className="text-center">
+                      {user.full_name}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {raciData.tasks.map(task => (
+                  <TableRow key={task.id}>
+                    <TableCell className="font-medium sticky left-0 bg-background z-10">
+                      {task.name}
+                    </TableCell>
+                    {raciData.users.map(user => (
+                      <TableCell key={user.id} className="text-center font-bold">
+                        {findRole(task.id, user.id) || '-'}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+             <div className="text-center py-10 text-muted-foreground">
+              <p>Không có dữ liệu RACI cho dự án này.</p>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   )
 }

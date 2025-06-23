@@ -1,66 +1,30 @@
-import { createClient } from "@/lib/supabase/server"
-import { NextResponse } from "next/server"
-import { Task } from "@/app/types/table-types"
+import { createClient } from '@/lib/supabase/server'
+import { NextResponse } from 'next/server'
 
+// Lấy danh sách công việc cho một dự án
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  req: Request,
+  { params }: { params: { id: string } },
 ) {
   try {
     const supabase = await createClient()
-    const { id: projectId } = await params
-    const url = new URL(request.url)
-    const skill_id = url.searchParams.get("skill_id")
+    const { id: projectId } = params
 
-    // If skill_id is provided, return recommended users
-    if (skill_id) {
-      const recommendedUsers = await getRecommendedUsers(supabase, {
-        skill_id: parseInt(skill_id),
-        project_id: projectId
-      })
-      return NextResponse.json({ users: recommendedUsers })
-    }
-
-    // Otherwise return project tasks
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Lấy thông tin xác thực, không cần kiểm tra quyền ở đây nữa vì đã có RLS
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get current user's org_unit
-    const { data: currentUser, error: userError } = await supabase
-      .from("users")
-      .select("org_unit")
-      .eq("id", user.id)
-      .single()
-
-    if (userError || !currentUser) {
-      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
-    }
-
-    // Check if project belongs to user's org_unit
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select(`
-        *,
-        users!created_by (
-          org_unit
-        )
-      `)
-      .eq("id", projectId)
-      .single()
-
-    if (projectError || !project) {
-      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
-    }
-
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền truy cập dự án này" }, { status: 403 })
-    }
-
+    // SỬA LỖI: Thay thế join "task_skills" bằng "task_templates"
+    // Câu lệnh select giờ đây sẽ lấy thông tin kỹ năng yêu cầu qua bảng mẫu
     const { data: tasks, error: tasksError } = await supabase
-      .from("tasks")
-      .select(`
+      .from('tasks')
+      .select(
+        `
         *,
         users:assigned_to (
           full_name,
@@ -77,318 +41,102 @@ export async function GET(
             full_name
           )
         ),
-        task_skills!inner (
+        task_templates (
+          required_skill_id,
           skills (
             id,
-            name
+            name,
+            field
           )
         )
-      `)
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false })
+      `,
+      )
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
 
     if (tasksError) {
-      console.error("Error fetching tasks:", tasksError)
+      console.error('Error fetching tasks:', tasksError)
       return NextResponse.json({ error: tasksError.message }, { status: 500 })
     }
 
-    return NextResponse.json({ tasks })
+    return NextResponse.json(tasks) // Trả về mảng tasks trực tiếp
   } catch (error) {
-    console.error("Error in GET /api/projects/[id]/tasks:", error)
+    console.error('Error in GET /api/projects/[id]/tasks:', error)
     return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
+      { error: 'Internal Server Error' },
+      { status: 500 },
     )
   }
 }
 
+// Tạo công việc mới từ danh sách template IDs
 export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
+  req: Request,
+  { params }: { params: { id: string } },
 ) {
   try {
     const supabase = await createClient()
-    const { id: projectId } = await params
+    const projectId = params.id
+    const { template_ids } = (await req.json()) as { template_ids: number[] }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (
+      !template_ids ||
+      !Array.isArray(template_ids) ||
+      template_ids.length === 0
+    ) {
+      return NextResponse.json(
+        { error: 'Cần cung cấp một mảng template_ids.' },
+        { status: 400 },
+      )
     }
-
-    // Get current user's org_unit
-    const { data: currentUser, error: userError } = await supabase
-      .from("users")
-      .select("org_unit")
-      .eq("id", user.id)
-      .single()
-
-    if (userError || !currentUser) {
-      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
-    }
-
-    // Check if project belongs to user's org_unit
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select(`
-        *,
-        users!created_by (
-          org_unit
-        )
-      `)
-      .eq("id", projectId)
-      .single()
-
-    if (projectError || !project) {
-      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
-    }
-
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền tạo công việc cho dự án này" }, { status: 403 })
-    }
-
-    const body = await request.json()
-    const { dependencies, ...taskData } = body
     
-    const { data: task, error } = await supabase
-      .from("tasks")
-      .insert({
-        ...taskData,
-        project_id: projectId
-      })
+    // Lấy thông tin từ các templates được chọn
+    const { data: templates, error: templateError } = await supabase
+      .from('task_templates')
+      .select('*')
+      .in('id', template_ids)
+
+    if (templateError) throw templateError
+    if (!templates || templates.length === 0) {
+      return NextResponse.json(
+        { error: 'Không tìm thấy các mẫu được chọn.' },
+        { status: 404 },
+      )
+    }
+
+    // Lấy phase_id tương ứng
+    const phaseNames = templates.map(t => t.phase)
+    const { data: phases, error: phasesError } = await supabase
+        .from('project_phases')
+        .select('id, name')
+        .eq('project_id', projectId)
+        .in('name', phaseNames)
+
+    if(phasesError) throw phasesError;
+
+    const phaseMap = new Map(phases.map(p => [p.name, p.id]));
+
+    // Chuẩn bị dữ liệu để insert
+    const newTasks = templates.map(template => ({
+      project_id: projectId,
+      name: template.name,
+      description: template.description,
+      status: 'todo' as const,
+      template_id: template.id,
+      phase_id: phaseMap.get(template.phase) // Lấy phase_id từ map
+    }))
+    
+    // Insert các task mới
+    const { data, error: insertError } = await supabase
+      .from('tasks')
+      .insert(newTasks)
       .select()
-      .single()
 
-    if (error) {
-      console.error("Error creating task:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    if (insertError) throw insertError
 
-    // Tạo task dependencies nếu có
-    if (dependencies && Array.isArray(dependencies) && dependencies.length > 0) {
-      const taskDependencies = dependencies.map((depends_on_id: string) => ({
-        task_id: task.id,
-        depends_on_id,
-      }))
-
-      const { error: depError } = await supabase
-        .from("task_dependencies")
-        .insert(taskDependencies)
-
-      if (depError) {
-        console.error("Error creating task dependencies:", depError)
-        // Không fail toàn bộ request, chỉ log error
-      }
-    }
-
-    return NextResponse.json({ task })
-  } catch (error) {
-    console.error("Error in POST /api/projects/[id]/tasks:", error)
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    )
+    return NextResponse.json(data, { status: 201 })
+  } catch (error: any) {
+    console.error('Error creating tasks from template:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
-}
-
-export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = await createClient()
-    const { id: projectId } = await params
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Get current user's org_unit
-    const { data: currentUser, error: userError } = await supabase
-      .from("users")
-      .select("org_unit")
-      .eq("id", user.id)
-      .single()
-
-    if (userError || !currentUser) {
-      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
-    }
-
-    // Check if project belongs to user's org_unit
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select(`
-        *,
-        users!created_by (
-          org_unit
-        )
-      `)
-      .eq("id", projectId)
-      .single()
-
-    if (projectError || !project) {
-      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
-    }
-
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền chỉnh sửa công việc của dự án này" }, { status: 403 })
-    }
-
-    const body = await request.json()
-    const { data: task, error } = await supabase
-      .from("tasks")
-      .update(body)
-      .eq("id", body.id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error("Error updating task:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ task })
-  } catch (error) {
-    console.error("Error in PUT /api/projects/[id]/tasks:", error)
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    )
-  }
-}
-
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = await createClient()
-    const { id: projectId } = await params
-
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Get current user's org_unit
-    const { data: currentUser, error: userError } = await supabase
-      .from("users")
-      .select("org_unit")
-      .eq("id", user.id)
-      .single()
-
-    if (userError || !currentUser) {
-      return NextResponse.json({ error: "Không thể lấy thông tin người dùng" }, { status: 500 })
-    }
-
-    // Check if project belongs to user's org_unit
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select(`
-        *,
-        users!created_by (
-          org_unit
-        )
-      `)
-      .eq("id", projectId)
-      .single()
-
-    if (projectError || !project) {
-      return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
-    }
-
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền xóa công việc của dự án này" }, { status: 403 })
-    }
-
-    const url = new URL(request.url)
-    const taskId = url.searchParams.get('taskId')
-
-    if (!taskId) {
-      return NextResponse.json({ error: 'Task ID is required' }, { status: 400 })
-    }
-
-    const { error } = await supabase
-      .from("tasks")
-      .delete()
-      .eq("id", taskId)
-
-    if (error) {
-      console.error("Error deleting task:", error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error("Error in DELETE /api/projects/[id]/tasks:", error)
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
-    )
-  }
-}
-
-export interface RecommendedUserInput {
-  skill_id: number;
-  project_id: string;
-}
-
-export interface RecommendedUser {
-  user_id: string;
-  full_name: string;
-  position: string;
-  skill_level: number;
-  avg_quality: number;
-  pct_on_time: number;
-  match_score: number;
-}
-
-export async function getRecommendedUsers(
-  supabase: any,
-  { skill_id, project_id }: RecommendedUserInput
-): Promise<RecommendedUser[]> {
-  // Fetch users with the required skill
-  const { data: skilledUsers } = await supabase
-    .from("user_skills")
-    .select("user_id, level")
-    .eq("skill_id", skill_id);
-
-  if (!skilledUsers || skilledUsers.length === 0) {
-    // If no users with the skill, return all users as potential assignees
-    const { data: allUsers } = await supabase
-      .from("users")
-      .select("id, full_name, position");
-
-    return allUsers.map((user: any) => ({
-      user_id: user.id,
-      full_name: user.full_name,
-      position: user.position,
-      skill_level: 1,
-      avg_quality: 0,
-      pct_on_time: 0,
-      match_score: 0
-    }));
-  }
-
-  const userIds = skilledUsers.map((u: any) => u.user_id);
-
-  // Fetch user information
-  const { data: users } = await supabase
-    .from("users")
-    .select("id, full_name, position")
-    .in("id", userIds);
-
-  // Return basic information without performance metrics
-  return users.map((user: any) => {
-    const skill = skilledUsers.find((u: any) => u.user_id === user.id);
-    return {
-      user_id: user.id,
-      full_name: user.full_name,
-      position: user.position,
-      skill_level: skill?.level || 1,
-      avg_quality: 0,
-      pct_on_time: 0,
-      match_score: 0
-    };
-  });
 }
