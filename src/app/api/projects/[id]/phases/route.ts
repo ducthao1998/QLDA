@@ -50,9 +50,9 @@ export async function GET(
       return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
     }
 
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền truy cập dự án này" }, { status: 403 })
-    }
+    // if (project.users.org_unit !== currentUser.org_unit) {
+    //   return NextResponse.json({ error: "Bạn không có quyền truy cập dự án này" }, { status: 403 })
+    // }
 
     const { data: phases, error } = await supabase
       .from('project_phases')
@@ -126,9 +126,9 @@ export async function POST(
       return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
     }
 
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền tạo giai đoạn cho dự án này" }, { status: 403 })
-    }
+    // if (project.users.org_unit !== currentUser.org_unit) {
+    //   return NextResponse.json({ error: "Bạn không có quyền tạo giai đoạn cho dự án này" }, { status: 403 })
+    // }
 
     const body = await request.json()
     const { data: phase, error } = await supabase
@@ -200,9 +200,9 @@ export async function PUT(
       return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
     }
 
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền chỉnh sửa giai đoạn của dự án này" }, { status: 403 })
-    }
+    // if (project.users.org_unit !== currentUser.org_unit) {
+    //   return NextResponse.json({ error: "Bạn không có quyền chỉnh sửa giai đoạn của dự án này" }, { status: 403 })
+    // }
 
     const body = await request.json()
     const { data: phase, error } = await supabase
@@ -272,9 +272,9 @@ export async function DELETE(
       return NextResponse.json({ error: "Không tìm thấy dự án" }, { status: 404 })
     }
 
-    if (project.users.org_unit !== currentUser.org_unit) {
-      return NextResponse.json({ error: "Bạn không có quyền xóa giai đoạn của dự án này" }, { status: 403 })
-    }
+    // if (project.users.org_unit !== currentUser.org_unit) {
+    //   return NextResponse.json({ error: "Bạn không có quyền xóa giai đoạn của dự án này" }, { status: 403 })
+    // }
 
     const url = new URL(request.url)
     const phaseId = url.searchParams.get('phaseId')

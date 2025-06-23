@@ -1,10 +1,10 @@
-"use client"
+'use client'
 
-import type React from "react"
-import { useState, Suspense, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { format } from "date-fns"
-import { vi } from "date-fns/locale"
+import type React from 'react'
+import { useState, Suspense, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { format } from 'date-fns'
+import { vi } from 'date-fns/locale'
 import {
   CalendarIcon,
   ClockIcon,
@@ -15,17 +15,24 @@ import {
   CheckCircleIcon,
   PauseCircleIcon,
   ClipboardListIcon,
-  PlusIcon,
-} from "lucide-react"
-import Link from "next/link"
+  InfoIcon,
+  FolderKanban,
+} from 'lucide-react'
+import Link from 'next/link'
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ProjectTasks } from "@/components/project/project-tasks"
-import { ProjectRaci } from "@/components/project/project-raci" 
-import { toast } from "sonner"
+import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ProjectTasks } from '@/components/project/project-tasks'
+import { ProjectRaci } from '@/components/project/project-raci'
+import { toast } from 'sonner'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,15 +42,19 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Project, TaskStatus } from "@/app/types/table-types"
-import { LoadingSpinner } from "@/components/ui/loading"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { ProjectPhases } from "./project-phases"
+} from '@/components/ui/alert-dialog'
+import { Project as BaseProject, TaskStatus } from '@/app/types/table-types'
+import { LoadingSpinner } from '@/components/ui/loading'
+import { ProjectPhases } from './project-phases'
+
+// Mở rộng kiểu Project để bao gồm thông tin user được join
+type Project = BaseProject & {
+    users?: {
+        full_name: string | null
+        position: string | null
+        org_unit: string | null
+    } | null
+}
 
 interface ProjectPhase {
   id: string
@@ -66,101 +77,97 @@ interface ProjectDetailsProps {
   }
 }
 
-const statusMap: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; color: string; icon: React.ReactNode }> = {
-  planning: { 
-    label: "Lập kế hoạch", 
-    variant: "secondary",
-    color: "bg-gray-100 text-gray-800",
-    icon: <ClipboardListIcon className="h-4 w-4" />
+const statusMap: Record<
+  string,
+  {
+    label: string
+    variant: 'default' | 'secondary' | 'destructive' | 'outline'
+    color: string
+    icon: React.ReactNode
+  }
+> = {
+  planning: {
+    label: 'Lập kế hoạch',
+    variant: 'secondary',
+    color: 'bg-gray-100 text-gray-800',
+    icon: <ClipboardListIcon className="h-4 w-4" />,
   },
-  in_progress: { 
-    label: "Đang thực hiện", 
-    variant: "default",
-    color: "bg-green-100 text-green-800",
-    icon: <BarChart4Icon className="h-4 w-4" />
+  in_progress: {
+    label: 'Đang thực hiện',
+    variant: 'default',
+    color: 'bg-green-100 text-green-800',
+    icon: <BarChart4Icon className="h-4 w-4" />,
   },
-  on_hold: { 
-    label: "Tạm dừng", 
-    variant: "outline",
-    color: "bg-amber-100 text-amber-800",
-    icon: <PauseCircleIcon className="h-4 w-4" />
+  on_hold: {
+    label: 'Tạm dừng',
+    variant: 'outline',
+    color: 'bg-amber-100 text-amber-800',
+    icon: <PauseCircleIcon className="h-4 w-4" />,
   },
-  completed: { 
-    label: "Hoàn thành", 
-    variant: "default",
-    color: "bg-emerald-100 text-emerald-800",
-    icon: <CheckCircleIcon className="h-4 w-4" />
+  completed: {
+    label: 'Hoàn thành',
+    variant: 'default',
+    color: 'bg-emerald-100 text-emerald-800',
+    icon: <CheckCircleIcon className="h-4 w-4" />,
   },
   archived: {
-    label: "Lưu trữ",
-    variant: "secondary",
-    color: "bg-gray-200 text-gray-600",
-    icon: <AlertTriangleIcon className="h-4 w-4" />
+    label: 'Lưu trữ',
+    variant: 'secondary',
+    color: 'bg-gray-200 text-gray-600',
+    icon: <AlertTriangleIcon className="h-4 w-4" />,
   },
   cancelled: {
-    label: "Đã hủy",
-    variant: "destructive",
-    color: "bg-red-100 text-red-800",
-    icon: <AlertTriangleIcon className="h-4 w-4" />
-  }
+    label: 'Đã hủy',
+    variant: 'destructive',
+    color: 'bg-red-100 text-red-800',
+    icon: <AlertTriangleIcon className="h-4 w-4" />,
+  },
 }
 
-const priorityLabelMap: Record<number, string> = {
-  1: "Rất cao",
-  2: "Cao",
-  3: "Trung bình",
-  4: "Thấp",
-  5: "Rất thấp",
-}
-
-const priorityColorMap: Record<number, string> = {
-  1: "bg-red-100 text-red-800",
-  2: "bg-orange-100 text-orange-800",
-  3: "bg-yellow-100 text-yellow-800",
-  4: "bg-blue-100 text-blue-800",
-  5: "bg-gray-100 text-gray-800",
-}
-
-export function ProjectDetails({ projectId, initialProject, initialPhases, userPermissions }: ProjectDetailsProps) {
+export function ProjectDetails({
+  projectId,
+  initialProject,
+  initialPhases,
+  userPermissions,
+}: ProjectDetailsProps) {
   return (
     <Suspense fallback={<LoadingSpinner />}>
-      <ProjectDetailsContent projectId={projectId} initialProject={initialProject} initialPhases={initialPhases} userPermissions={userPermissions} />
+      <ProjectDetailsContent
+        projectId={projectId}
+        initialProject={initialProject}
+        initialPhases={initialPhases}
+        userPermissions={userPermissions}
+      />
     </Suspense>
   )
 }
 
-function ProjectDetailsContent({ projectId, initialProject, initialPhases, userPermissions }: ProjectDetailsProps) {
+function ProjectDetailsContent({
+  projectId,
+  initialProject,
+  initialPhases,
+  userPermissions,
+}: ProjectDetailsProps) {
   const router = useRouter()
   const [project, setProject] = useState<Project | null>(initialProject || null)
   const [phases, setPhases] = useState<ProjectPhase[]>(initialPhases || [])
   const [isLoading, setIsLoading] = useState(!initialProject)
   const [isDeleting, setIsDeleting] = useState(false)
-  const [isAddingPhase, setIsAddingPhase] = useState(false)
-  const [newPhase, setNewPhase] = useState({
-    name: "",
-    description: "",
-    order_no: 1
-  })
-
-  useEffect(() => {
-    if (!initialProject) {
-      fetchProject()
-    }
-    fetchPhases()
-  }, [projectId])
 
   const fetchProject = async () => {
     try {
+      setIsLoading(true)
       const response = await fetch(`/api/projects/${projectId}`)
       if (!response.ok) {
-        throw new Error("Failed to fetch project")
+        throw new Error('Không thể tải thông tin dự án')
       }
       const data = await response.json()
+      // SỬA LỖI: Nhận dữ liệu từ key 'project' mà API trả về
       setProject(data.project)
     } catch (error) {
-      console.error("Error fetching project:", error)
-      toast.error("Lỗi", {
-        description: "Không thể tải thông tin dự án"
+      console.error('Lỗi khi tải dự án:', error)
+      toast.error('Lỗi', {
+        description: 'Không thể tải thông tin dự án.',
       })
     } finally {
       setIsLoading(false)
@@ -171,68 +178,45 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
     try {
       const response = await fetch(`/api/projects/${projectId}/phases`)
       if (!response.ok) {
-        throw new Error("Failed to fetch phases")
+        throw new Error('Không thể tải các giai đoạn')
       }
       const data = await response.json()
       setPhases(data.phases || [])
     } catch (error) {
-      console.error("Error fetching phases:", error)
-      toast.error("Lỗi", {
-        description: "Không thể tải danh sách giai đoạn"
+      console.error('Lỗi khi tải giai đoạn:', error)
+      toast.error('Lỗi', {
+        description: 'Không thể tải danh sách giai đoạn.',
       })
       setPhases([])
     }
   }
-
-  const handleAddPhase = async () => {
-    try {
-      const response = await fetch(`/api/projects/${projectId}/phases`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(newPhase),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to add phase")
-      }
-
-      toast.success("Thêm giai đoạn thành công")
-      setIsAddingPhase(false)
-      setNewPhase({ name: "", description: "", order_no: 1 })
-      fetchPhases()
-    } catch (error) {
-      console.error("Error adding phase:", error)
-      toast.error("Lỗi", {
-        description: "Không thể thêm giai đoạn mới"
-      })
+  
+  useEffect(() => {
+    if (!initialProject) {
+        fetchProject()
     }
-  }
+    if (!initialPhases) {
+        fetchPhases()
+    }
+  }, [projectId])
 
   async function handleDelete() {
     try {
       setIsDeleting(true)
-
       const response = await fetch(`/api/projects/${projectId}`, {
-        method: "DELETE",
+        method: 'DELETE',
       })
-
       if (!response.ok) {
         const error = await response.json()
-        throw new Error(error.message || "Có lỗi xảy ra khi xóa dự án")
+        throw new Error(error.message || 'Có lỗi xảy ra khi xóa dự án')
       }
-
-      toast.success("Xóa dự án thành công", {
-        description: "Dự án đã được xóa khỏi hệ thống",
-      })
-
-      router.push("/dashboard/projects")
+      toast.success('Xóa dự án thành công')
+      router.push('/dashboard/projects')
       router.refresh()
     } catch (error) {
-      console.error("Lỗi:", error)
-      toast.error("Lỗi", {
-        description: error instanceof Error ? error.message : "Có lỗi xảy ra khi xóa dự án",
+      toast.error('Lỗi', {
+        description:
+          error instanceof Error ? error.message : 'Có lỗi xảy ra khi xóa dự án',
       })
     } finally {
       setIsDeleting(false)
@@ -242,25 +226,27 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
   if (isLoading || !project) {
     return <LoadingSpinner />
   }
-
-  const status = statusMap[project.status] || {
+  
+  // SỬA LỖI: Tạo các biến an toàn để tránh lỗi 'Cannot read properties of null'
+  const statusInfo = statusMap[project.status] || {
     label: project.status,
-    color: "bg-gray-100 text-gray-800",
-    icon: null,
+    color: 'bg-gray-100 text-gray-800',
+    icon: <InfoIcon className="h-4 w-4" />,
   }
+  const creatorInfo = project.users;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{initialProject?.name}</h1>
-          <p className="text-muted-foreground mt-2">{initialProject?.description}</p>
+          <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+          <p className="text-muted-foreground mt-2">{project.description}</p>
         </div>
         {userPermissions.canEdit && (
           <Button asChild>
             <Link href={`/dashboard/projects/${projectId}/edit`}>
               <FileEditIcon className="mr-2 h-4 w-4" />
-              Chỉnh sửa dự án
+              Chỉnh sửa
             </Link>
           </Button>
         )}
@@ -271,68 +257,35 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
           <TabsTrigger value="overview">Tổng quan</TabsTrigger>
           <TabsTrigger value="phases">Giai đoạn</TabsTrigger>
           <TabsTrigger value="tasks">Công việc</TabsTrigger>
-          {userPermissions.canEdit && (
-            <TabsTrigger value="team">Đội ngũ</TabsTrigger>
-          )}
+          {userPermissions.canEdit && <TabsTrigger value="team">Đội ngũ</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
-              <div className="flex items-center gap-2 mt-2">
-                <Badge className={status.color}>
-                  <span className="flex items-center gap-1">
-                    {status.icon}
-                    {status.label}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Trạng thái</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Badge className={statusInfo.color}>
+                  <span className="flex items-center gap-1.5">
+                    {statusInfo.icon}
+                    {statusInfo.label}
                   </span>
                 </Badge>
-              </div>
-            </div>
-            {userPermissions.canDelete && (
-              <div className="flex gap-2">
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    {/* <Button variant="destructive">Xóa dự án</Button> */}
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Bạn có chắc chắn muốn xóa?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Hành động này không thể hoàn tác. Dự án này sẽ bị xóa vĩnh viễn khỏi hệ thống.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Hủy</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDelete} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">
-                        {isDeleting ? "Đang xóa..." : "Xóa dự án"}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            )}
-          </div>
+              </CardContent>
+            </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">Thời gian</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-col space-y-2">
-                  <div className="flex items-center">
-                    <CalendarIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm">
-                      Bắt đầu: {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })}
-                    </span>
-                  </div>
-                  <div className="flex items-center">
-                    <ClockIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="text-sm">
-                      Kết thúc: {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
-                    </span>
-                  </div>
+                <div className="flex items-center text-sm text-muted-foreground">
+                  <CalendarIcon className="h-4 w-4 mr-2" />
+                  <span>
+                    {format(new Date(project.start_date), 'dd/MM/yyyy', { locale: vi })} - {format(new Date(project.end_date), 'dd/MM/yyyy', { locale: vi })}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -342,34 +295,49 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
                 <CardTitle className="text-sm font-medium">Người tạo</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center">
+                 {/* SỬA LỖI: Sử dụng biến creatorInfo an toàn */}
+                <div className="flex items-center text-sm">
                   <UsersIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span className="text-sm">{project.users?.full_name || "Không xác định"}</span>
+                  <span>{creatorInfo?.full_name || 'Không xác định'}</span>
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {project.users?.position && project.users?.org_unit
-                    ? `${project.users.position}, ${project.users.org_unit}`
-                    : ""}
-                </div>
+                 <p className="text-xs text-muted-foreground ml-6">
+                    {creatorInfo?.position && creatorInfo?.org_unit
+                        ? `${creatorInfo.position}, ${creatorInfo.org_unit}`
+                        : creatorInfo?.position || creatorInfo?.org_unit || ''
+                    }
+                </p>
               </CardContent>
             </Card>
           </div>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Mô tả dự án</CardTitle>
-              <CardDescription>Chi tiết phạm vi và mục tiêu</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="prose prose-sm max-w-none">
-                <p>{project.description}</p>
-              </div>
-            </CardContent>
+              <CardHeader>
+                  <CardTitle>Thông tin chi tiết</CardTitle>
+                  <CardDescription>Các thông tin phân loại của dự án.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex items-center text-sm">
+                        <FolderKanban className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <strong>Lĩnh vực:</strong>
+                        <span className="ml-2">{project.project_field || 'Chưa xác định'}</span>
+                    </div>
+                    <div className="flex items-center text-sm">
+                        <InfoIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <strong>Phân loại:</strong>
+                        <span className="ml-2">{project.classification ? `Nhóm ${project.classification}` : 'Chưa xác định'}</span>
+                    </div>
+              </CardContent>
           </Card>
+
         </TabsContent>
 
         <TabsContent value="phases">
-          <ProjectPhases projectId={project.id} phases={phases} onRefresh={fetchPhases} userPermissions={userPermissions} />
+          <ProjectPhases
+            projectId={project.id}
+            phases={phases}
+            onRefresh={fetchPhases}
+            userPermissions={userPermissions}
+          />
         </TabsContent>
 
         <TabsContent value="tasks">

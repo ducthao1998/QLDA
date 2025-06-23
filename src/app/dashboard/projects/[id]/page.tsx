@@ -36,9 +36,9 @@ export default async function ProjectPage({ params }: { params: { id: string } }
     .eq('id', authUser.id)
     .single()
 
-  if (!currentUser || currentUser.org_unit !== project.users.org_unit) {
-    redirect('/dashboard/projects')
-  }
+  // if (!currentUser || currentUser.org_unit !== project.users.org_unit) {
+  //   redirect('/dashboard/projects')
+  // }
 
   // Lấy danh sách phase của dự án
   const { data: phases, error: phasesError } = await supabase

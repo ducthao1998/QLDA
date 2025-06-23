@@ -1,72 +1,118 @@
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { format } from "date-fns"
-import { PlusIcon, ClockIcon, AlertCircleIcon, MoreHorizontalIcon, UserIcon, CalendarIcon } from "lucide-react"
+'use client'
 
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { toast } from "sonner"
+import { useEffect, useState } from 'react'
+import { Task } from '@/app/types/table-types'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { toast } from 'sonner'
+import { TasksList } from '../task/tasks-list' // Giả sử bạn đã có component này
+import { FileText, PlusCircle } from 'lucide-react'
 
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { TaskCard } from "../task/taskcard"
-import { TasksSkeleton } from "../task/task-skeleton"
-import { AddTaskDialog } from "../task/add-task-dialog"
+interface ProjectTasksProps {
+  projectId: string
+}
 
-// Status appearance mappings
-
-
-// Dialog to add a new task
-
-
-// Placeholder skeleton grid
-
-// Main component tying everything together
-export function ProjectTasks({ projectId }: { projectId: string }) {
-  const [tasks, setTasks] = useState<any[]>([])
+export function ProjectTasks({ projectId }: ProjectTasksProps) {
+  const [tasks, setTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [isGenerating, setIsGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  async function fetchTasks() {
-    setLoading(true)
+  const fetchTasks = async () => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/tasks`)
-      if (!res.ok) throw new Error("Không thể tải danh sách nhiệm vụ")
-      const json = await res.json()
-      setTasks(json.tasks || [])
-    } catch {
-      toast.error("Lỗi", { description: "Không thể tải danh sách nhiệm vụ" })
+      setLoading(true)
+      const response = await fetch(`/api/projects/${projectId}/tasks`)
+      if (!response.ok) {
+        throw new Error('Không thể tải danh sách công việc')
+      }
+      const data = await response.json()
+      setTasks(data)
+    } catch (err: any) {
+      setError(err.message)
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { fetchTasks() }, [projectId])
+  useEffect(() => {
+    fetchTasks()
+  }, [projectId])
+
+  const handleGenerateTasks = async () => {
+    try {
+      setIsGenerating(true)
+      const response = await fetch(
+        `/api/projects/${projectId}/load-tasks-from-template`,
+        {
+          method: 'POST',
+        },
+      )
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Tạo công việc thất bại')
+      }
+      toast.success('Đã tạo danh sách công việc từ mẫu thành công!')
+      // Tải lại danh sách công việc sau khi tạo
+      await fetchTasks()
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setIsGenerating(false)
+    }
+  }
+
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <>
+          <Skeleton className="h-8 w-1/4 mb-4" />
+          <div className="space-y-3">
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+            <Skeleton className="h-16 w-full" />
+          </div>
+        </>
+      )
+    }
+
+    if (error) {
+      return <p className="text-destructive">Lỗi: {error}</p>
+    }
+
+    // Nếu không có công việc, hiển thị nút tạo tự động
+    if (tasks.length === 0) {
+      return (
+        <div className="text-center py-10 border-2 border-dashed rounded-lg">
+          <FileText className="mx-auto h-12 w-12 text-gray-400" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900">
+            Dự án chưa có công việc
+          </h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Bắt đầu bằng cách tạo danh sách công việc theo quy trình chuẩn.
+          </p>
+          <div className="mt-6">
+            <Button onClick={handleGenerateTasks} disabled={isGenerating}>
+              <PlusCircle className="mr-2 h-4 w-4" />
+              {isGenerating
+                ? 'Đang tạo công việc...'
+                : 'Tải công việc từ mẫu'}
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
+    // Nếu có công việc, hiển thị danh sách
+    return <TasksList projectId={projectId} tasks={tasks} onTaskUpdate={fetchTasks} />
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">Danh sách nhiệm vụ</h2>
-        <AddTaskDialog projectId={projectId} onCreated={fetchTasks} />
-      </div>
-
-      {loading ? (
-        <TasksSkeleton />
-      ) : tasks.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-10">
-            <p className="text-muted-foreground mb-4">Chưa có nhiệm vụ nào trong dự án này</p>
-            <AddTaskDialog projectId={projectId} onCreated={fetchTasks} />
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tasks.map((task) => (
-            <TaskCard key={task.id} task={task} projectId={projectId} onStatusChange={fetchTasks} />
-          ))}
-        </div>
-      )}
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Danh sách Công việc</CardTitle>
+      </CardHeader>
+      <CardContent>{renderContent()}</CardContent>
+    </Card>
   )
 }

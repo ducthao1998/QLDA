@@ -1,9 +1,22 @@
-"use client"
-import { useState, useEffect } from "react"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { MoreHorizontalIcon, ClockIcon, Trash2Icon, PencilIcon, EyeIcon } from "lucide-react"
+'use client'
+
+import { useState, useEffect } from 'react'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  MoreHorizontalIcon,
+  Trash2Icon,
+  PencilIcon,
+  EyeIcon,
+} from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,67 +24,36 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { toast } from "sonner"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { format } from "date-fns"
-import { AddTaskDialog } from "@/components/task/add-task-dialog"
-import Link from "next/link"
+} from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { toast } from 'sonner'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import Link from 'next/link'
+import { Task as BaseTask } from '@/app/types/table-types' // Đổi tên kiểu Task gốc
+import { AddTaskDialog } from './add-task-dialog'
 
-interface Task {
-  id: string
-  name: string
-  project_id: string
-  project: {
-    name: string
-  }
-  description: string
-  status:
-    | "todo"
-    | "in_progress"
-    | "review"
-    | "completed"
-    | "blocked"
-    | "archived"
-    | "planning"
-    | "on_hold"
-    | "cancelled"
-    | "done"
-  estimate_low: number
-  estimate_high: number
-  weight: number
-  due_date: string
-  risk_level: number
-  complexity: number
-  assigned_to: string | null
+// SỬA LỖI: Mở rộng kiểu Task gốc để bao gồm dữ liệu 'users' được join từ API.
+// Điều này giải quyết lỗi TypeScript "Property 'users' does not exist on type 'Task'".
+type Task = BaseTask & {
   users?: {
-    full_name: string
-  }
-  task_raci?: {
-    user_id: string
-    role: string
-    users: {
-      full_name: string
-    }
-  }[]
-  task_progress?: {
-    planned_start: string
-    planned_finish: string
-    actual_start: string | null
-    actual_finish: string | null
-    status_snapshot: "on_time" | "late" | "ahead"
-  }
-  user_task_perf?: {
-    planned_hours: number
-    actual_hours: number
-    on_time: boolean
-    qual_score: number
-  }
-  min_duration_hours?: number
-  max_duration_hours?: number
-  start_date?: string
-  end_date?: string
+    full_name: string | null
+  } | null
 }
 
 interface Project {
@@ -79,203 +61,202 @@ interface Project {
   name: string
 }
 
-const statusColors: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; label: string }> = {
-  todo: { variant: "secondary", label: "Chưa bắt đầu" },
-  in_progress: { variant: "default", label: "Đang thực hiện" },
-  review: { variant: "secondary", label: "Đang xem xét" },
-  completed: { variant: "outline", label: "Hoàn thành" },
-  blocked: { variant: "destructive", label: "Bị chặn" },
-  archived: { variant: "outline", label: "Lưu trữ" },
-  planning: { variant: "secondary", label: "Lập kế hoạch" },
-  on_hold: { variant: "destructive", label: "Tạm dừng" },
-  cancelled: { variant: "destructive", label: "Đã hủy" },
-  done: { variant: "outline", label: "Hoàn thành" },
+// Props interface mới, cho phép nhận projectId từ bên ngoài
+interface TasksListProps {
+  projectId?: string
+  tasks?: Task[] // Sử dụng kiểu Task đã được mở rộng
+  onTaskUpdate?: () => void // Callback để thông báo cho component cha khi có thay đổi
 }
 
-export function TasksList() {
-  const [tasks, setTasks] = useState<Task[]>([])
+const statusColors: Record<
+  string,
+  { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }
+> = {
+  todo: { variant: 'secondary', label: 'Chưa bắt đầu' },
+  in_progress: { variant: 'default', label: 'Đang thực hiện' },
+  review: { variant: 'secondary', label: 'Đang xem xét' },
+  completed: { variant: 'outline', label: 'Hoàn thành' },
+  blocked: { variant: 'destructive', label: 'Bị chặn' },
+  archived: { variant: 'outline', label: 'Lưu trữ' },
+  done: { variant: 'outline', label: 'Hoàn thành' },
+}
+
+// Sửa lại component để nhận props
+export function TasksList({
+  projectId,
+  tasks: initialTasks,
+  onTaskUpdate,
+}: TasksListProps) {
+  const [tasks, setTasks] = useState<Task[]>(initialTasks || [])
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProject, setSelectedProject] = useState<string>("")
-  const [isLoading, setIsLoading] = useState(true)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [selectedProject, setSelectedProject] = useState<string>(projectId || '')
+  const [isLoading, setIsLoading] = useState(!initialTasks)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [selectedTasks, setSelectedTasks] = useState<string[]>([])
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
+  const [taskToDelete, setTaskToDelete] = useState<string | null>(null)
+  const [isConfirmingBulkDelete, setIsConfirmingBulkDelete] = useState(false)
 
-  useEffect(() => {
-    loadProjects()
-  }, [])
+  // Cờ để xác định xem component có đang ở trang chi tiết dự án hay không
+  const isProjectSpecificView = !!projectId
 
+  // Tải danh sách dự án nếu không ở trang chi tiết
   useEffect(() => {
-    if (selectedProject) {
-      loadTasks()
+    if (!isProjectSpecificView) {
+      loadProjects()
     }
-  }, [selectedProject])
+  }, [isProjectSpecificView])
+
+  // Tải công việc khi project được chọn (chỉ khi không ở trang chi tiết)
+  useEffect(() => {
+    if (selectedProject && !isProjectSpecificView) {
+      loadTasks(selectedProject)
+    }
+  }, [selectedProject, isProjectSpecificView])
+
+  // Cập nhật state nếu initialTasks thay đổi
+  useEffect(() => {
+    if (initialTasks) {
+      setTasks(initialTasks)
+      setIsLoading(false)
+    }
+  }, [initialTasks])
 
   async function loadProjects() {
     try {
-      const res = await fetch("/api/projects")
-      if (!res.ok) throw new Error("Failed to load projects")
+      const res = await fetch('/api/projects')
+      if (!res.ok) throw new Error('Failed to load projects')
       const data = await res.json()
-      setProjects(data.projects || [])
-      if (data.projects?.length > 0) {
-        setSelectedProject(data.projects[0].id)
+      setProjects(data.data || [])
+      if (data.data?.length > 0 && !selectedProject) {
+        setSelectedProject(data.data[0].id)
       }
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách dự án" })
+      toast.error('Lỗi tải danh sách dự án')
     }
   }
 
-  async function loadTasks() {
+  async function loadTasks(projectIdToLoad: string) {
+    setIsLoading(true)
     try {
-      const res = await fetch(`/api/projects/${selectedProject}/tasks`)
-      if (!res.ok) throw new Error("Failed to load tasks")
+      const res = await fetch(`/api/projects/${projectIdToLoad}/tasks`)
+      if (!res.ok) throw new Error('Failed to load tasks')
       const data = await res.json()
-      setTasks(data.tasks || [])
+      setTasks(data || [])
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách công việc" })
+      toast.error('Lỗi tải danh sách công việc')
     } finally {
       setIsLoading(false)
     }
   }
 
-  async function updateTaskStatus(taskId: string, newStatus: string) {
-    try {
-      const res = await fetch(`/api/projects/${selectedProject}/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      if (!res.ok) throw new Error("Failed to update task status")
-      toast.success("Cập nhật trạng thái thành công")
-      loadTasks()
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể cập nhật trạng thái" })
+  const handleTaskUpdate = () => {
+    if (onTaskUpdate) {
+      onTaskUpdate()
+    } else if (selectedProject) {
+      loadTasks(selectedProject)
     }
   }
 
-  async function updateTask() {
-    if (!selectedTask) return
+  async function deleteTask() {
+    if (!taskToDelete) return
+    const projectCtx = projectId || selectedProject
     try {
-      const res = await fetch(`/api/projects/${selectedProject}/tasks/${selectedTask.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(selectedTask),
+      const res = await fetch(`/api/projects/${projectCtx}/tasks/${taskToDelete}`, {
+        method: 'DELETE',
       })
-      if (!res.ok) throw new Error("Failed to update task")
-      toast.success("Cập nhật công việc thành công")
-      setIsEditDialogOpen(false)
-      setSelectedTask(null)
-      loadTasks()
+      if (!res.ok) throw new Error('Failed to delete task')
+      toast.success('Xóa công việc thành công')
+      handleTaskUpdate()
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể cập nhật công việc" })
+      toast.error('Không thể xóa công việc')
+    } finally {
+      setIsConfirmingDelete(false)
+      setTaskToDelete(null)
     }
   }
-
-  async function deleteTask(taskId: string) {
-    try {
-      const res = await fetch(`/api/projects/${selectedProject}/tasks/${taskId}`, {
-        method: "DELETE",
-      })
-      if (!res.ok) throw new Error("Failed to delete task")
-      toast.success("Xóa công việc thành công")
-      loadTasks()
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể xóa công việc" })
-    }
-  }
-
+  
   async function bulkDeleteTasks() {
-    if (selectedTasks.length === 0) return
+    const projectCtx = projectId || selectedProject
+    const promises = selectedTasks.map(taskId =>
+      fetch(`/api/projects/${projectCtx}/tasks/${taskId}`, { method: 'DELETE' })
+    );
 
-    try {
-      // Show confirmation dialog
-      if (!window.confirm(`Bạn có chắc chắn muốn xóa ${selectedTasks.length} công việc đã chọn không?`)) {
-        return
-      }
+    const results = await Promise.allSettled(promises);
+    const successCount = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
 
-      // Delete each selected task
-      const promises = selectedTasks.map((taskId) =>
-        fetch(`/api/projects/${selectedProject}/tasks/${taskId}`, {
-          method: "DELETE",
-        }),
-      )
-
-      const results = await Promise.allSettled(promises)
-      const successCount = results.filter((result) => result.status === "fulfilled").length
-
-      if (successCount > 0) {
-        toast.success(`Đã xóa ${successCount} công việc thành công`)
-        if (successCount < selectedTasks.length) {
-          toast.error(`Không thể xóa ${selectedTasks.length - successCount} công việc`)
-        }
-        setSelectedTasks([]) // Clear selection
-        loadTasks() // Reload tasks
-      } else {
-        toast.error("Không thể xóa các công việc đã chọn")
-      }
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể xóa các công việc đã chọn" })
+    if (successCount > 0) {
+        toast.success(`Đã xóa thành công ${successCount} công việc.`);
+        handleTaskUpdate();
     }
+    
+    if (successCount < selectedTasks.length) {
+        toast.error(`Không thể xóa ${selectedTasks.length - successCount} công việc.`);
+    }
+
+    setSelectedTasks([]);
+    setIsConfirmingBulkDelete(false);
   }
+
 
   function toggleSelectAll() {
-    if (selectedTasks.length === tasks.length) {
-      // If all tasks are selected, deselect all
-      setSelectedTasks([])
-    } else {
-      // Otherwise, select all tasks
-      setSelectedTasks(tasks.map((task) => task.id))
-    }
+    setSelectedTasks(
+      selectedTasks.length === tasks.length ? [] : tasks.map(task => String(task.id)),
+    )
   }
 
   function toggleTaskSelection(taskId: string) {
-    setSelectedTasks((prev) => (prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]))
+    setSelectedTasks(prev =>
+      prev.includes(taskId)
+        ? prev.filter(id => id !== taskId)
+        : [...prev, taskId],
+    )
   }
 
-  function calculateProgress(task: Task): number {
-    if (!task.task_progress) return 0
-    const { planned_start, planned_finish, actual_start, actual_finish } = task.task_progress
-    if (!actual_start) return 0
-    if (actual_finish) return 100
-
-    const start = new Date(planned_start).getTime()
-    const finish = new Date(planned_finish).getTime()
-    const now = new Date().getTime()
-    const actualStart = new Date(actual_start).getTime()
-
-    const totalDuration = finish - start
-    const elapsedDuration = now - actualStart
-    return Math.min(Math.round((elapsedDuration / totalDuration) * 100), 100)
+  if (isLoading && !isProjectSpecificView) {
+    return <div>Đang tải công việc...</div>
   }
 
   return (
     <div className="space-y-4">
+      {/* Header with Project Selector and Add Task button */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Select value={selectedProject} onValueChange={setSelectedProject}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Chọn dự án" />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {!isProjectSpecificView && (
+            <Select value={selectedProject} onValueChange={setSelectedProject}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Chọn dự án" />
+              </SelectTrigger>
+              <SelectContent>
+                {projects.map(project => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           {selectedTasks.length > 0 && (
-            <Button variant="destructive" size="sm" onClick={bulkDeleteTasks} className="ml-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setIsConfirmingBulkDelete(true)}
+              className="ml-2"
+            >
               <Trash2Icon className="h-4 w-4 mr-2" />
-              Xóa {selectedTasks.length} công việc đã chọn
+              Xóa ({selectedTasks.length})
             </Button>
           )}
         </div>
 
-        <AddTaskDialog projectId={selectedProject} onCreated={loadTasks} />
+        <AddTaskDialog
+          projectId={projectId || selectedProject}
+          onCreated={handleTaskUpdate}
+        />
       </div>
 
+      {/* Task Table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -283,106 +264,129 @@ export function TasksList() {
               <TableHead className="w-[40px]">
                 <input
                   type="checkbox"
-                  checked={selectedTasks.length === tasks.length && tasks.length > 0}
+                  checked={tasks.length > 0 && selectedTasks.length === tasks.length}
                   onChange={toggleSelectAll}
                   className="h-4 w-4 rounded border-gray-300"
                 />
               </TableHead>
               <TableHead>Tên công việc</TableHead>
-              <TableHead>Thời gian thực hiện</TableHead>
               <TableHead>Người thực hiện</TableHead>
-              <TableHead>RACI</TableHead>
               <TableHead>Trạng thái</TableHead>
               <TableHead className="w-[80px]">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {Array.isArray(tasks) &&
-              tasks.map((task) => (
-                <TableRow key={task.id} className={selectedTasks.includes(task.id) ? "bg-muted/50" : ""}>
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      checked={selectedTasks.includes(task.id)}
-                      onChange={() => toggleTaskSelection(task.id)}
-                      className="h-4 w-4 rounded border-gray-300"
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium">{task.name}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1 text-xs">
-                      <ClockIcon className="h-3 w-3" />
-                      {task.min_duration_hours && task.max_duration_hours
-                        ? `${task.min_duration_hours}-${task.max_duration_hours}h`
-                        : task.start_date && task.end_date
-                          ? `${format(new Date(task.start_date), "dd/MM/yyyy")} - ${format(new Date(task.end_date), "dd/MM/yyyy")}`
-                          : "Chưa có thời gian"}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-6 w-6">
-                        <AvatarFallback>{task.users?.full_name?.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <span className="text-xs">{task.users?.full_name || "Chưa gán"}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-col gap-1">
-                      {task.task_raci?.map((raci) => (
-                        <div key={raci.user_id} className="flex items-center gap-1 text-xs">
-                          <span className="font-medium">{raci.role}:</span>
-                          <span>{raci.users?.full_name}</span>
-                        </div>
-                      ))}
-                      {(!task.task_raci || task.task_raci.length === 0) && (
-                        <span className="text-xs text-muted-foreground">Chưa gán RACI</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={statusColors[task.status]?.variant || "secondary"}>
-                      {statusColors[task.status]?.label || task.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0">
-                          <span className="sr-only">Mở menu</span>
-                          <MoreHorizontalIcon className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/dashboard/tasks/${task.id}`}>
-                            <EyeIcon className="mr-2 h-4 w-4" />
-                            Xem chi tiết
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setSelectedTask(task)
-                            setIsEditDialogOpen(true)
-                          }}
-                        >
-                          <PencilIcon className="mr-2 h-4 w-4" />
-                          Chỉnh sửa
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-red-600" onClick={() => deleteTask(task.id)}>
-                          <Trash2Icon className="mr-2 h-4 w-4" />
-                          Xóa
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+            {tasks.map(task => (
+              <TableRow
+                key={task.id}
+                className={selectedTasks.includes(String(task.id)) ? 'bg-muted/50' : ''}
+              >
+                <TableCell>
+                  <input
+                    type="checkbox"
+                    checked={selectedTasks.includes(String(task.id))}
+                    onChange={() => toggleTaskSelection(String(task.id))}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                </TableCell>
+                <TableCell className="font-medium">{task.name}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback>
+                        {task.users?.full_name?.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-xs">
+                      {task.users?.full_name || 'Chưa gán'}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={statusColors[task.status]?.variant || 'secondary'}
+                  >
+                    {statusColors[task.status]?.label || task.status}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-8 w-8 p-0">
+                        <MoreHorizontalIcon className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/dashboard/tasks/${task.id}`}>
+                          <EyeIcon className="mr-2 h-4 w-4" />
+                          Xem chi tiết
+                        </Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          (window.location.href = `/dashboard/tasks/${task.id}/edit`)
+                        }
+                      >
+                        <PencilIcon className="mr-2 h-4 w-4" />
+                        Chỉnh sửa
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        className="text-red-600"
+                        onClick={() => {
+                          setTaskToDelete(String(task.id))
+                          setIsConfirmingDelete(true)
+                        }}
+                      >
+                        <Trash2Icon className="mr-2 h-4 w-4" />
+                        Xóa
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* Single Delete Confirmation Dialog */}
+      <AlertDialog
+        open={isConfirmingDelete}
+        onOpenChange={setIsConfirmingDelete}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Bạn có chắc chắn muốn xóa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Hành động này không thể được hoàn tác. Công việc này sẽ bị xóa
+              vĩnh viễn.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteTask}>Tiếp tục</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={isConfirmingBulkDelete} onOpenChange={setIsConfirmingBulkDelete}>
+          <AlertDialogContent>
+              <AlertDialogHeader>
+                  <AlertDialogTitle>Xác nhận xóa hàng loạt</AlertDialogTitle>
+                  <AlertDialogDescription>
+                      Bạn có chắc chắn muốn xóa {selectedTasks.length} công việc đã chọn? Hành động này không thể hoàn tác.
+                  </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                  <AlertDialogCancel>Hủy</AlertDialogCancel>
+                  <AlertDialogAction onClick={bulkDeleteTasks} >Xóa tất cả</AlertDialogAction>
+              </AlertDialogFooter>
+          </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

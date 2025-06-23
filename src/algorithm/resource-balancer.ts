@@ -1,3 +1,5 @@
+import { OptimizationInput } from './types'
+
 interface Task {
     id: number | string
     earlyStart: number
@@ -26,147 +28,158 @@ interface Task {
     workloadBalance: number
   }
   
-  export function balanceResources(criticalPathResult: any, users: User[]): ResourceBalanceResult {
-    const { tasks, criticalPath, makespan } = criticalPathResult
+  interface ResourceUtilization {
+    userId: string;
+    totalHours: number;
+    availableHours: number;
+    utilization: number;
+    tasks: {
+      taskId: string;
+      hours: number;
+      startDate: Date;
+      endDate: Date;
+    }[];
+  }
   
-    // Tạo bản sao của các công việc để không ảnh hưởng đến dữ liệu gốc
-    const tasksCopy = [...tasks]
+  export function calculateResourceUtilization(input: OptimizationInput): number {
+    const { users, scheduleDetails } = input;
+    
+    // 1. Calculate resource utilization for each user
+    const userUtilizations = new Map<string, ResourceUtilization>();
+    
+    // Initialize user data
+    users.forEach(user => {
+      userUtilizations.set(user.id, {
+        userId: user.id,
+        totalHours: 0,
+        availableHours: 0,
+        utilization: 0,
+        tasks: []
+      });
+    });
+
+    // 2. Process schedule details
+    scheduleDetails.forEach(detail => {
+      const userUtil = userUtilizations.get(detail.assigned_user);
+      if (!userUtil) return;
+
+      const startDate = new Date(detail.start_ts);
+      const endDate = new Date(detail.finish_ts);
+      const hours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+
+      userUtil.tasks.push({
+        taskId: detail.task_id,
+        hours,
+        startDate,
+        endDate
+      });
+
+      userUtil.totalHours += hours;
+    });
+
+    // 3. Calculate available hours for each user
+    const projectStart = new Date(Math.min(...scheduleDetails.map(d => new Date(d.start_ts).getTime())));
+    const projectEnd = new Date(Math.max(...scheduleDetails.map(d => new Date(d.finish_ts).getTime())));
+    const projectDuration = (projectEnd.getTime() - projectStart.getTime()) / (1000 * 60 * 60);
+
+    userUtilizations.forEach(userUtil => {
+      // Assume 8 working hours per day, 5 days per week
+      const workingHoursPerDay = 8;
+      const workingDaysPerWeek = 5;
+      
+      // Calculate total working days in project
+      const totalDays = Math.ceil(projectDuration / 24);
+      const totalWorkingDays = Math.floor(totalDays * (workingDaysPerWeek / 7));
+      
+      userUtil.availableHours = totalWorkingDays * workingHoursPerDay;
+      userUtil.utilization = userUtil.totalHours / userUtil.availableHours;
+    });
+
+    // 4. Calculate overall resource utilization
+    const totalUtilization = Array.from(userUtilizations.values())
+      .reduce((sum, userUtil) => sum + userUtil.utilization, 0);
+    
+    return totalUtilization / userUtilizations.size;
+  }
   
-    // Sắp xếp các công việc theo thứ tự ưu tiên:
-    // 1. Công việc trên đường găng
-    // 2. Công việc có slack thấp
-    // 3. Công việc có early start sớm
-    tasksCopy.sort((a, b) => {
-      if (a.isCritical && !b.isCritical) return -1
-      if (!a.isCritical && b.isCritical) return 1
-      if (a.slack !== b.slack) return a.slack - b.slack
-      return a.earlyStart - b.earlyStart
-    })
-  
-    // Tạo lịch làm việc cho mỗi người dùng
-    const userSchedules: Record<string, { busy: [number, number][] }> = {}
-    users.forEach((user) => {
-      userSchedules[user.id] = { busy: [] }
-    })
-  
-    // Hàm kiểm tra xem người dùng có rảnh trong khoảng thời gian không
-    const isUserAvailable = (userId: string, start: number, end: number) => {
-      if (!userSchedules[userId]) return false
-  
-      for (const [busyStart, busyEnd] of userSchedules[userId].busy) {
-        // Kiểm tra xem có giao nhau không
-        if (!(end <= busyStart || start >= busyEnd)) {
-          return false
-        }
-      }
-  
-      return true
-    }
-  
-    // Hàm thêm lịch bận cho người dùng
-    const addUserBusyTime = (userId: string, start: number, end: number) => {
-      if (!userSchedules[userId]) return
-  
-      userSchedules[userId].busy.push([start, end])
-      // Sắp xếp lại lịch bận theo thời gian bắt đầu
-      userSchedules[userId].busy.sort((a, b) => a[0] - b[0])
-    }
-  
-    // Hàm tìm người dùng phù hợp nhất cho công việc
-    const findBestUserForTask = (task: Task) => {
-      // Nếu công việc đã được gán, kiểm tra xem người đó có rảnh không
-      if (task.assigned_to && isUserAvailable(task.assigned_to, task.earlyStart, task.earlyFinish)) {
-        return task.assigned_to
-      }
-  
-      // Tìm người dùng rảnh và có workload thấp nhất
-      const availableUsers = users.filter((user) => isUserAvailable(user.id, task.earlyStart, task.earlyFinish))
-  
-      if (availableUsers.length === 0) {
-        // Không có ai rảnh, tìm người có thể làm muộn nhất trong phạm vi slack
-        if (task.slack > 0) {
-          for (let delay = 1; delay <= task.slack; delay++) {
-            const delayedStart = task.earlyStart + delay
-            const delayedEnd = task.earlyFinish + delay
-  
-            for (const user of users) {
-              if (isUserAvailable(user.id, delayedStart, delayedEnd)) {
-                // Cập nhật thời gian bắt đầu và kết thúc
-                task.earlyStart = delayedStart
-                task.earlyFinish = delayedEnd
-                return user.id
-              }
-            }
+  export function balanceResources(input: OptimizationInput): OptimizationInput {
+    const { users, tasks, scheduleDetails } = input;
+    
+    // 1. Calculate current utilization
+    const currentUtilization = calculateResourceUtilization(input);
+    
+    // 2. Identify overloaded and underloaded users
+    const userUtilizations = new Map<string, ResourceUtilization>();
+    const overloadedUsers: string[] = [];
+    const underloadedUsers: string[] = [];
+    
+    // Calculate utilization for each user
+    users.forEach(user => {
+      const userTasks = scheduleDetails.filter(detail => detail.assigned_user === user.id);
+      const totalHours = userTasks.reduce((sum, task) => {
+        const start = new Date(task.start_ts);
+        const end = new Date(task.finish_ts);
+        return sum + (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+      }, 0);
+      
+      const utilization = totalHours / (8 * 5 * 4); // 8 hours/day * 5 days/week * 4 weeks
+      userUtilizations.set(user.id, { utilization, totalHours, availableHours: 0, userId: user.id, tasks: [] });
+      
+      if (utilization > 1.2) overloadedUsers.push(user.id);
+      if (utilization < 0.6) underloadedUsers.push(user.id);
+    });
+    
+    // 3. Redistribute tasks
+    const optimizedSchedule = [...scheduleDetails];
+    
+    overloadedUsers.forEach(userId => {
+      const userTasks = optimizedSchedule.filter(detail => detail.assigned_user === userId);
+      
+      // Sort tasks by duration
+      userTasks.sort((a, b) => {
+        const durationA = new Date(a.finish_ts).getTime() - new Date(a.start_ts).getTime();
+        const durationB = new Date(b.finish_ts).getTime() - new Date(b.start_ts).getTime();
+        return durationB - durationA;
+      });
+      
+      // Try to redistribute longest tasks
+      for (const task of userTasks) {
+        if (userUtilizations.get(userId)!.utilization <= 1) break;
+        
+        // Find suitable underloaded user
+        const suitableUser = underloadedUsers.find(underloadedId => {
+          const underloadedUtil = userUtilizations.get(underloadedId)!;
+          return underloadedUtil.utilization < 0.8;
+        });
+        
+        if (suitableUser) {
+          // Reassign task
+          const taskIndex = optimizedSchedule.findIndex(detail => 
+            detail.task_id === task.task_id && detail.assigned_user === userId
+          );
+          
+          if (taskIndex !== -1) {
+            optimizedSchedule[taskIndex] = {
+              ...optimizedSchedule[taskIndex],
+              assigned_user: suitableUser
+            };
+            
+            // Update utilizations
+            const taskHours = (new Date(task.finish_ts).getTime() - new Date(task.start_ts).getTime()) / (1000 * 60 * 60);
+            userUtilizations.get(userId)!.totalHours -= taskHours;
+            userUtilizations.get(suitableUser)!.totalHours += taskHours;
+            
+            // Recalculate utilizations
+            userUtilizations.get(userId)!.utilization = userUtilizations.get(userId)!.totalHours / (8 * 5 * 4);
+            userUtilizations.get(suitableUser)!.utilization = userUtilizations.get(suitableUser)!.totalHours / (8 * 5 * 4);
           }
         }
-  
-        // Vẫn không tìm được ai, trả về người được gán ban đầu hoặc người đầu tiên
-        return task.assigned_to || users[0]?.id
       }
-  
-      // Tính toán workload hiện tại của mỗi người
-      const userWorkloads = availableUsers.map((user) => {
-        const busyHours = userSchedules[user.id].busy.reduce((total, [start, end]) => total + (end - start), 0)
-        return {
-          userId: user.id,
-          workload: busyHours / (makespan * user.capacity_hrs),
-        }
-      })
-  
-      // Sắp xếp theo workload tăng dần
-      userWorkloads.sort((a, b) => a.workload - b.workload)
-  
-      // Trả về người có workload thấp nhất
-      return userWorkloads[0]?.userId || task.assigned_to || users[0]?.id
-    }
-  
-    // Phân công lại công việc để cân bằng tài nguyên
-    tasksCopy.forEach((task) => {
-      const bestUserId = findBestUserForTask(task)
-      task.assigned_to = bestUserId
-  
-      // Cập nhật lịch bận cho người dùng
-      addUserBusyTime(bestUserId, task.earlyStart, task.earlyFinish)
-  
-      // Cập nhật ngày bắt đầu và kết thúc tối ưu
-      const projectStart = new Date(
-        Math.min(...tasksCopy.filter((t) => t.optimized_start).map((t) => new Date(t.optimized_start).getTime())),
-      )
-  
-      const optimizedStartDate = new Date(projectStart.getTime() + task.earlyStart * 60 * 60 * 1000)
-      const optimizedEndDate = new Date(projectStart.getTime() + task.earlyFinish * 60 * 60 * 1000)
-  
-      task.optimized_start = optimizedStartDate.toISOString()
-      task.optimized_end = optimizedEndDate.toISOString()
-    })
-  
-    // Tính toán các chỉ số hiệu suất
-    // 1. Tỷ lệ sử dụng tài nguyên
-    const totalCapacity = users.reduce((sum, user) => sum + user.capacity_hrs * makespan, 0)
-    const totalUsed = Object.values(userSchedules).reduce(
-      (sum, schedule) => sum + schedule.busy.reduce((total, [start, end]) => total + (end - start), 0),
-      0,
-    )
-  
-    const resourceUtilization = totalUsed / totalCapacity
-  
-    // 2. Độ cân bằng workload
-    const userWorkloads = users.map((user) => {
-      const busyHours = userSchedules[user.id]?.busy.reduce((total, [start, end]) => total + (end - start), 0) || 0
-      return busyHours / (makespan * user.capacity_hrs)
-    })
-  
-    const avgWorkload = userWorkloads.reduce((sum, wl) => sum + wl, 0) / userWorkloads.length
-    const workloadVariance =
-      userWorkloads.reduce((sum, wl) => sum + Math.pow(wl - avgWorkload, 2), 0) / userWorkloads.length
-    const workloadBalance = 1 - Math.sqrt(workloadVariance) // 1 là hoàn toàn cân bằng, 0 là hoàn toàn mất cân bằng
+    });
   
     return {
-      tasks: tasksCopy,
-      criticalPath,
-      makespan,
-      resourceUtilization,
-      workloadBalance,
-    }
+      ...input,
+      scheduleDetails: optimizedSchedule
+    };
   }
   
