@@ -11,8 +11,6 @@ import {
   ListTodoIcon,
   Pencil,
   Trash2,
-  ExternalLink,
-  ClockIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,7 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogFooter
+  DialogFooter,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -94,7 +92,7 @@ export function ProjectPhases({
   const [isAddingPhase, setIsAddingPhase] = useState(false)
   const [isEditingPhase, setIsEditingPhase] = useState(false)
   const [editingPhase, setEditingPhase] = useState<ProjectPhase | null>(null)
-  const [phaseToDelete, setPhaseToDelete] = useState<string | null>(null);
+  const [phaseToDelete, setPhaseToDelete] = useState<string | null>(null)
   const [progressMap, setProgressMap] = useState<
     Record<string, PhaseProgress | null>
   >({})
@@ -197,7 +195,7 @@ export function ProjectPhases({
     } catch (error) {
       toast.error('Lỗi', { description: 'Không thể xóa giai đoạn' })
     } finally {
-        setPhaseToDelete(null);
+      setPhaseToDelete(null)
     }
   }
 
@@ -205,9 +203,9 @@ export function ProjectPhases({
     setEditingPhase(phase)
     setIsEditingPhase(true)
   }
-  
+
   const navigateToTasks = (phaseId: string) => {
-    router.push(`/dashboard/projects/${projectId}/phases/${phaseId}/tasks`)
+    router.push(`/dashboard/projects/${projectId}/tasks?phaseId=${phaseId}`)
   }
 
   const togglePhase = (phaseId: string) => {
@@ -302,78 +300,92 @@ export function ProjectPhases({
                 className="w-full"
               >
                 <CollapsibleTrigger asChild>
-                    <div className="flex items-center w-full text-left px-4 py-3 bg-background hover:bg-muted/50 transition-colors cursor-pointer">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted mr-4 flex-shrink-0">
-                            <span className="text-sm font-medium">{phase.order_no}</span>
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                                <h3 className="font-medium truncate">{phase.name}</h3>
-                                <span className="text-xs text-muted-foreground px-2 py-0.5 rounded-full bg-muted">
-                                    {statusLabels[phase.status] || phase.status}
-                                </span>
-                            </div>
-                            {isLoadingProgress ? <Skeleton className="h-4 w-24 mt-1" /> : progressData ? (
-                                <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                                    <div className="flex items-center">
-                                        <ListTodoIcon className="mr-1 h-3 w-3" />
-                                        <span>{progressData.completedTasks}/{progressData.totalTasks} việc</span>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <span>{progressData.progress}%</span>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-
-                        <div className="flex items-center gap-2 ml-2">
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                        <MoreHorizontalIcon className="h-4 w-4" />
-                                        <span className="sr-only">Tùy chọn</span>
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    {userPermissions.canEdit && (
-                                    <DropdownMenuItem onClick={() => handleEditClick(phase)}>
-                                        <Pencil className="h-4 w-4 mr-2" />
-                                        Chỉnh sửa
-                                    </DropdownMenuItem>
-                                    )}
-                                    {userPermissions.canDelete && (
-                                        <DropdownMenuItem
-                                            onSelect={(e) => e.preventDefault()}
-                                            className="text-destructive"
-                                            onClick={() => setPhaseToDelete(phase.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4 mr-2" />
-                                            Xóa
-                                        </DropdownMenuItem>
-                                    )}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-                            <ChevronDownIcon
-                            className={`h-5 w-5 text-muted-foreground transition-transform ${
-                                isOpen ? 'transform rotate-180' : ''
-                            }`}
-                            />
-                        </div>
+                  <div className="flex items-center w-full text-left px-4 py-3 bg-background hover:bg-muted/50 transition-colors cursor-pointer">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted mr-4 flex-shrink-0">
+                      <span className="text-sm font-medium">
+                        {phase.order_no}
+                      </span>
                     </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium truncate">{phase.name}</h3>
+                        <span className="text-xs text-muted-foreground px-2 py-0.5 rounded-full bg-muted">
+                          {statusLabels[phase.status] || phase.status}
+                        </span>
+                      </div>
+                      {isLoadingProgress ? (
+                        <Skeleton className="h-4 w-24 mt-1" />
+                      ) : progressData ? (
+                        <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
+                          <div className="flex items-center">
+                            <ListTodoIcon className="mr-1 h-3 w-3" />
+                            <span>
+                              {progressData.completedTasks}/
+                              {progressData.totalTasks} việc
+                            </span>
+                          </div>
+                          <div className="flex items-center">
+                            <span>{progressData.progress}%</span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-2 ml-2">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          asChild
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontalIcon className="h-4 w-4" />
+                            <span className="sr-only">Tùy chọn</span>
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {userPermissions.canEdit && (
+                            <DropdownMenuItem
+                              onClick={() => handleEditClick(phase)}
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Chỉnh sửa
+                            </DropdownMenuItem>
+                          )}
+                          {userPermissions.canDelete && (
+                            <DropdownMenuItem
+                              onSelect={e => e.preventDefault()}
+                              className="text-destructive"
+                              onClick={() => setPhaseToDelete(phase.id)}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Xóa
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <ChevronDownIcon
+                        className={`h-5 w-5 text-muted-foreground transition-transform ${
+                          isOpen ? 'transform rotate-180' : ''
+                        }`}
+                      />
+                    </div>
+                  </div>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="px-4 py-4 pl-16 bg-muted/20 border-t">
-                     <p className="text-sm text-muted-foreground mb-4">{phase.description || "Không có mô tả chi tiết."}</p>
-                     <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={() => navigateToTasks(phase.id)}
-                     >
-                        Xem danh sách công việc
-                        <ChevronRightIcon className="ml-1 h-3 w-3" />
-                     </Button>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {phase.description || 'Không có mô tả chi tiết.'}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => navigateToTasks(phase.id)}
+                    >
+                      Xem danh sách công việc
+                      <ChevronRightIcon className="ml-1 h-3 w-3" />
+                    </Button>
                   </div>
                 </CollapsibleContent>
               </Collapsible>
@@ -381,7 +393,7 @@ export function ProjectPhases({
           })}
         </div>
       )}
-      
+
       {/* Edit Phase Dialog */}
       <Dialog open={isEditingPhase} onOpenChange={setIsEditingPhase}>
         <DialogContent>
@@ -440,18 +452,22 @@ export function ProjectPhases({
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!phaseToDelete} onOpenChange={() => setPhaseToDelete(null)}>
+      <AlertDialog
+        open={!!phaseToDelete}
+        onOpenChange={() => setPhaseToDelete(null)}
+      >
         <AlertDialogContent>
-            <AlertDialogHeader>
+          <AlertDialogHeader>
             <AlertDialogTitle>Xóa giai đoạn</AlertDialogTitle>
             <AlertDialogDescription>
-                Bạn có chắc chắn muốn xóa giai đoạn này? Hành động này không thể hoàn tác.
+              Bạn có chắc chắn muốn xóa giai đoạn này? Hành động này không thể
+              hoàn tác.
             </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
             <AlertDialogCancel>Hủy</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeletePhase}>Xóa</AlertDialogAction>
-            </AlertDialogFooter>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

@@ -48,7 +48,7 @@ export function Header() {
           <BellIcon className="h-5 w-5" />
           <span className="sr-only">Thông báo</span>
         </Button>
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon">
               <SunIcon className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
@@ -62,7 +62,7 @@ export function Header() {
             <DropdownMenuItem onClick={() => setTheme("system")}>Hệ thống</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-10 w-10 rounded-full">
               <Avatar className="h-10 w-10">
