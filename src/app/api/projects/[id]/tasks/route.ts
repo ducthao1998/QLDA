@@ -8,9 +8,9 @@ export async function GET(
 ) {
   try {
     const supabase = await createClient()
-    const { id: projectId } = params
+    const projectId = (await params).id;
 
-    // Lấy thông tin xác thực, không cần kiểm tra quyền ở đây nữa vì đã có RLS
+    // Lấy thông tin xác thực
     const {
       data: { user },
       error: authError,
@@ -20,7 +20,6 @@ export async function GET(
     }
 
     // SỬA LỖI: Thay thế join "task_skills" bằng "task_templates"
-    // Câu lệnh select giờ đây sẽ lấy thông tin kỹ năng yêu cầu qua bảng mẫu
     const { data: tasks, error: tasksError } = await supabase
       .from('tasks')
       .select(
@@ -30,16 +29,6 @@ export async function GET(
           full_name,
           position,
           org_unit
-        ),
-        projects (
-          name
-        ),
-        task_raci (
-          user_id,
-          role,
-          users (
-            full_name
-          )
         ),
         task_templates (
           required_skill_id,
@@ -59,7 +48,7 @@ export async function GET(
       return NextResponse.json({ error: tasksError.message }, { status: 500 })
     }
 
-    return NextResponse.json(tasks) // Trả về mảng tasks trực tiếp
+    return NextResponse.json(tasks)
   } catch (error) {
     console.error('Error in GET /api/projects/[id]/tasks:', error)
     return NextResponse.json(
@@ -76,8 +65,8 @@ export async function POST(
 ) {
   try {
     const supabase = await createClient()
-    const projectId = params.id
-    const { template_ids } = (await req.json()) as { template_ids: number[] }
+    const projectId = (await params).id
+    const { template_ids } = (await req.json()) as { template_ids?: number[] }
 
     if (
       !template_ids ||
@@ -89,14 +78,13 @@ export async function POST(
         { status: 400 },
       )
     }
-    
-    // Lấy thông tin từ các templates được chọn
+
     const { data: templates, error: templateError } = await supabase
       .from('task_templates')
       .select('*')
       .in('id', template_ids)
 
-    if (templateError) throw templateError
+    if (templateError) throw templateError;
     if (!templates || templates.length === 0) {
       return NextResponse.json(
         { error: 'Không tìm thấy các mẫu được chọn.' },
@@ -104,29 +92,26 @@ export async function POST(
       )
     }
 
-    // Lấy phase_id tương ứng
     const phaseNames = templates.map(t => t.phase)
     const { data: phases, error: phasesError } = await supabase
-        .from('project_phases')
-        .select('id, name')
-        .eq('project_id', projectId)
-        .in('name', phaseNames)
+      .from('project_phases')
+      .select('id, name')
+      .eq('project_id', projectId)
+      .in('name', phaseNames)
 
-    if(phasesError) throw phasesError;
+    if (phasesError) throw phasesError;
 
     const phaseMap = new Map(phases.map(p => [p.name, p.id]));
 
-    // Chuẩn bị dữ liệu để insert
     const newTasks = templates.map(template => ({
       project_id: projectId,
       name: template.name,
-      description: template.description,
+      note: template.description,
       status: 'todo' as const,
       template_id: template.id,
-      phase_id: phaseMap.get(template.phase) // Lấy phase_id từ map
+      phase_id: phaseMap.get(template.phase),
     }))
-    
-    // Insert các task mới
+
     const { data, error: insertError } = await supabase
       .from('tasks')
       .insert(newTasks)

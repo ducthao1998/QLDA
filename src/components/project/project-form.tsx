@@ -24,22 +24,45 @@ import { Textarea } from '@/components/ui/textarea'
 import { Project } from '@/app/types/table-types'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { createClient } from '@/lib/supabase/client'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { CalendarIcon } from 'lucide-react'
+import { Calendar } from '@/components/ui/calendar'
+import { cn } from '@/lib/utils'
+import { format } from 'date-fns'
 
-// Cập nhật schema để bao gồm cả 'classification' và 'project_field'
-const formSchema = z.object({
-  name: z.string().min(1, 'Tên dự án là bắt buộc'),
-  description: z.string().optional(),
-  start_date: z.string().optional(),
-  end_date: z.string().optional(),
-  status: z.string().optional(),
-  classification: z.string({
-    required_error: 'Vui lòng chọn phân loại dự án.',
-  }),
-  project_field: z.string({
-    required_error: 'Vui lòng chọn lĩnh vực dự án.',
-  }),
-})
+// Cập nhật schema:
+// 1. Chuyển start_date và end_date sang kiểu z.date() để làm việc với component Lịch.
+// 2. Thêm .refine() để kiểm tra end_date phải lớn hơn start_date.
+const formSchema = z
+  .object({
+    name: z.string().min(1, 'Tên dự án là bắt buộc'),
+    description: z.string().optional(),
+    start_date: z.date().optional(),
+    end_date: z.date().optional(),
+    status: z.string().optional(),
+    classification: z.string({
+      required_error: 'Vui lòng chọn phân loại dự án.',
+    }),
+    project_field: z.string({
+      required_error: 'Vui lòng chọn lĩnh vực dự án.',
+    }),
+  })
+  .refine(
+    (data) => {
+      if (data.start_date && data.end_date) {
+        return data.end_date >= data.start_date
+      }
+      return true
+    },
+    {
+      message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.',
+      path: ['end_date'], // Hiển thị lỗi ở trường end_date
+    },
+  )
 
 interface ProjectFormProps {
   project?: Project
@@ -47,52 +70,62 @@ interface ProjectFormProps {
 
 export function ProjectForm({ project }: ProjectFormProps) {
   const router = useRouter()
-  const supabase = createClient()
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
+    // Chuyển đổi giá trị ngày tháng (string) từ project thành đối tượng Date
     defaultValues: {
       name: project?.name || '',
       description: project?.description || '',
-      start_date: project?.start_date || '',
-      end_date: project?.end_date || '',
+      start_date: project?.start_date ? new Date(project.start_date) : undefined,
+      end_date: project?.end_date ? new Date(project.end_date) : undefined,
       status: project?.status || 'active',
       classification: project?.classification || undefined,
       project_field: project?.project_field || undefined,
     },
   })
 
+  // Cập nhật hàm onSubmit để định dạng lại ngày tháng trước khi gửi đi
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    try {
-      let error = null
-      if (project) {
-        // Chế độ chỉnh sửa
-        const { error: updateError } = await supabase
-          .from('projects')
-          .update(values)
-          .eq('id', project.id)
-        error = updateError
-      } else {
-        // Chế độ tạo mới
-        const { error: insertError } = await supabase
-          .from('projects')
-          .insert(values)
-        error = insertError
-      }
+    // Định dạng lại ngày thành chuỗi 'yyyy-MM-dd' để API có thể xử lý
+    const formattedValues = {
+      ...values,
+      start_date: values.start_date
+        ? format(values.start_date, 'yyyy-MM-dd')
+        : undefined,
+      end_date: values.end_date
+        ? format(values.end_date, 'yyyy-MM-dd')
+        : undefined,
+    }
 
-      if (error) {
-        throw error
+    try {
+      const url = project ? `/api/projects/${project.id}` : '/api/projects'
+      const method = project ? 'PUT' : 'POST'
+
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formattedValues),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Đã có lỗi xảy ra')
       }
 
       toast.success(
         project ? 'Cập nhật dự án thành công!' : 'Tạo dự án thành công!',
       )
       router.push('/dashboard/projects')
-      router.refresh() // Làm mới trang để cập nhật danh sách
+      router.refresh()
     } catch (error: any) {
       toast.error('Đã xảy ra lỗi: ' + error.message)
     }
   }
+
+  const { isSubmitting } = form.formState
 
   return (
     <Form {...form}>
@@ -127,7 +160,6 @@ export function ProjectForm({ project }: ProjectFormProps) {
           )}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* ---- TRƯỜNG MỚI: Lĩnh vực Dự án ---- */}
           <FormField
             control={form.control}
             name="project_field"
@@ -156,7 +188,6 @@ export function ProjectForm({ project }: ProjectFormProps) {
             )}
           />
 
-          {/* ---- TRƯỜNG MỚI: Phân loại Dự án ---- */}
           <FormField
             control={form.control}
             name="classification"
@@ -184,16 +215,42 @@ export function ProjectForm({ project }: ProjectFormProps) {
           />
         </div>
 
+        {/* ---- GIAO DIỆN CHỌN NGÀY ĐÃ ĐƯỢC CẬP NHẬT ---- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <FormField
             control={form.control}
             name="start_date"
             render={({ field }) => (
-              <FormItem>
+              <FormItem className="flex flex-col">
                 <FormLabel>Ngày bắt đầu</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant={'outline'}
+                        className={cn(
+                          'w-full pl-3 text-left font-normal',
+                          !field.value && 'text-muted-foreground',
+                        )}
+                      >
+                        {field.value ? (
+                          format(field.value, 'dd/MM/yyyy')
+                        ) : (
+                          <span>Chọn ngày</span>
+                        )}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value}
+                      onSelect={field.onChange}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
                 <FormMessage />
               </FormItem>
             )}
@@ -202,11 +259,41 @@ export function ProjectForm({ project }: ProjectFormProps) {
             control={form.control}
             name="end_date"
             render={({ field }) => (
-              <FormItem>
+              <FormItem className="flex flex-col">
                 <FormLabel>Ngày kết thúc</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <FormControl>
+                      <Button
+                        variant={'outline'}
+                        className={cn(
+                          'w-full pl-3 text-left font-normal',
+                          !field.value && 'text-muted-foreground',
+                        )}
+                      >
+                        {field.value ? (
+                          format(field.value, 'dd/MM/yyyy')
+                        ) : (
+                          <span>Chọn ngày</span>
+                        )}
+                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                      </Button>
+                    </FormControl>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={field.value}
+                      onSelect={field.onChange}
+                      disabled={(date) =>
+                        form.getValues('start_date')
+                          ? date < form.getValues('start_date')!
+                          : false
+                      }
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
                 <FormMessage />
               </FormItem>
             )}
@@ -217,10 +304,19 @@ export function ProjectForm({ project }: ProjectFormProps) {
             type="button"
             variant="outline"
             onClick={() => router.back()}
+            disabled={isSubmitting}
           >
             Hủy
           </Button>
-          <Button type="submit">{project ? 'Lưu thay đổi' : 'Tạo dự án'}</Button>
+          <Button type="submit" disabled={isSubmitting}>
+            {isSubmitting
+              ? project
+                ? 'Đang lưu...'
+                : 'Đang tạo...'
+              : project
+                ? 'Lưu thay đổi'
+                : 'Tạo dự án'}
+          </Button>
         </div>
       </form>
     </Form>

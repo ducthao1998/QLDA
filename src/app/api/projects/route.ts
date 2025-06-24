@@ -75,7 +75,7 @@ export async function GET(req: Request) {
   })
 }
 
-// Hàm POST không thay đổi, giữ nguyên logic
+// Hàm POST đã được sửa lỗi và hoàn thiện
 export async function POST(req: Request) {
   const supabase = await createClient()
 
@@ -94,7 +94,8 @@ export async function POST(req: Request) {
       .select('position')
       .eq('id', authUser.id)
       .single()
-
+    console.log(currentUser)
+    console.log("alo")
     if (userError || !currentUser) {
       return NextResponse.json(
         { error: 'Không thể lấy thông tin người dùng' },
@@ -136,6 +137,8 @@ export async function POST(req: Request) {
       )
     }
 
+    // SỬA LỖI: Đảm bảo 'created_by' được gán bằng ID của người dùng đã xác thực.
+    // Đây là bước quan trọng nhất để sửa lỗi và liên kết dự án với người tạo.
     const { data: newProject, error: insertError } = await supabase
       .from('projects')
       .insert({
@@ -146,12 +149,15 @@ export async function POST(req: Request) {
         status,
         classification,
         project_field,
-        created_by: authUser.id,
+        created_by: authUser.id, // Gán ID của người dùng đã xác thực
       })
       .select()
       .single()
 
-    if (insertError) throw insertError
+    if (insertError) {
+        console.error("Lỗi khi chèn dự án mới:", insertError);
+        throw insertError;
+    }
 
     if (newProject) {
       const { error: templateError } = await supabase.rpc(
@@ -169,6 +175,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ project: newProject }, { status: 201 })
   } catch (error: any) {
+    console.error("Lỗi trong hàm POST:", error);
     return NextResponse.json({ error: 'Lỗi khi tạo dự án' }, { status: 500 })
   }
 }

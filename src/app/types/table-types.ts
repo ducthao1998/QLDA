@@ -31,7 +31,7 @@ export type ProjectPhaseStandard = "Chuẩn bị" | "Thực hiện" | "Kết th�
 
 // 1. users
 export interface User {
-  id: string            // PK, FK → auth.users
+  id: string          // PK, FK → auth.users
   full_name: string
   position: string
   org_unit: string
@@ -43,12 +43,12 @@ export interface User {
 
 // 2. external_orgs
 export interface ExternalOrg {
-  id: string            // PK
+  id: string          // PK
   name: string
   contact_info: string | null
 }
 
-// 3. projects (SỬA LỖI: Đã thêm project_field)
+// 3. projects
 export interface Project {
   id: string
   name: string
@@ -56,10 +56,8 @@ export interface Project {
   status: string
   start_date: string
   end_date: string
-  // ---- CỘT MỚI ----
   classification: ProjectClassification | null
-  project_field: string | null // Lĩnh vực dự án, ví dụ: 'Xây dựng', 'CNTT'
-  // Thông tin user join vào
+  project_field: string | null
   users?: {
     full_name: string
     position: string
@@ -81,14 +79,13 @@ export interface Task {
   unit_in_charge?: string
   legal_basis?: string
   max_retries?: number
-  // ---- CỘT MỚI ----
-  template_id?: number | null; // Liên kết với công việc mẫu
+  template_id?: number | null;
 }
 
 // 5. task_dependencies
 export interface TaskDependency {
-  id: number            // serial PK (auto)
-  task_id: string       // FK → tasks.id
+  id: number           // serial PK (auto)
+  task_id: string      // FK → tasks.id
   depends_on_id: string // FK → tasks.id
   created_at?: string   // timestamp ISO
   updated_at?: string   // timestamp ISO
@@ -104,7 +101,7 @@ export interface TaskDependency {
 export interface TaskRaci {
   id: number              // serial PK
   task_id: string         // FK → tasks.id
-  user_id: string   // FK → users.id
+  user_id: string  // FK → users.id
   external_org_id: string | null // FK → external_orgs.id
   role: RaciRole
   created_at: string
@@ -131,7 +128,7 @@ export interface ProjectPhase {
 // CÁC BẢNG & VIEW MỚI
 // ==========================================================
 
-// 8. skills (Bảng mới)
+// 8. skills
 export interface Skill {
   id: number;
   name: string;
@@ -139,7 +136,7 @@ export interface Skill {
   created_at: string;
 }
 
-// 9. task_templates (Bảng mới)
+// 9. task_templates
 export interface TaskTemplate {
   id: number;
   name: string;
@@ -153,7 +150,15 @@ export interface TaskTemplate {
   created_at: string;
 }
 
-// 10. user_skill_matrix (VIEW mới)
+// ---- BẢNG MỚI ĐƯỢC THÊM VÀO ----
+// 10. task_skills (Bảng trung gian)
+export interface TaskSkill {
+    task_id: string;      // PK, FK -> tasks.id
+    skill_id: number;     // PK, FK -> skills.id
+}
+
+
+// 11. user_skill_matrix (VIEW mới)
 export interface UserSkillMatrixView {
   user_id: string;
   full_name: string;
@@ -169,7 +174,7 @@ export interface UserSkillMatrixView {
 // CÁC BẢNG PHỤ (VẪN CÓ THỂ CẦN THIẾT)
 // ==========================================================
 
-// 11. worklogs
+// 12. worklogs
 export interface Worklog {
   id: number
   task_id: string
@@ -179,7 +184,7 @@ export interface Worklog {
   note: string | null
 }
 
-// 12. comments
+// 13. comments
 export interface Comment {
   id: number
   task_id: string
@@ -187,7 +192,7 @@ export interface Comment {
   body: string
 }
 
-// 13. attachments
+// 14. attachments
 export interface Attachment {
   id: string
   task_id: string
@@ -196,7 +201,7 @@ export interface Attachment {
   uploaded_by: string
 }
 
-// 14. task_progress
+// 15. task_progress
 export interface TaskProgress {
   id: number
   task_id: string
@@ -208,7 +213,7 @@ export interface TaskProgress {
   snapshot_at: string
 }
 
-// 15. task_history
+// 16. task_history
 export interface TaskHistory {
   id: number
   task_id: string
