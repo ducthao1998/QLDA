@@ -34,7 +34,7 @@ export async function GET(
     // Lấy tất cả các công việc mẫu phù hợp với dự án
     const query = supabase
       .from('task_templates')
-      .select('id, name, description, phase')
+      .select('id, name, description')
       .eq('project_field', project.project_field)
       .or(
         `applicable_classification.cs.{"ALL"},applicable_classification.cs.{${project.classification}}`,

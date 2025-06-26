@@ -44,8 +44,6 @@ const PROJECT_CLASSIFICATIONS = [
 const taskTemplateSchema = z.object({
   name: z.string().min(3, 'Tên công việc mẫu phải có ít nhất 3 ký tự.'),
   description: z.string().optional(),
-  project_field: z.string({ required_error: 'Vui lòng chọn lĩnh vực dự án.' }),
-  phase: z.string({ required_error: 'Vui lòng chọn giai đoạn chuẩn.' }),
   applicable_classification: z
     .array(z.string())
     .refine((value) => value.some((item) => item), {
@@ -69,7 +67,10 @@ interface Skill {
   name: string
 }
 
-export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormProps) {
+export function TaskTemplateForm({
+  template,
+  onFormSubmit,
+}: TaskTemplateFormProps) {
   const router = useRouter()
   const [skills, setSkills] = useState<Skill[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -82,12 +83,9 @@ export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormPro
           throw new Error('Failed to fetch skills')
         }
         const data = await response.json()
-
-        // SỬA LỖI: Lấy mảng 'skills' từ đối tượng data trả về
         if (data && Array.isArray(data.skills)) {
           setSkills(data.skills)
         } else {
-          // Nếu không phải mảng, log lỗi và đặt state là một mảng rỗng để tránh crash
           console.error(
             'API /api/skills did not return the expected { skills: [...] } format:',
             data,
@@ -97,7 +95,7 @@ export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormPro
       } catch (error) {
         console.error('Lỗi lấy danh sách kỹ năng:', error)
         toast.error('Không thể tải danh sách kỹ năng.')
-        setSkills([]) // Đảm bảo skills luôn là mảng ngay cả khi fetch lỗi
+        setSkills([])
       }
     }
     fetchSkills()
@@ -108,8 +106,6 @@ export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormPro
     defaultValues: {
       name: template?.name || '',
       description: template?.description || '',
-      project_field: template?.project_field || undefined,
-      phase: template?.phase || undefined,
       applicable_classification: template?.applicable_classification || [],
       sequence_order: template?.sequence_order || 1,
       default_duration_days: template?.default_duration_days || undefined,
@@ -170,7 +166,10 @@ export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormPro
             <FormItem>
               <FormLabel>Tên công việc mẫu</FormLabel>
               <FormControl>
-                <Input placeholder="Ví dụ: Xin giấy phép xây dựng..." {...field} />
+                <Input
+                  placeholder="Ví dụ: Xin giấy phép xây dựng..."
+                  {...field}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -193,63 +192,6 @@ export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormPro
             </FormItem>
           )}
         />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField
-            control={form.control}
-            name="project_field"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Lĩnh vực dự án</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn lĩnh vực áp dụng" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="Xây dựng">Xây dựng</SelectItem>
-                    <SelectItem value="CNTT">Công nghệ thông tin</SelectItem>
-                    <SelectItem value="Cải cách TTHC">
-                      Cải cách TTHC
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="phase"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Thuộc giai đoạn</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn giai đoạn của công việc" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {PROJECT_PHASES.map((phase) => (
-                      <SelectItem key={phase} value={phase}>
-                        {phase}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
 
         <FormField
           control={form.control}
@@ -387,7 +329,7 @@ export function TaskTemplateForm({ template, onFormSubmit }: TaskTemplateFormPro
             {isSubmitting
               ? 'Đang xử lý...'
               : template
-              ? 'Lưu thay đổi'
+              ? 'Lưu thay đổi' 
               : 'Tạo công việc mẫu'}
           </Button>
         </div>

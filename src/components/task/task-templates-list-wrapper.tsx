@@ -62,8 +62,6 @@ function TemplateTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-[300px]">Tên công việc mẫu</TableHead>
-            <TableHead>Lĩnh vực</TableHead>
-            <TableHead>Giai đoạn</TableHead>
             <TableHead>Kỹ năng</TableHead>
             <TableHead className="text-center">Thứ tự</TableHead>
             <TableHead className="text-right">Hành động</TableHead>
@@ -74,12 +72,6 @@ function TemplateTable({
             templates.map((template) => (
               <TableRow key={template.id}>
                 <TableCell className="font-medium">{template.name}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">{template.project_field}</Badge>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {template.phase}
-                </TableCell>
                 <TableCell>
                   {template.skills?.name ?? (
                     <span className="text-xs text-muted-foreground">Không</span>
