@@ -23,7 +23,6 @@ export type RaciRole = "R" | "A" | "C" | "I"
 
 export type ProjectClassification = "A" | "B" | "C"
 
-export type ProjectPhaseStandard = "Chuẩn bị" | "Thực hiện" | "Kết thúc"
 
 // ==========================================================
 // BẢNG VÀ VIEW CỐT LÕI
@@ -141,9 +140,7 @@ export interface TaskTemplate {
   id: number;
   name: string;
   description: string | null;
-  project_field: string; // 'Xây dựng', 'CNTT', 'Cải cách TTHC'
   applicable_classification: string[]; // {"A", "B"} hoặc {"ALL"}
-  phase: ProjectPhaseStandard;
   sequence_order: number;
   default_duration_days: number | null;
   required_skill_id: number | null;

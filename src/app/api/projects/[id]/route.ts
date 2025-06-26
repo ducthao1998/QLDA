@@ -41,11 +41,12 @@ export async function DELETE(
   { params }: { params: { id: string } },
 ) {
     const supabase = await createClient();
+    const projectId = await params;
     try {
         const { error } = await supabase
             .from('projects')
             .delete()
-            .eq('id', params.id);
+            .eq('id', projectId.id);
         if (error) throw error;
         return NextResponse.json({ message: 'Xóa dự án thành công' });
     } catch (error: any) {

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -34,9 +35,6 @@ import { Calendar } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 
-// Cập nhật schema:
-// 1. Chuyển start_date và end_date sang kiểu z.date() để làm việc với component Lịch.
-// 2. Thêm .refine() để kiểm tra end_date phải lớn hơn start_date.
 const formSchema = z
   .object({
     name: z.string().min(1, 'Tên dự án là bắt buộc'),
@@ -60,7 +58,7 @@ const formSchema = z
     },
     {
       message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.',
-      path: ['end_date'], // Hiển thị lỗi ở trường end_date
+      path: ['end_date'],
     },
   )
 
@@ -73,21 +71,20 @@ export function ProjectForm({ project }: ProjectFormProps) {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    // Chuyển đổi giá trị ngày tháng (string) từ project thành đối tượng Date
     defaultValues: {
       name: project?.name || '',
       description: project?.description || '',
-      start_date: project?.start_date ? new Date(project.start_date) : undefined,
+      start_date: project?.start_date
+        ? new Date(project.start_date)
+        : undefined,
       end_date: project?.end_date ? new Date(project.end_date) : undefined,
       status: project?.status || 'active',
       classification: project?.classification || undefined,
-      project_field: project?.project_field || undefined,
+      project_field: project?.project_field || '',
     },
   })
 
-  // Cập nhật hàm onSubmit để định dạng lại ngày tháng trước khi gửi đi
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    // Định dạng lại ngày thành chuỗi 'yyyy-MM-dd' để API có thể xử lý
     const formattedValues = {
       ...values,
       start_date: values.start_date
@@ -160,29 +157,19 @@ export function ProjectForm({ project }: ProjectFormProps) {
           )}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* SỬA LỖI: Chuyển từ Select sang Input để tăng tính linh hoạt */}
           <FormField
             control={form.control}
             name="project_field"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Lĩnh vực Dự án</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn lĩnh vực" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="Xây dựng">Xây dựng cơ bản</SelectItem>
-                    <SelectItem value="CNTT">Công nghệ thông tin</SelectItem>
-                    <SelectItem value="Cải cách TTHC">
-                      Cải cách TTHC
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <FormControl>
+                  <Input placeholder="Ví dụ: Xây dựng, CNTT..." {...field} />
+                </FormControl>
+                <FormDescription>
+                  Nhập lĩnh vực để tải các công việc mẫu tương ứng.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -215,7 +202,6 @@ export function ProjectForm({ project }: ProjectFormProps) {
           />
         </div>
 
-        {/* ---- GIAO DIỆN CHỌN NGÀY ĐÃ ĐƯỢC CẬP NHẬT ---- */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <FormField
             control={form.control}
@@ -314,11 +300,12 @@ export function ProjectForm({ project }: ProjectFormProps) {
                 ? 'Đang lưu...'
                 : 'Đang tạo...'
               : project
-                ? 'Lưu thay đổi'
-                : 'Tạo dự án'}
+              ? 'Lưu thay đổi'
+              : 'Tạo dự án'}
           </Button>
         </div>
       </form>
     </Form>
   )
 }
+

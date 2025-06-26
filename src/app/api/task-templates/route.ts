@@ -1,4 +1,4 @@
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs'
+import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import * as z from 'zod'
@@ -6,8 +6,6 @@ import * as z from 'zod'
 const taskTemplateSchema = z.object({
   name: z.string().min(3),
   description: z.string().optional(),
-  project_field: z.string(),
-  phase: z.string(),
   applicable_classification: z.array(z.string()).min(1),
   sequence_order: z.number().int().positive(),
   default_duration_days: z.number().int().min(0).optional().nullable(),
@@ -17,7 +15,7 @@ const taskTemplateSchema = z.object({
 // Các hàm GET và POST đã được cập nhật
 export async function GET(request: Request) {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = await createClient()
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -29,7 +27,6 @@ export async function GET(request: Request) {
     const { data, error } = await supabase
       .from('task_templates')
       .select('*, skills(name)')
-      .order('phase')
       .order('sequence_order', { ascending: true })
 
     if (error) {
@@ -49,7 +46,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = createRouteHandlerClient({ cookies })
+    const supabase = await createClient()
     const {
       data: { user },
     } = await supabase.auth.getUser()
@@ -68,7 +65,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const { name, sequence_order, phase, project_field } = validation.data
+    const { name, sequence_order } = validation.data
 
     // --- LOGIC VALIDATION CHỐNG TRÙNG LẶP ---
     // 1. Kiểm tra tên công việc có bị trùng trong cùng lĩnh vực và giai đoạn không
@@ -76,8 +73,6 @@ export async function POST(request: Request) {
       .from('task_templates')
       .select('id')
       .eq('name', name)
-      .eq('phase', phase)
-      .eq('project_field', project_field)
       .maybeSingle()
 
     if (nameError) throw nameError
@@ -95,8 +90,6 @@ export async function POST(request: Request) {
       .from('task_templates')
       .select('id')
       .eq('sequence_order', sequence_order)
-      .eq('phase', phase)
-      .eq('project_field', project_field)
       .maybeSingle()
       
     if (sequenceError) throw sequenceError
@@ -109,7 +102,7 @@ export async function POST(request: Request) {
         )
     }
     // --- KẾT THÚC LOGIC VALIDATION ---
-
+    console
     const dataToInsert = {
       ...validation.data,
       required_skill_id: validation.data.required_skill_id

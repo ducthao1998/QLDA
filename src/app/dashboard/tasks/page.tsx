@@ -1,43 +1,45 @@
-import { cookies } from 'next/headers'
-import { TaskTemplatesListWrapper } from '@/components/task/task-templates-list-wrapper' // Import component client mới
+// src/app/dashboard/tasks/page.tsx
+"use client"; // BƯỚC 1: Đánh dấu đây là Client Component
 
-export const revalidate = 0
+import { useState, useEffect } from "react";
+import { TaskTemplatesListWrapper } from '@/components/task/task-templates-list-wrapper';
+import { toast } from 'sonner'; // Giả sử bạn dùng react-hot-toast
 
-// Hàm fetch dữ liệu an toàn từ phía server
-async function getTaskTemplates() {
-  // Lấy URL từ biến môi trường để hoạt động trên cả local và production
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const cookieStore = cookies()
-  
-  try {
-    const response = await fetch(`${appUrl}/api/task-templates`, {
-      headers: {
-        Cookie: cookieStore.toString(), // Chuyển cookies để xác thực
-      },
-      cache: 'no-store', // Không cache để luôn lấy dữ liệu mới nhất
-    })
+export default function TaskTemplatesPage() {
+  // BƯỚC 2: Dùng state để lưu dữ liệu và trạng thái loading
+  const [taskTemplates, setTaskTemplates] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-    if (!response.ok) {
-      // Log lỗi chi tiết hơn
-      const errorText = await response.text();
-      console.error(`Failed to fetch task templates: ${response.status} ${response.statusText}`, errorText);
-      return [];
+  // BƯỚC 3: Dùng useEffect để fetch dữ liệu khi component được mount
+  useEffect(() => {
+    async function getTaskTemplates() {
+      try {
+        const response = await fetch('/api/task-templates'); // Gọi API route như bình thường
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch task templates');
+        }
+        
+        const data = await response.json();
+        setTaskTemplates(data);
+      } catch (error) {
+        console.error("Error fetching task templates:", error);
+        toast.error("Lỗi tải danh sách mẫu công việc.");
+      } finally {
+        setIsLoading(false);
+      }
     }
-    
-    return await response.json()
-  } catch (error) {
-    console.error("Error calling fetch in getTaskTemplates:", error);
-    return [];
-  }
-}
 
-export default async function TaskTemplatesPage() {
-  const taskTemplates = await getTaskTemplates()
+    getTaskTemplates();
+  }, []); // Mảng rỗng đảm bảo useEffect chỉ chạy 1 lần
+
+  if (isLoading) {
+    return <div>Đang tải...</div>; // Hiển thị trạng thái loading
+  }
 
   return (
     <div className="space-y-6">
-       {/* TaskTemplatesListWrapper bây giờ là client component bao bọc toàn bộ trang */}
       <TaskTemplatesListWrapper initialData={taskTemplates ?? []} />
     </div>
-  )
+  );
 }
