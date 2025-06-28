@@ -1,719 +1,407 @@
-import type React from "react"
-import { notFound } from "next/navigation"
-import { headers } from "next/headers"
-import { format, formatDuration } from "date-fns"
-import { vi } from "date-fns/locale"
-import {
-  ClockIcon,
-  AlertCircleIcon,
-  UserIcon,
-  CalendarIcon,
-  FileTextIcon,
-  TagIcon,
-  EditIcon,
-  LightbulbIcon,
-  ArrowLeftIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  AlertTriangleIcon,
-  InfoIcon,
-  BriefcaseIcon,
-  LinkIcon,
-  BarChartIcon,
-} from "lucide-react"
-import Link from "next/link"
-
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Button } from "@/components/ui/button"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-
-import { calculateRiskPrediction } from "@/algorithm/risk-prediction"
-import { calculateTaskWeight } from "@/algorithm/task-weight"
-import { calculateEstimatedTime } from "@/algorithm/estimated-time"
 import { createClient } from "@/lib/supabase/server"
-import { RaciRole, Skill } from "@/app/types/table-types"
+import { notFound } from "next/navigation"
+import Link from "next/link"
+import {
+  ArrowLeftIcon,
+  PencilIcon,
+  LayersIcon,
+  TagIcon,
+  CalendarIcon,
+  UserIcon,
+  FileTextIcon,
+  ScaleIcon,
+  RefreshCwIcon,
+  LayoutTemplateIcon as TemplateIcon,
+  BuildingIcon,
+  ClockIcon,
+  InfoIcon,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { format } from "date-fns"
+import { vi } from "date-fns/locale"
+import type { RaciRole, TaskStatus } from "@/app/types/table-types"
+import { cn } from "@/lib/utils"
 
-type Params = { id: string }
+// Định nghĩa kiểu dữ liệu chi tiết cho task sau khi query
+type UserInfo = { id: string; full_name: string | null; position: string | null }
+type RaciInfo = { role: RaciRole; users: UserInfo | null }
 
-const statusColors: Record<
-  string,
-  { variant: "default" | "secondary" | "destructive" | "outline"; label: string; icon: React.ReactNode }
-> = {
-  todo: { variant: "secondary", label: "Chưa bắt đầu", icon: <InfoIcon className="h-4 w-4 mr-2" /> },
-  in_progress: { variant: "default", label: "Đang thực hiện", icon: <BarChartIcon className="h-4 w-4 mr-2" /> },
-  review: { variant: "secondary", label: "Đang xem xét", icon: <AlertTriangleIcon className="h-4 w-4 mr-2" /> },
-  completed: { variant: "default", label: "Hoàn thành", icon: <CheckCircleIcon className="h-4 w-4 mr-2" /> },
-  blocked: { variant: "destructive", label: "Bị chặn", icon: <XCircleIcon className="h-4 w-4 mr-2" /> },
-  archived: { variant: "outline", label: "Lưu trữ", icon: <BriefcaseIcon className="h-4 w-4 mr-2" /> },
-  done: { variant: "default", label: "Hoàn thành", icon: <CheckCircleIcon className="h-4 w-4 mr-2" /> },
+type TaskDetail = {
+  id: number
+  name: string
+  note: string | null
+  status: TaskStatus
+  start_date: string | null
+  end_date: string | null
+  project_id: string
+  phase_id: string | null
+  unit_in_charge: string | null
+  legal_basis: string | null
+  max_retries: number | null
+  template_id: number | null
+  projects: { id: string; name: string } | null
+  project_phases: { id: string; name: string } | null
+  task_templates: { id: number; name: string } | null
+  task_raci: RaciInfo[]
+  task_skills: { skills: { id: number; name: string } | null }[]
 }
 
-export default async function TaskDetailPage({ params }: { params: Params }) {
-  const { id } = await params
-  const headersList = await headers()
-  const host = headersList.get("host") || "localhost:3000"
-  const protocol = process.env.NODE_ENV === "development" ? "http" : "https"
+// Map trạng thái công việc với màu sắc và nhãn hiển thị
+const statusMap: Record<TaskStatus, { label: string; className: string; icon: string }> = {
+  todo: { label: "Cần làm", className: "bg-gray-100 text-gray-800 border-gray-300", icon: "⏳" },
+  in_progress: { label: "Đang thực hiện", className: "bg-blue-100 text-blue-800 border-blue-300", icon: "🔄" },
+  review: { label: "Đang review", className: "bg-yellow-100 text-yellow-800 border-yellow-300", icon: "👀" },
+  done: { label: "Hoàn thành", className: "bg-green-100 text-green-800 border-green-300", icon: "✅" },
+  blocked: { label: "Bị chặn", className: "bg-red-100 text-red-800 border-red-300", icon: "🚫" },
+  archived: { label: "Lưu trữ", className: "bg-gray-100 text-gray-600 border-gray-300", icon: "📦" },
+}
 
+// Map vai trò RACI với mô tả
+const raciMap: Record<RaciRole, { label: string; description: string; color: string }> = {
+  R: { label: "Responsible", description: "Người thực hiện", color: "bg-blue-100 text-blue-800" },
+  A: { label: "Accountable", description: "Người chịu trách nhiệm", color: "bg-green-100 text-green-800" },
+  C: { label: "Consulted", description: "Người tư vấn", color: "bg-yellow-100 text-yellow-800" },
+  I: { label: "Informed", description: "Người được thông báo", color: "bg-gray-100 text-gray-800" },
+}
+
+// Hàm helper để định dạng ngày
+const formatDate = (dateString: string | null | undefined) => {
+  if (!dateString) return "Chưa xác định"
   try {
-    // Fetch task data
-    const { data: task, error } = await (await createClient())
-      .from("tasks")
-      .select(`
-      *,
-      users:assigned_to (
-        full_name,
-        position,
-        org_unit
-      ),
-      projects (
-        name
-      ),
-      phases:phase_id (
-        name
-      ),
-      task_skills (
-        skill:skills (
-          id,
-          name
-        )
-      )
+    return format(new Date(dateString), "dd/MM/yyyy", { locale: vi })
+  } catch {
+    return "Ngày không hợp lệ"
+  }
+}
+
+// Hàm helper để tính số ngày còn lại
+const getDaysRemaining = (endDate: string | null) => {
+  if (!endDate) return null
+  try {
+    const end = new Date(endDate)
+    const now = new Date()
+    const diffTime = end.getTime() - now.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    return diffDays
+  } catch {
+    return null
+  }
+}
+
+// Component chính cho trang chi tiết công việc (Server Component)
+export default async function TaskDetailPage({ params }: { params: { id: string } }) {
+  const supabase = await createClient()
+  const param = await params;
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .select(`
+        id, name, note, status, start_date, end_date, project_id, phase_id,
+        unit_in_charge, legal_basis, max_retries, template_id,
+        projects ( id, name ),
+        project_phases ( id, name ),
+        task_templates ( id, name ),
+        task_raci ( role, users ( id, full_name, position ) ),
+        task_skills ( skills ( id, name ) )
     `)
-      .eq("id", id)
-      .single()
+    .eq("id", param.id)
+    .single<TaskDetail>()
 
-    if (error) {
-      console.error("Error fetching task:", error)
-      notFound()
-    }
-
-    if (!task) {
-      console.error("Task not found")
-      notFound()
-    }
-
-    // Fetch RACI matrix data
-    const { data: raciData, error: raciError } = await (await createClient())
-      .from("task_raci")
-      .select(`
-    id,
-    role,
-    users:user_id (
-      id,
-      full_name,
-      position,
-      org_unit
-    )
-  `)
-      .eq("task_id", id)
-
-    if (raciError) {
-      console.error("Error fetching RACI data:", raciError)
-    }
-
-    // Fetch task dependencies
-    const { data: dependenciesData, error: dependenciesError } = await (await createClient())
-      .from("task_dependencies")
-      .select(`
-        id,
-        depends_on_id,
-        dependency_task:depends_on_id (
-          id,
-          name,
-          status,
-          end_date
-        )
-      `)
-      .eq("task_id", id)
-
-    if (dependenciesError) {
-      console.error("Error fetching dependencies:", dependenciesError)
-    }
-
-    // Add RACI and dependencies data to task
-    task.task_raci = raciData || []
-    task.dependencies = dependenciesData || []
-
-    console.log("Fetched task data:", task)
-
-    // Process task data with defaults for missing properties
-    const processedTask = {
-      ...task,
-      description: task.description || "",
-      start_date: task.start_date || null,
-      end_date: task.end_date || null,
-      note: task.note || "",
-      unit_in_charge: task.unit_in_charge || "",
-      legal_basis: task.legal_basis || "",
-      max_retries: task.max_retries || 0,
-      // These properties might not exist in the actual task data
-      min_duration_hours: task.min_duration_hours || 0,
-      max_duration_hours: task.max_duration_hours || 0,
-      skills: task.task_skills?.map((ts: any) => ts.skill) || [],
-      task_raci: task.task_raci || [],
-      dependencies: task.dependencies || [],
-    }
-
-    console.log("Processed task data:", processedTask)
-
-    const startDate = processedTask.start_date ? new Date(processedTask.start_date) : null
-    const endDate = processedTask.end_date ? new Date(processedTask.end_date) : null
-    
-    const minDurationHours = startDate && endDate ? 
-      Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60))) : 0
-    const maxDurationHours = minDurationHours * 1.5 // Add 50% buffer
-
-    const riskPrediction = await calculateRiskPrediction({
-      taskId: processedTask.id,
-      min_duration_hours: minDurationHours,
-      max_duration_hours: maxDurationHours,
-      max_retries: processedTask.max_retries,
-      dependencies: processedTask.dependencies,
-      status: processedTask.status,
-    })
-
-    const taskWeight = calculateTaskWeight({
-      min_duration_hours: minDurationHours,
-      max_duration_hours: maxDurationHours,
-      max_retries: processedTask.max_retries,
-      dependencies: processedTask.dependencies || [],
-      skill_complexity: processedTask.skill_id ? 3 : 1,
-    })
-
-    const estimatedTime = calculateEstimatedTime({
-      start_date: processedTask.start_date,
-      end_date: processedTask.end_date,
-      max_retries: processedTask.max_retries,
-      dependencies: processedTask.dependencies,
-    })
-
-    // Format the dates if they exist, including time
-    const formatDateTime = (dateTimeStr: string | null) => {
-      if (!dateTimeStr) return null
-      const date = new Date(dateTimeStr)
-      return {
-        date: format(date, "dd MMMM yyyy", { locale: vi }),
-        time: format(date, "HH:mm", { locale: vi }),
-        full: format(date, "dd MMMM yyyy 'lúc' HH:mm", { locale: vi }),
-      }
-    }
-
-    const startDateTime = formatDateTime(processedTask.start_date)
-    const endDateTime = formatDateTime(processedTask.end_date)
-    const dueDateTime = formatDateTime(processedTask.due_date)
-
-    return (
-      <div className="container px-4 py-6 space-y-6 max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" asChild className="mr-2">
-              <Link href="/dashboard/tasks">
-                <ArrowLeftIcon className="h-5 w-5" />
-              </Link>
-            </Button>
-            <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{processedTask.name}</h1>
-          </div>
-          <div className="flex items-center gap-2 self-start">
-            <div className="flex items-center">
-              {statusColors[processedTask.status]?.icon}
-              <Badge variant={statusColors[processedTask.status]?.variant || "secondary"} className="text-sm px-3 py-1">
-                {statusColors[processedTask.status]?.label || processedTask.status}
-              </Badge>
-            </div>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="outline" size="icon" asChild>
-                    <Link href={`/dashboard/tasks/${processedTask.id}/edit`}>
-                      <EditIcon className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Chỉnh sửa công việc</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </div>
-
-        {/* Project info */}
-        <div className="flex items-center text-sm text-muted-foreground">
-          <BriefcaseIcon className="h-4 w-4 mr-2" />
-          <Link
-            href={`/dashboard/projects/${processedTask.project_id}`}
-            className="hover:underline hover:text-foreground transition-colors"
-          >
-            {processedTask.projects?.name || "Dự án không xác định"}
-          </Link>
-          {processedTask.phase_id && (
-            <>
-              <span className="mx-2">•</span>
-              <span>Giai đoạn: {processedTask.phases?.name || "Không xác định"}</span>
-            </>
-          )}
-        </div>
-
-        <Separator className="my-4" />
-
-        {/* Main content with tabs */}
-        <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid grid-cols-4 max-w-lg">
-            <TabsTrigger value="overview">Tổng quan</TabsTrigger>
-            <TabsTrigger value="technical">Phân tích</TabsTrigger>
-            <TabsTrigger value="assignments">Phân công</TabsTrigger>
-            <TabsTrigger value="dependencies">Phụ thuộc</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Main info card */}
-              <Card className="md:col-span-2">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileTextIcon className="h-5 w-5" />
-                    Chi tiết công việc
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Notes */}
-                  {processedTask.note && (
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm text-muted-foreground">Ghi chú:</h3>
-                      <p className="text-sm border-l-2 border-muted pl-3 py-1">{processedTask.note}</p>
-                    </div>
-                  )}
-
-                  {/* Dates */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                        <CalendarIcon className="h-4 w-4 mr-2" />
-                        Ngày bắt đầu
-                      </h3>
-                      <p className="text-sm">{startDateTime?.full || "Chưa thiết lập"}</p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                        <CalendarIcon className="h-4 w-4 mr-2" />
-                        Ngày kết thúc
-                      </h3>
-                      <p className="text-sm">{endDateTime?.full || "Chưa thiết lập"}</p>
-                    </div>
-                  </div>
-
-                  {/* Assigned User */}
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                      <UserIcon className="h-4 w-4 mr-2" />
-                      Người phụ trách
-                    </h3>
-                    <div className="flex items-center">
-                      {processedTask.users ? (
-                        <>
-                          <Avatar className="h-6 w-6 mr-2">
-                            <AvatarFallback>{processedTask.users.full_name?.[0] || "?"}</AvatarFallback>
-                          </Avatar>
-                          <span>{processedTask.users.full_name}</span>
-                          {processedTask.users.position && (
-                            <span className="text-xs text-muted-foreground ml-2">({processedTask.users.position})</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">Chưa phân công</span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Additional info */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {processedTask.unit_in_charge && (
-                      <div className="space-y-2">
-                        <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                          <BriefcaseIcon className="h-4 w-4 mr-2" />
-                          Đơn vị thực hiện
-                        </h3>
-                        <p className="text-sm">{processedTask.unit_in_charge}</p>
-                      </div>
-                    )}
-
-                    {processedTask.legal_basis && (
-                      <div className="space-y-2">
-                        <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                          <TagIcon className="h-4 w-4 mr-2" />
-                          Căn cứ thực hiện
-                        </h3>
-                        <p className="text-sm">{processedTask.legal_basis}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Max retries */}
-                  {processedTask.max_retries > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                        <AlertCircleIcon className="h-4 w-4 mr-2" />
-                        Số lần cho phép trình sai
-                      </h3>
-                      <p className="text-sm">{processedTask.max_retries} lần</p>
-                    </div>
-                  )}
-
-                  {/* Skills */}
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                      <TagIcon className="h-4 w-4 mr-2" />
-                      Lĩnh vực
-                    </h3>
-                    <div className="flex flex-wrap gap-2">
-                      {processedTask.skills?.map((skill: Skill) => (
-                        <Badge key={skill.id} variant="outline">
-                          {skill.name}
-                        </Badge>
-                      ))}
-                      {(!processedTask.skills || processedTask.skills.length === 0) && (
-                        <span className="text-sm text-muted-foreground">Không có lĩnh vực được chỉ định</span>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Time and Attempts */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <ClockIcon className="h-5 w-5" />
-                    Thời gian và nỗ lực
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-muted-foreground">Thời gian ước tính:</h3>
-                    <div className="flex items-center justify-center bg-muted/50 py-4 rounded-md">
-                      <span className="text-2xl font-bold">
-                      {minDurationHours > 0 ? `${minDurationHours}h` : "Chưa xác định"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-muted-foreground">Thời gian ước tính thực tế:</h3>
-                    <div className="flex items-center justify-between">
-                    <span className="text-xl font-semibold">
-                        {estimatedTime.displayTime} {estimatedTime.timeUnit === "hour" && "giờ"}
-                        {estimatedTime.timeUnit === "day" && "ngày"}
-                        {estimatedTime.timeUnit === "week" && "tuần"}
-                        {estimatedTime.timeUnit === "month" && "tháng"}
-                        {estimatedTime.timeUnit === "year" && "năm"}
-                      </span>
-                      <Badge variant="outline" className="ml-2">
-                        Độ tin cậy: {(estimatedTime.confidence * 100).toFixed(0)}%
-                      </Badge>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <h3 className="font-medium text-sm text-muted-foreground flex items-center">
-                      <AlertCircleIcon className="h-4 w-4 mr-2" />
-                      Số lần thử lại tối đa:
-                    </h3>
-                    <div className="flex items-center justify-center bg-muted/50 py-3 rounded-md">
-                      <span className="text-xl font-semibold">{processedTask.max_retries || 0}</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="technical" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Risk Analysis */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <AlertCircleIcon className="h-5 w-5" />
-                    Phân tích rủi ro
-                  </CardTitle>
-                  <CardDescription>Đánh giá rủi ro và đề xuất chiến lược giảm thiểu</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">Mức độ rủi ro</span>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={riskPrediction.riskLevel > 3 ? "destructive" : "outline"}>
-                          {riskPrediction.riskLevel}/5
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">Điểm: {riskPrediction.riskScore}/100</span>
-                      </div>
-                    </div>
-                    <Progress
-                      value={riskPrediction.riskLevel * 20}
-                      className={`h-2 ${
-                        riskPrediction.riskLevel > 3
-                          ? "bg-destructive"
-                          : riskPrediction.riskLevel > 2
-                            ? "bg-amber-500"
-                            : "bg-green-500"
-                      }`}
-                    />
-                  </div>
-
-                  {riskPrediction.riskFactors.length > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm flex items-center">
-                        <AlertTriangleIcon className="h-4 w-4 mr-2 text-amber-500" />
-                        Yếu tố rủi ro:
-                      </h3>
-                      <ul className="space-y-1 text-sm">
-                        {riskPrediction.riskFactors.map((factor, index) => (
-                          <li key={index} className="flex items-start">
-                            <span className="mr-2">•</span>
-                            <span>{factor}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {riskPrediction.recommendations.length > 0 && (
-                    <div className="space-y-2">
-                      <h3 className="font-medium text-sm flex items-center">
-                        <LightbulbIcon className="h-4 w-4 mr-2 text-amber-500" />
-                        Đề xuất:
-                      </h3>
-                      <ul className="space-y-1 text-sm">
-                        {riskPrediction.recommendations.map((recommendation, index) => (
-                          <li key={index} className="flex items-start">
-                            <span className="mr-2">•</span>
-                            <span>{recommendation}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Task Analysis */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <BarChartIcon className="h-5 w-5" />
-                    Phân tích nhiệm vụ
-                  </CardTitle>
-                  <CardDescription>Đánh giá độ phức tạp và trọng số các yếu tố</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">Độ phức tạp tổng thể:</span>
-                    <Badge
-                      variant="outline"
-                      className={
-                        taskWeight.complexity > 4
-                          ? "border-destructive text-destructive"
-                          : taskWeight.complexity > 3
-                            ? "border-amber-500 text-amber-500"
-                            : "border-green-500 text-green-500"
-                      }
-                    >
-                      {taskWeight.complexity}/5
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Trọng số thời gian</span>
-                        <span>{taskWeight.timeWeight.toFixed(2)}</span>
-                      </div>
-                      <Progress value={taskWeight.timeWeight * 100} className="h-1.5" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Trọng số thử lại</span>
-                        <span>{taskWeight.retryWeight.toFixed(2)}</span>
-                      </div>
-                      <Progress value={taskWeight.retryWeight * 100} className="h-1.5" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Trọng số phụ thuộc</span>
-                        <span>{taskWeight.dependencyWeight.toFixed(2)}</span>
-                      </div>
-                      <Progress value={taskWeight.dependencyWeight * 100} className="h-1.5" />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Trọng số kỹ năng</span>
-                        <span>{(taskWeight.skillComplexity / 5).toFixed(2)}</span>
-                      </div>
-                      <Progress value={(taskWeight.skillComplexity / 5) * 100} className="h-1.5" />
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter className="flex justify-between items-center pt-0 pb-3">
-                  <span className="text-xs text-muted-foreground">Trọng số cao = độ phức tạp cao hơn</span>
-                </CardFooter>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="assignments" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <UserIcon className="h-5 w-5" />
-                  Phân công RACI
-                </CardTitle>
-                <CardDescription>
-                  Mô hình phân công trách nhiệm: Responsible (R), Accountable (A), Consulted (C), Informed (I)
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {processedTask.task_raci && processedTask.task_raci.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {processedTask.task_raci.map((raci: { id: number; role: RaciRole; users: { full_name: string; position?: string; org_unit?: string } }) => {
-                        const role = raci.role as RaciRole
-                        const user = raci.users
-                        const roleInfo = getRaciInfo(role)
-
-                        return (
-                          <div key={raci.id} className="flex items-start p-3 border rounded-md bg-card">
-                            <Badge variant={roleInfo.variant as "default" | "destructive" | "secondary" | "outline"} className="mr-3 mt-0.5">
-                              {role}
-                            </Badge>
-                            <div className="space-y-1">
-                              <div className="flex items-center">
-                                <Avatar className="h-6 w-6 mr-2">
-                                  <AvatarFallback>{user?.full_name?.[0] || "?"}</AvatarFallback>
-                                </Avatar>
-                                <span className="font-medium">{user?.full_name}</span>
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                <span>{user?.position || "Vị trí không xác định"}</span>
-                                {user?.org_unit && <span> • {user.org_unit}</span>}
-                              </div>
-                              <div className="text-xs mt-1">{roleInfo.description}</div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <UserIcon className="mx-auto h-12 w-12 text-muted-foreground/30" />
-                      <h3 className="mt-4 font-medium">Chưa có người được phân công</h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Công việc này chưa có ai được phân công trách nhiệm
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="dependencies" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <LinkIcon className="h-5 w-5" />
-                  Phụ thuộc công việc
-                </CardTitle>
-                <CardDescription>
-                  Các công việc mà công việc này phụ thuộc vào
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {processedTask.dependencies && processedTask.dependencies.length > 0 ? (
-                    <div className="space-y-3">
-                      {processedTask.dependencies.map((dependency: any) => {
-                        const depTask = dependency.dependency_task
-                        if (!depTask) return null
-
-                        return (
-                          <div key={dependency.id} className="flex items-center justify-between p-3 border rounded-md bg-card">
-                            <div className="flex items-center gap-3">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">{depTask.name}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {depTask.status === "todo" && "Chưa bắt đầu"}
-                                  {depTask.status === "in_progress" && "Đang thực hiện"}
-                                  {depTask.status === "done" && "Hoàn thành"}
-                                  {depTask.status === "review" && "Đang xem xét"}
-                                  {depTask.status === "blocked" && "Bị chặn"}
-                                </Badge>
-                              </div>
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {depTask.end_date && (
-                                <span>Kết thúc: {format(new Date(depTask.end_date), "dd/MM/yyyy", { locale: vi })}</span>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <LinkIcon className="mx-auto h-12 w-12 text-muted-foreground/30" />
-                      <h3 className="mt-4 font-medium">Không có phụ thuộc</h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Công việc này không phụ thuộc vào công việc nào khác
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-    )
-  } catch (error) {
-    console.error("Error in TaskDetailPage:", error)
+  if (error) {
+    console.error("Error fetching task:", error)
     notFound()
   }
-}
 
-// Helper function to get RACI role information
-function getRaciInfo(role: RaciRole) {
-  switch (role) {
-    case "R":
-      return {
-        variant: "default",
-        description: "Người thực hiện: Trực tiếp làm công việc để hoàn thành nhiệm vụ.",
-      }
-    case "A":
-      return {
-        variant: "destructive",
-        description: "Người chịu trách nhiệm: Phê duyệt và chịu trách nhiệm cuối cùng về kết quả.",
-      }
-    case "C":
-      return {
-        variant: "secondary",
-        description: "Người tư vấn: Cung cấp ý kiến và hỗ trợ cho người thực hiện.",
-      }
-    case "I":
-      return {
-        variant: "outline",
-        description: "Người được thông báo: Được cập nhật về tiến độ và kết quả.",
-      }
-    default:
-      return {
-        variant: "outline",
-        description: "Vai trò không xác định.",
-      }
+  if (!task) {
+    notFound()
   }
+
+  const responsibleUser = task.task_raci.find((r) => r.role === "R")?.users
+  const accountableUser = task.task_raci.find((r) => r.role === "A")?.users
+  const daysRemaining = getDaysRemaining(task.end_date)
+  const statusInfo = statusMap[task.status] || statusMap.todo
+
+  return (
+    <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <Button variant="outline" asChild>
+            <Link href={`/dashboard/projects/${task.project_id}`}>
+              <ArrowLeftIcon className="mr-2 h-4 w-4" />
+              Quay lại Dự án
+            </Link>
+          </Button>
+
+          <div className="flex items-center gap-3">
+            <Badge className={cn("text-sm border", statusInfo.className)}>
+              <span className="mr-1">{statusInfo.icon}</span>
+              {statusInfo.label}
+            </Badge>
+            <Button asChild>
+              <Link href={`/dashboard/tasks/${task.id}/edit`}>
+                <PencilIcon className="mr-2 h-4 w-4" />
+                Chỉnh sửa
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        {/* Task Title & Project Info */}
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">{task.name}</h1>
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <BuildingIcon className="h-4 w-4" />
+            <span>Thuộc dự án:</span>
+            <Link href={`/dashboard/projects/${task.project_id}`} className="font-medium text-primary hover:underline">
+              {task.projects?.name}
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Grid */}
+      <div className="grid gap-6 lg:grid-cols-12">
+        {/* Cột trái: Thông tin chính */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* Mô tả công việc */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileTextIcon className="h-5 w-5" />
+                Mô tả công việc
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                {task.note || "Không có mô tả chi tiết cho công việc này."}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Thông tin pháp lý và đơn vị */}
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ScaleIcon className="h-5 w-5" />
+                  Cơ sở pháp lý
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{task.legal_basis || "Không có cơ sở pháp lý cụ thể"}</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <BuildingIcon className="h-5 w-5" />
+                  Đơn vị phụ trách
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">{task.unit_in_charge || "Chưa xác định đơn vị phụ trách"}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Phân công RACI */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserIcon className="h-5 w-5" />
+                Ma trận phân công trách nhiệm (RACI)
+              </CardTitle>
+              <CardDescription>Phân định vai trò và trách nhiệm của từng thành viên trong công việc</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {task.task_raci.length > 0 ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {task.task_raci.map(({ role, users }) => (
+                    <div key={role + users?.id} className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                      <div className="flex flex-col items-center gap-1">
+                        <Badge className={cn("text-xs font-bold", raciMap[role].color)}>{role}</Badge>
+                        <span className="text-xs text-muted-foreground text-center">{raciMap[role].description}</span>
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-semibold">{users?.full_name || "Chưa gán"}</p>
+                        <p className="text-sm text-muted-foreground">{users?.position || "Chưa có chức vụ"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <UserIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Chưa có phân công RACI cho công việc này</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Cột phải: Thông tin tóm tắt */}
+        <div className="lg:col-span-4 space-y-6">
+          {/* Thông tin cơ bản */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <InfoIcon className="h-5 w-5" />
+                Thông tin cơ bản
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">ID công việc:</span>
+                  <Badge variant="outline" className="font-mono">
+                    #{task.id}
+                  </Badge>
+                </div>
+
+                <Separator />
+
+                <div className="flex justify-between items-start">
+                  <span className="text-sm text-muted-foreground">Người thực hiện:</span>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm">{responsibleUser?.full_name || "Chưa gán"}</p>
+                    {responsibleUser?.position && (
+                      <p className="text-xs text-muted-foreground">{responsibleUser.position}</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-start">
+                  <span className="text-sm text-muted-foreground">Người chịu trách nhiệm:</span>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm">{accountableUser?.full_name || "Chưa gán"}</p>
+                    {accountableUser?.position && (
+                      <p className="text-xs text-muted-foreground">{accountableUser.position}</p>
+                    )}
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground flex items-center gap-1">
+                    <LayersIcon className="h-3 w-3" />
+                    Giai đoạn:
+                  </span>
+                  <span className="font-semibold text-sm">{task.project_phases?.name || "Chưa xác định"}</span>
+                </div>
+
+                {task.template_id && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <TemplateIcon className="h-3 w-3" />
+                      Template:
+                    </span>
+                    <span className="font-semibold text-sm">
+                      {task.task_templates?.name || `Template #${task.template_id}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Thời gian */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalendarIcon className="h-5 w-5" />
+                Thời gian thực hiện
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Ngày bắt đầu:</span>
+                  <span className="font-semibold text-sm">{formatDate(task.start_date)}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-sm text-muted-foreground">Ngày kết thúc:</span>
+                  <span className="font-semibold text-sm">{formatDate(task.end_date)}</span>
+                </div>
+
+                {daysRemaining !== null && (
+                  <>
+                    <Separator />
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <ClockIcon className="h-3 w-3" />
+                        Thời gian còn lại:
+                      </span>
+                      <Badge
+                        variant={daysRemaining < 0 ? "destructive" : daysRemaining <= 3 ? "secondary" : "outline"}
+                        className="text-xs"
+                      >
+                        {daysRemaining < 0
+                          ? `Quá hạn ${Math.abs(daysRemaining)} ngày`
+                          : daysRemaining === 0
+                            ? "Hết hạn hôm nay"
+                            : `Còn ${daysRemaining} ngày`}
+                      </Badge>
+                    </div>
+                  </>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Cấu hình nâng cao */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <RefreshCwIcon className="h-5 w-5" />
+                Cấu hình nâng cao
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Số lần thử lại tối đa:</span>
+                <Badge variant="outline" className="text-xs">
+                  {task.max_retries ?? "Không giới hạn"}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Kỹ năng yêu cầu */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TagIcon className="h-5 w-5" />
+                Kỹ năng yêu cầu
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {task.task_skills.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {task.task_skills.map(
+                    ({ skills }) =>
+                      skills && (
+                        <Badge key={skills.id} variant="secondary" className="text-xs">
+                          {skills.name}
+                        </Badge>
+                      ),
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <TagIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Không yêu cầu kỹ năng cụ thể</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
 }

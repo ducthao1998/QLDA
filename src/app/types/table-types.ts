@@ -66,20 +66,20 @@ export interface Project {
 
 // 4. tasks
 export interface Task {
-  id: number
-  project_id: string
-  name: string
+   id: number
+   project_id: string  // FK -> projects.id
+   name: string
   status: TaskStatus
-  start_date: string
-  end_date: string
-  phase_id: string
-  assigned_to?: string | null
-  note?: string
-  unit_in_charge?: string
-  legal_basis?: string
-  max_retries?: number
-  template_id?: number | null;
-}
+   start_date: string
+   end_date: string
+   phase_id: string      // FK -> project_phases.id
+   note?: string
+   unit_in_charge?: string
+   legal_basis?: string
+   max_retries?: number
+   template_id?: number | null; // FK -> task_templates.id
+    // KHÔNG cần thêm skill_id ở đây. Mối quan hệ được xử lý qua bảng task_skills.
+  }
 
 // 5. task_dependencies
 export interface TaskDependency {

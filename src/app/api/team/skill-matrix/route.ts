@@ -2,46 +2,60 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function GET() {
-  const supabase = await createClient()
-
-  // First, verify the user is authenticated
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  // Fetch data from the user_skill_matrix view
-  const { data, error } = await supabase
-    .from('user_skill_matrix')
-    .select('*')
-    .order('full_name', { ascending: true })
-    .order('skill_field', { ascending: true })
-
-  if (error) {
-    console.error('Error fetching skill matrix data:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-
-  // Process the data to group skills by user for easier rendering
-  const processedData = data.reduce((acc: any[], curr) => {
-    const { user_id, full_name, ...skillData } = curr
-
-    let existingUser = acc.find(u => u.user_id === user_id)
-
-    if (existingUser) {
-      existingUser.skills.push(skillData)
-    } else {
-      acc.push({
-        user_id,
-        full_name,
-        skills: [skillData],
-      })
+  try {
+    const supabase = await createClient()
+    
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    return acc
-  }, [])
+    // Get all users with their skills from user_skill_matrix view
+    const { data: matrixData, error } = await supabase
+      .from('user_skill_matrix')
+      .select(`
+        user_id,
+        full_name,
+        skill_id,
+        skill_name,
+        completed_tasks_count,
+        total_experience_days,
+        last_activity_date
+      `)
+      .order('full_name')
 
-  return NextResponse.json(processedData)
+    if (error) {
+      console.error('Error fetching skill matrix:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // Group by user
+    const userSkillMap = new Map()
+    
+    matrixData?.forEach(item => {
+      if (!userSkillMap.has(item.user_id)) {
+        userSkillMap.set(item.user_id, {
+          user_id: item.user_id,
+          full_name: item.full_name,
+          skills: []
+        })
+      }
+      
+      const user = userSkillMap.get(item.user_id)
+      user.skills.push({
+        skill_id: item.skill_id,
+        skill_name: item.skill_name,
+        completed_tasks_count: item.completed_tasks_count,
+        total_experience_days: item.total_experience_days,
+        last_activity_date: item.last_activity_date
+      })
+    })
+
+    const result = Array.from(userSkillMap.values())
+
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('Error in GET /api/team/skill-matrix:', error)
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+  }
 }

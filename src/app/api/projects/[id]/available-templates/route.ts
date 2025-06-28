@@ -9,18 +9,19 @@ export async function GET(
   const projectId = params.id
 
   try {
-    // Lấy thông tin dự án để biết lĩnh vực và phân loại
+    // Bước 1: Lấy thông tin phân loại của dự án.
     const { data: project, error: projectError } = await supabase
       .from('projects')
-      .select('project_field, classification')
+      // SỬA LỖI: Chỉ cần lấy cột 'classification'.
+      .select('classification')
       .eq('id', projectId)
       .single()
 
-    if (projectError || !project) {
-      return NextResponse.json({ error: 'Không tìm thấy dự án' }, { status: 404 })
+    if (projectError || !project || !project.classification) {
+      return NextResponse.json({ error: 'Không tìm thấy dự án hoặc dự án thiếu thông tin phân loại.' }, { status: 404 })
     }
 
-    // Lấy danh sách template_id của các công việc đã tồn tại trong dự án
+    // Bước 2: Lấy danh sách template_id của các công việc đã tồn tại trong dự án để loại trừ.
     const { data: existingTasks, error: tasksError } = await supabase
       .from('tasks')
       .select('template_id')
@@ -31,18 +32,19 @@ export async function GET(
 
     const existingTemplateIds = existingTasks.map(t => t.template_id)
 
-    // Lấy tất cả các công việc mẫu phù hợp với dự án
+    // Bước 3: Lấy tất cả các công việc mẫu phù hợp.
     const query = supabase
       .from('task_templates')
       .select('id, name, description')
-      .eq('project_field', project.project_field)
+      // SỬA LỖI: Bỏ điều kiện lọc theo 'project_field' không tồn tại.
+      // Câu truy vấn giờ chỉ lọc theo 'applicable_classification'.
       .or(
         `applicable_classification.cs.{"ALL"},applicable_classification.cs.{${project.classification}}`,
       )
       
-    // Loại trừ những template đã được thêm vào dự án
+    // Loại trừ những template đã được thêm vào dự án.
     if (existingTemplateIds.length > 0) {
-        query.not('id', 'in', `(${existingTemplateIds.join(',')})`)
+      query.not('id', 'in', `(${existingTemplateIds.join(',')})`)
     }
 
     const { data: availableTemplates, error: templatesError } = await query

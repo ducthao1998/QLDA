@@ -2,49 +2,66 @@ import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 
 export async function GET() {
-  const supabase = await createClient()
-
   try {
+    const supabase = await createClient()
+    
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
     const { data: skills, error } = await supabase
       .from("skills")
       .select("*")
       .order("name")
 
     if (error) {
-      throw error
+      console.error("Error fetching skills:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ skills })
+    return NextResponse.json({ skills: skills || [] })
   } catch (error) {
-    console.error("Error fetching skills:", error)
-    return NextResponse.json({ error: "Không thể lấy danh sách lĩnh vực" }, { status: 500 })
+    console.error("Error in GET /api/skills:", error)
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const body = await request.json()
-  const { name } = body
-
-  if (!name?.trim()) {
-    return NextResponse.json({ error: "Tên lĩnh vực không được để trống" }, { status: 400 })
-  }
-
   try {
+    const supabase = await createClient()
+    
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+    if (sessionError || !session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { name, field, description } = body
+
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Tên kỹ năng không được để trống" }, { status: 400 })
+    }
+
     const { data: skill, error } = await supabase
       .from("skills")
-      .insert({ name: name.trim() })
+      .insert({ 
+        name: name.trim(),
+        field: field?.trim() || null,
+        description: description?.trim() || null
+      })
       .select()
       .single()
 
     if (error) {
-      throw error
+      console.error("Error creating skill:", error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ skill })
+    return NextResponse.json({ data: skill })
   } catch (error) {
-    console.error("Error creating skill:", error)
-    return NextResponse.json({ error: "Không thể thêm lĩnh vực mới" }, { status: 500 })
+    console.error("Error in POST /api/skills:", error)
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }
 }
 
