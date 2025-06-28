@@ -22,7 +22,7 @@ export default async function EditProjectPage({ params }: { params: { id: string
         <h1 className="text-3xl font-bold tracking-tight">Chỉnh Sửa Dự Án</h1>
         <p className="text-muted-foreground mt-2">Cập nhật thông tin dự án</p>
       </div>
-      <ProjectForm projectId={id} initialData={project} />
+      <ProjectForm project={project} />
     </div>
   )
 }

@@ -50,6 +50,50 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 }
 
+export async function PUT(request: Request, { params }: { params: { id: string } }) {
+  const supabase = await createClient()
+  const { id } = await params
+  const { skills } = await request.json()
+
+  try {
+    // Validate input
+    if (!Array.isArray(skills)) {
+      return NextResponse.json({ error: "Danh sách skills không hợp lệ" }, { status: 400 })
+    }
+
+    // Delete all existing task skills
+    const { error: deleteError } = await supabase
+      .from("task_skills")
+      .delete()
+      .eq("task_id", id)
+
+    if (deleteError) {
+      throw deleteError
+    }
+
+    // Add new task skills if any
+    if (skills.length > 0) {
+      const taskSkills = skills.map((skill_id) => ({
+        task_id: id,
+        skill_id,
+      }))
+
+      const { error: insertError } = await supabase
+        .from("task_skills")
+        .insert(taskSkills)
+
+      if (insertError) {
+        throw insertError
+      }
+    }
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error("Error updating task skills:", error)
+    return NextResponse.json({ error: "Không thể cập nhật kỹ năng cho công việc" }, { status: 500 })
+  }
+}
+
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const supabase = await createClient()
   const { id } = await params

@@ -1,9 +1,9 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { TeamList } from "@/components/team/team-list"
-import { SkillMatrix } from "@/components/team/skill-matrix"
 import { WorkloadDashboard } from "@/components/team/workload-dashboard"
 import { UserPerformance } from "@/components/team/user-performance"
 import { AddUserDialog } from "@/components/team/add-user-dialog"
+import SkillFieldsManagement from "@/components/team/skill-matrix"
 
 export default function PersonnelPage() {
   return (
@@ -23,7 +23,7 @@ export default function PersonnelPage() {
           <TeamList />
         </TabsContent>
         <TabsContent value="skills">
-          <SkillMatrix />
+          <SkillFieldsManagement />
         </TabsContent>
         {/* <TabsContent value="workload">
           <WorkloadDashboard />

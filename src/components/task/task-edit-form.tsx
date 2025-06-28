@@ -2,19 +2,19 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { isAfter, parseISO } from "date-fns"
+import { isAfter, parseISO, format } from "date-fns"
 import { toast } from "sonner"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertCircleIcon, ArrowLeftIcon } from "lucide-react"
+import { AlertCircleIcon, ArrowLeftIcon, UserCheck, Loader2 } from "lucide-react"
 import { Form } from "@/components/ui/form"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { TaskDetailsTab } from "./edit/task-detail-tabs" 
 import { TaskAssignmentsTab } from "./task-edit-tabs/task-assignments-tab"
@@ -29,7 +29,6 @@ import type {
   TaskHistory,
   Worklog,
 } from "@/app/types/table-types"
-import { TaskHistoryTab } from "./edit/task-history.tab"
 
 const taskFormSchema = z.object({
   name: z.string().min(3, { message: "Tên công việc phải có ít nhất 3 ký tự" }),
@@ -51,6 +50,14 @@ interface TaskEditFormProps {
   projectId: string
 }
 
+// Updated interface to match API response
+interface UserRecommendation {
+  user_id: string
+  full_name: string
+  completed_tasks_count: number
+  workload: number
+}
+
 export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -58,57 +65,125 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
   const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [selectedSkills, setSelectedSkills] = useState<number[]>([])
-  const [taskSkills, setTaskSkills] = useState<number[]>([])
   const [availableTasks, setAvailableTasks] = useState<Task[]>([])
   const [selectedDependencies, setSelectedDependencies] = useState<string[]>([])
-  const [raciUsers, setRaciUsers] = useState<{ id: number; user_id: string; role: RaciRole }[]>([])
-  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null)
-  const [taskHistory, setTaskHistory] = useState<TaskHistory[]>([])
-  const [worklogs, setWorklogs] = useState<Worklog[]>([])
   const [isOverdue, setIsOverdue] = useState(false)
   const [activeTab, setActiveTab] = useState("details")
   const [projectData, setProjectData] = useState<{ start_date: string; end_date: string } | null>(null)
+  const [userRecommendations, setUserRecommendations] = useState<UserRecommendation[]>([])
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false)
+  
+  // Separate state for RACI to avoid conflicts
+  const [raciAssignments, setRaciAssignments] = useState<{ user_id: string; role: RaciRole }[]>([])
+  const [initialRaciAssignments, setInitialRaciAssignments] = useState<{ user_id: string; role: RaciRole }[]>([])
+  const [hasRaciChanges, setHasRaciChanges] = useState(false)
 
-  // Form setup
+  // Form setup - REMOVE assigned_to from schema
   const form = useForm<TaskFormValues>({
     resolver: zodResolver(taskFormSchema),
     defaultValues: {
       name: initialData.name,
       note: initialData.note || "",
       status: initialData.status,
-      start_date: initialData.start_date ? format(new Date(initialData.start_date), "yyyy-MM-dd'T'HH:mm") : "",
-      end_date: initialData.end_date ? format(new Date(initialData.end_date), "yyyy-MM-dd'T'HH:mm") : "",
+      start_date: initialData.start_date ? format(new Date(initialData.start_date), "yyyy-MM-dd") : "",
+      end_date: initialData.end_date ? format(new Date(initialData.end_date), "yyyy-MM-dd") : "",
       phase_id: initialData.phase_id,
-      assigned_to: initialData.assigned_to || "",
       unit_in_charge: initialData.unit_in_charge || "",
       legal_basis: initialData.legal_basis || "",
       max_retries: initialData.max_retries || 0,
     },
   })
 
-  // Load data
+  // Load data on mount
   useEffect(() => {
     loadUsers()
     loadPhases()
     loadSkills()
-    loadTaskSkills()
     loadAvailableTasks()
     loadTaskDependencies()
-    loadRaciUsers()
-    loadTaskProgress()
-    loadTaskHistory()
-    loadWorklogs()
-    checkIfOverdue()
     loadProjectData()
+    loadUserRecommendations() // Load recommendations immediately
+    loadRaciAssignments() // Load RACI data
   }, [initialData.id])
 
-  // Check if task is overdue
-  const checkIfOverdue = () => {
-    const endDate = parseISO(initialData.end_date)
-    const now = new Date()
-    const isTaskOverdue = isAfter(now, endDate) && initialData.status !== "done" && initialData.status !== "archived"
+  // Check overdue status when dates or status change
+  useEffect(() => {
+    checkIfOverdue()
+  }, [initialData.end_date, initialData.status])
 
-    setIsOverdue(isTaskOverdue)
+  // Check if task is overdue - FIXED VERSION with clear logic
+  const checkIfOverdue = () => {
+    if (!initialData.end_date) {
+      setIsOverdue(false)
+      return
+    }
+
+    try {
+      const endDate = new Date(initialData.end_date)
+      const now = new Date()
+      
+      // Task is overdue if:
+      // 1. End date has passed
+      // 2. Task is not completed (done) or archived
+      const isTaskOverdue = endDate < now && 
+        initialData.status !== "done" && 
+        initialData.status !== "archived"
+      
+      setIsOverdue(isTaskOverdue)
+      
+      // Debug log
+      console.log("Overdue check:", {
+        endDate: format(endDate, "dd/MM/yyyy"),
+        now: format(now, "dd/MM/yyyy"),
+        status: initialData.status,
+        isOverdue: isTaskOverdue
+      })
+    } catch (error) {
+      console.error("Error checking if task is overdue:", error)
+      setIsOverdue(false)
+    }
+  }
+
+  // Load RACI assignments
+  async function loadRaciAssignments() {
+    try {
+      const res = await fetch(`/api/tasks/${initialData.id}/raci`)
+      if (res.ok) {
+        const data = await res.json()
+        const assignments = (data.raci || []).map((r: any) => ({
+          user_id: r.user_id,
+          role: r.role
+        }))
+        setRaciAssignments(assignments)
+        setInitialRaciAssignments(assignments)
+      }
+    } catch (err) {
+      console.error("Error loading RACI:", err)
+    }
+  }
+
+  // Load user recommendations - Fixed to use correct API
+  async function loadUserRecommendations() {
+    try {
+      setIsLoadingRecommendations(true)
+      
+      const res = await fetch(`/api/projects/${projectId}/tasks/${initialData.id}/recommended-users`)
+      if (!res.ok) {
+        console.error("Failed to load recommendations:", res.status)
+        return
+      }
+      
+      const data = await res.json()
+      console.log("Recommendations data:", data) // Debug log
+      
+      // Handle both possible response structures
+      const recommendations = data.data || data.recommendations || []
+      setUserRecommendations(recommendations)
+    } catch (err) {
+      console.error("Error loading user recommendations:", err)
+    } finally {
+      setIsLoadingRecommendations(false)
+    }
   }
 
   // Load users
@@ -119,7 +194,7 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       const data = await res.json()
       setUsers(data.users || [])
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách người dùng" })
+      toast.error("Không thể tải danh sách người dùng")
     }
   }
 
@@ -129,9 +204,10 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       const res = await fetch(`/api/projects/${projectId}/phases`)
       if (!res.ok) throw new Error("Failed to load phases")
       const data = await res.json()
-      setPhases(data.phases || [])
+      // Handle different response structures
+      setPhases(data.phases || data.data || [])
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách giai đoạn" })
+      toast.error("Không thể tải danh sách giai đoạn")
     }
   }
 
@@ -141,308 +217,159 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       const res = await fetch("/api/skills")
       if (!res.ok) throw new Error("Failed to load skills")
       const data = await res.json()
-      setSkills(data.skills || [])
+      setSkills(data.skills || data.data || [])
+      
+      // Load existing task skills
+      await loadTaskSkills()
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách kỹ năng" })
+      toast.error("Không thể tải danh sách kỹ năng")
     }
   }
 
-  // Load task skills
+  // Load existing task skills
   async function loadTaskSkills() {
     try {
       const res = await fetch(`/api/tasks/${initialData.id}/skills`)
-      if (!res.ok) throw new Error("Failed to load task skills")
-      const data = await res.json()
-      setTaskSkills(data.skills?.map((s: any) => s.skill_id) || [])
-      setSelectedSkills(data.skills?.map((s: any) => s.skill_id) || [])
+      if (res.ok) {
+        const data = await res.json()
+        const taskSkills = data.skills || data.data || []
+        const skillIds = taskSkills.map((skill: any) => skill.skill_id || skill.id)
+        setSelectedSkills(skillIds)
+      }
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách kỹ năng công việc" })
+      console.error("Error loading task skills:", err)
     }
   }
 
-  // Load available tasks
-  async function loadAvailableTasks() {
+  // Load available tasks for dependencies
+   async function loadAvailableTasks() {
     try {
+      console.log("Loading available tasks for project:", projectId) // Debug log
+
       const res = await fetch(`/api/projects/${projectId}/tasks`)
-      if (!res.ok) throw new Error("Failed to load tasks")
+      console.log("Available tasks response status:", res.status) // Debug log
+      
+      if (!res.ok) {
+        const errorText = await res.text()
+        console.error("Failed to load tasks, status:", res.status, "error:", errorText)
+        throw new Error(`Failed to load tasks: ${res.status}`)
+      }
+
       const data = await res.json()
-      // Filter out the current task and tasks that are already dependencies
-      setAvailableTasks((data.tasks || []).filter((task: Task) => task.id !== initialData.id))
+      console.log("Raw tasks data:", data) // Debug log
+
+      // API returns tasks directly as array, not wrapped in object
+      const tasks = Array.isArray(data) ? data : (data.tasks || data.data || [])
+      console.log("All tasks:", tasks) // Debug log
+      console.log("Current task ID:", initialData.id, typeof initialData.id) // Debug log
+
+      const filteredTasks = tasks.filter((task: Task) => {
+        // Convert both IDs to strings for comparison
+        const taskIdStr = task.id.toString()
+        const currentTaskIdStr = initialData.id.toString()
+        return taskIdStr !== currentTaskIdStr
+      })
+
+      console.log("Filtered tasks:", filteredTasks) // Debug log
+      setAvailableTasks(filteredTasks)
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải danh sách công việc" })
+      console.error("Error loading available tasks:", err)
+      toast.error("Không thể tải danh sách công việc")
+      setAvailableTasks([]) // Set empty array on error
     }
   }
 
   // Load task dependencies
   async function loadTaskDependencies() {
     try {
-      // Get current task dependencies directly from task_dependencies table
-      const res = await fetch(`/api/tasks/${initialData.id}/dependencies/simple`)
-      if (!res.ok) throw new Error("Failed to load dependencies")
-      const data = await res.json()
-      const dependencyIds = data.dependencies?.map((dep: any) => dep.depends_on_id.toString()) || []
-      setSelectedDependencies(dependencyIds)
-    } catch (err) {
-      console.error("Error loading dependencies:", err)
-      // Don't show error toast for dependencies as it's not critical
-    }
-  }
+      console.log("Loading dependencies for task:", initialData.id) // Debug log
 
-  // Load RACI users
-  async function loadRaciUsers() {
-    try {
-      const res = await fetch(`/api/tasks/${initialData.id}/raci`)
-      if (!res.ok) throw new Error("Failed to load RACI")
-      const data = await res.json()
-      setRaciUsers(data.raci || [])
+      const res = await fetch(`/api/tasks/${initialData.id}/dependencies`)
+      console.log("Dependencies response status:", res.status) // Debug log
       
-      // If there's a Responsible (R) user, set them as assigned_to
-      const responsibleUser = data.raci?.find((r: any) => r.role === "R")
-      if (responsibleUser) {
-        form.setValue("assigned_to", responsibleUser.user_id)
+      if (res.ok) {
+        const data = await res.json()
+        console.log("Dependencies data:", data) // Debug log
+
+        const deps = data.dependencies || data.data || []
+        console.log("Raw dependencies array:", deps) // Debug log
+        
+        const depIds = deps
+          .map((dep: any) => {
+            // Handle both possible field names and ensure string conversion
+            const depId = dep.depends_on_id || dep.dependency_task?.id || dep.id
+            console.log("Processing dependency:", dep, "-> depId:", depId) // Debug log
+            return depId?.toString()
+          })
+          .filter(Boolean)
+
+        console.log("Loaded dependency IDs:", depIds) // Debug log
+        setSelectedDependencies(depIds)
+      } else {
+        console.error("Failed to load dependencies, status:", res.status)
+        const errorText = await res.text()
+        console.error("Error response:", errorText)
+        setSelectedDependencies([]) // Set empty array on error
       }
     } catch (err) {
-      console.error("Error loading RACI:", err)
-      toast.error("Lỗi", { description: "Không thể tải danh sách RACI" })
+      console.error("Error loading dependencies:", err)
+      setSelectedDependencies([]) // Set empty array on error
     }
   }
-
-  // Load task progress
-  async function loadTaskProgress() {
-    try {
-      const res = await fetch(`/api/tasks/${initialData.id}/progress`)
-      if (!res.ok) throw new Error("Failed to load task progress")
-      const data = await res.json()
-      setTaskProgress(data.progress || null)
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải tiến độ công việc" })
-    }
-  }
-
-  // Load task history
-  async function loadTaskHistory() {
-    try {
-      const res = await fetch(`/api/tasks/${initialData.id}/history`)
-      if (!res.ok) throw new Error("Failed to load task history")
-      const data = await res.json()
-      setTaskHistory(data.history || [])
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải lịch sử công việc" })
-    }
-  }
-
-  // Load worklogs
-  async function loadWorklogs() {
-    try {
-      const res = await fetch(`/api/tasks/${initialData.id}/worklogs`)
-      if (!res.ok) throw new Error("Failed to load worklogs")
-      const data = await res.json()
-      setWorklogs(data.worklogs || [])
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải nhật ký công việc" })
-    }
-  }
-
-  // Load project data
+  // Load project data for date validation
   async function loadProjectData() {
     try {
       const res = await fetch(`/api/projects/${projectId}`)
       if (!res.ok) throw new Error("Failed to load project")
       const data = await res.json()
+      const project = data.project || data.data || data
       setProjectData({
-        start_date: data.project.start_date,
-        end_date: data.project.end_date
+        start_date: project.start_date,
+        end_date: project.end_date
       })
     } catch (err) {
-      toast.error("Lỗi", { description: "Không thể tải thông tin dự án" })
+      toast.error("Không thể tải thông tin dự án")
     }
-  }
-
-  // Validate task dates against project dates
-  const validateTaskDates = (startDate: string, endDate: string) => {
-    if (!projectData) return { isValid: true, message: "" }
-    
-    const taskStart = new Date(startDate)
-    const taskEnd = new Date(endDate)
-    const projectStart = new Date(projectData.start_date)
-    const projectEnd = new Date(projectData.end_date)
-    
-    if (taskStart < projectStart) {
-      return { 
-        isValid: false, 
-        message: `Ngày bắt đầu công việc không được trước ngày bắt đầu dự án (${format(projectStart, "dd/MM/yyyy")})` 
-      }
-    }
-    
-    if (taskEnd > projectEnd) {
-      return { 
-        isValid: false, 
-        message: `Ngày kết thúc công việc không được sau ngày kết thúc dự án (${format(projectEnd, "dd/MM/yyyy")})` 
-      }
-    }
-    
-    if (taskStart > taskEnd) {
-      return { 
-        isValid: false, 
-        message: "Ngày bắt đầu không được sau ngày kết thúc" 
-      }
-    }
-    
-    return { isValid: true, message: "" }
-  }
-
-  // Handle skill selection
-  const handleSkillChange = (skillId: number) => {
-    setSelectedSkills((prev) => {
-      if (prev.includes(skillId)) {
-        return prev.filter((id) => id !== skillId)
-      }
-      return [...prev, skillId]
-    })
   }
 
   // Handle dependency selection
-  const handleDependencyChange = (taskId: string) => {
+  const handleDependencyChange = (taskId: number) => {
+    const taskIdStr = taskId.toString()
     setSelectedDependencies((prev) => {
-      if (prev.includes(taskId)) {
-        return prev.filter((id) => id !== taskId)
+      if (prev.includes(taskIdStr)) {
+        return prev.filter((id) => id !== taskIdStr)
       }
-      return [...prev, taskId]
+      return [...prev, taskIdStr]
     })
-  }
-
-  // Handle RACI role assignment
-  const handleRaciChange = (userId: string, role: RaciRole) => {
-    setRaciUsers((prev) => {
-      const existingIndex = prev.findIndex((item) => item.user_id === userId)
-
-      if (existingIndex >= 0) {
-        // If user already has this role, remove it
-        if (prev[existingIndex].role === role) {
-          return prev.filter((_, index) => index !== existingIndex)
-        }
-
-        // Otherwise update the role
-        const updated = [...prev]
-        updated[existingIndex] = { ...updated[existingIndex], role }
-        return updated
-      }
-
-      // Add new RACI assignment
-      return [...prev, { id: Date.now(), user_id: userId, role }]
-    })
-
-    // If role is R, update assigned_to
-    if (role === "R") {
-      form.setValue("assigned_to", userId)
-    }
   }
 
   // Handle status change
-  const handleStatusChange = async (newStatus: TaskStatus) => {
-    try {
-      // Only update form value, don't call API yet
-      form.setValue("status", newStatus)
-    } catch (err) {
-      toast.error("Lỗi", { description: "Không thể cập nhật trạng thái" })
-    }
+  const handleStatusChange = (newStatus: TaskStatus) => {
+    console.log("Status change:", newStatus) // Debug log
+    form.setValue("status", newStatus)
+    form.trigger("status") // Trigger validation
   }
 
-  // Update task progress when marked as done
-  async function updateTaskProgress(newStatus: TaskStatus) {
-    try {
-      const now = new Date().toISOString()
-      const endDate = new Date(initialData.end_date)
-      const isOverdue = new Date() > endDate
-
-      // Create or update task_progress
-      const progressData = {
-        task_id: initialData.id,
-        actual_finish: newStatus === "done" ? now : null,
-        actual_start: taskProgress?.actual_start || initialData.start_date,
-        status_snapshot: isOverdue ? "late" : "on_time",
-        snapshot_at: now,
-      }
-
-      await fetch(`/api/tasks/${initialData.id}/progress`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(progressData),
-      })
-
-      // Calculate actual hours
-      const actualEnd = new Date()
-      const actualStart = taskProgress?.actual_start
-        ? new Date(taskProgress.actual_start)
-        : new Date(initialData.start_date.split('T')[0]) // Only take date part
-
-      // If actual end time is before start time, set spent hours to 0
-      const spentHours = actualEnd.getTime() < actualStart.getTime() 
-        ? 0 
-        : (actualEnd.getTime() - actualStart.getTime()) / (1000 * 60 * 60)
-
-      // Create worklog entry
-      if (newStatus === "done" && initialData.assigned_to) {
-        const worklogData = {
-          task_id: initialData.id,
-          user_id: initialData.assigned_to,
-          spent_hours: spentHours,
-          log_date: format(actualEnd, "yyyy-MM-dd"),
-          note: "Tự động tạo khi hoàn thành công việc",
-          is_system: true,
-        }
-
-        await fetch(`/api/tasks/${initialData.id}/worklogs`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(worklogData),
-        })
-      }
-    } catch (err) {
-      console.error("Error updating task progress:", err)
-    }
+  // Callback for RACI updates
+  const handleRaciUpdate = (assignments: { user_id: string; role: RaciRole }[]) => {
+    setRaciAssignments(assignments)
+    
+    // Check if there are actual changes
+    const hasChanges = JSON.stringify(assignments.sort((a,b) => a.user_id.localeCompare(b.user_id))) !== 
+                      JSON.stringify(initialRaciAssignments.sort((a,b) => a.user_id.localeCompare(b.user_id)))
+    setHasRaciChanges(hasChanges)
   }
 
-  // Record overdue status in task_history
-  async function recordOverdueStatus() {
-    try {
-      const historyData = {
-        task_id: initialData.id,
-        action: "overdue_detected",
-        from_val: initialData.status,
-        to_val: form.getValues().status,
-      }
-
-      await fetch(`/api/tasks/${initialData.id}/history`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(historyData),
-      })
-    } catch (err) {
-      console.error("Error recording overdue status:", err)
-    }
-  }
-
-  // Form submission
+  // Combined form submission
   async function onSubmit(values: TaskFormValues) {
     try {
       setIsSubmitting(true)
 
-      // Validate task dates
-      const validationResult = validateTaskDates(values.start_date, values.end_date)
-      if (!validationResult.isValid) {
-        toast.error(validationResult.message)
-        return
-      }
-
-      // Update task
+      // Update task basic info
       const response = await fetch(`/api/projects/${projectId}/tasks/${initialData.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...values,
-          max_retries: values.max_retries || 0,
-        }),
+        body: JSON.stringify(values),
       })
 
       if (!response.ok) {
@@ -450,65 +377,54 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
         throw new Error(error.message || "Có lỗi xảy ra")
       }
 
-      // Update skills
-      await updateTaskSkills()
-
-      // Update dependencies
+      // Update dependencies if changed
       await updateTaskDependencies()
 
-      // Update RACI
-      await updateTaskRaci()
+      // Update RACI if changed
+      if (hasRaciChanges) {
+        await updateTaskRaci()
+      }
 
-      // Record task history
-      await recordTaskHistory(values)
+      // Update task skills
+      await updateTaskSkills()
 
       toast.success("Cập nhật công việc thành công")
       router.push(`/dashboard/tasks/${initialData.id}`)
       router.refresh()
     } catch (error) {
       console.error("Lỗi:", error)
-      toast.error("Lỗi", {
-        description: error instanceof Error ? error.message : "Có lỗi xảy ra",
-      })
+      toast.error(error instanceof Error ? error.message : "Có lỗi xảy ra")
     } finally {
       setIsSubmitting(false)
-    }
-  }
-
-  // Update task skills
-  async function updateTaskSkills() {
-    try {
-      // First, delete all existing skills
-      await fetch(`/api/tasks/${initialData.id}/skills`, {
-        method: "DELETE",
-      })
-
-      // Then add selected skills
-      if (selectedSkills.length > 0) {
-        await fetch(`/api/tasks/${initialData.id}/skills`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ skill_ids: selectedSkills }),
-        })
-      }
-    } catch (err) {
-      console.error("Error updating task skills:", err)
     }
   }
 
   // Update task dependencies
   async function updateTaskDependencies() {
     try {
-      // First, delete all existing dependencies
-      await fetch(`/api/tasks/${initialData.id}/dependencies`, {
+      console.log("Updating dependencies for task:", initialData.id)
+      console.log("Selected dependencies:", selectedDependencies)
+
+      // Delete all existing dependencies
+      const deleteRes = await fetch(`/api/tasks/${initialData.id}/dependencies`, {
         method: "DELETE",
       })
+      
+      if (!deleteRes.ok) {
+        const errorText = await deleteRes.text()
+        console.error("Failed to delete dependencies:", deleteRes.status, errorText)
+        throw new Error(`Failed to delete dependencies: ${deleteRes.status}`)
+      }
+      
+      console.log("Successfully deleted existing dependencies")
 
-      // Then add selected dependencies
+      // Add selected dependencies
       if (selectedDependencies.length > 0) {
-        await Promise.all(
-          selectedDependencies.map((dependsOnId) =>
-            fetch(`/api/tasks/${initialData.id}/dependencies`, {
+        console.log("Adding new dependencies:", selectedDependencies)
+        
+        const results = await Promise.all(
+          selectedDependencies.map(async (dependsOnId) => {
+            const res = await fetch(`/api/tasks/${initialData.id}/dependencies`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -516,71 +432,70 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
                 depends_on_id: dependsOnId,
               }),
             })
-          )
+            
+            if (!res.ok) {
+              const errorText = await res.text()
+              console.error(`Failed to add dependency ${dependsOnId}:`, res.status, errorText)
+              throw new Error(`Failed to add dependency ${dependsOnId}: ${res.status}`)
+            }
+            
+            return res
+          })
         )
+        
+        console.log("Successfully added all dependencies:", results.length)
+      } else {
+        console.log("No dependencies to add")
       }
     } catch (err) {
       console.error("Error updating task dependencies:", err)
+      throw err // Re-throw to be caught by onSubmit
     }
   }
 
   // Update task RACI
   async function updateTaskRaci() {
     try {
-      // First, delete all existing RACI
+      // Delete all existing RACI
       await fetch(`/api/tasks/${initialData.id}/raci`, {
         method: "DELETE",
       })
 
-      // Then add current RACI
-      if (raciUsers.length > 0) {
-        const raciPromises = raciUsers.map((raci) =>
+      // Add new RACI assignments
+      if (raciAssignments.length > 0) {
+        const promises = raciAssignments.map((assignment) =>
           fetch(`/api/tasks/${initialData.id}/raci`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ user_id: raci.user_id, role: raci.role }),
-          }),
+            body: JSON.stringify({ 
+              user_id: assignment.user_id, 
+              role: assignment.role 
+            }),
+          })
         )
-
-        await Promise.all(raciPromises)
+        await Promise.all(promises)
       }
     } catch (err) {
       console.error("Error updating task RACI:", err)
     }
   }
 
-  // Record task history
-  async function recordTaskHistory(values: TaskFormValues) {
+  // Update task skills
+  async function updateTaskSkills() {
     try {
-      // Record changes in status
-      if (values.status !== initialData.status) {
-        await fetch(`/api/tasks/${initialData.id}/history`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            task_id: initialData.id,
-            action: "status_changed",
-            from_val: initialData.status,
-            to_val: values.status,
-          }),
-        })
-      }
+      const res = await fetch(`/api/tasks/${initialData.id}/skills`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skills: selectedSkills }),
+      })
 
-      // Record changes in assigned user
-      if (values.assigned_to !== initialData.assigned_to) {
-        await fetch(`/api/tasks/${initialData.id}/history`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            task_id: initialData.id,
-            action: "assignment_changed",
-            from_val: initialData.assigned_to || "none",
-            to_val: values.assigned_to || "none",
-          }),
-        })
+      if (!res.ok) {
+        const error = await res.json()
+        throw new Error(error.message || "Có lỗi xảy ra khi cập nhật kỹ năng")
       }
     } catch (err) {
-      console.error("Error recording task history:", err)
+      console.error("Error updating task skills:", err)
+      toast.error("Có lỗi xảy ra khi cập nhật kỹ năng")
     }
   }
 
@@ -596,32 +511,36 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
           {isOverdue && (
             <Badge variant="destructive" className="gap-1">
               <AlertCircleIcon className="h-3 w-3" />
-              Quá hạn
+              Quá hạn {initialData.end_date ? `(${format(new Date(initialData.end_date), "dd/MM/yyyy")})` : ''}
             </Badge>
           )}
 
-          <Select value={form.getValues().status} onValueChange={(value) => handleStatusChange(value as TaskStatus)}>
+          <Select value={form.watch("status")} onValueChange={(value) => handleStatusChange(value as TaskStatus)}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Trạng thái" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todo">Chưa bắt đầu</SelectItem>
               <SelectItem value="in_progress">Đang thực hiện</SelectItem>
+              <SelectItem value="review">Đang xem xét</SelectItem>
               <SelectItem value="done">Hoàn thành</SelectItem>
+              <SelectItem value="blocked">Bị chặn</SelectItem>
+              <SelectItem value="archived">Lưu trữ</SelectItem>
             </SelectContent>
           </Select>
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-3 w-full md:w-auto">
-          <TabsTrigger value="details">Chi tiết</TabsTrigger>
-          <TabsTrigger value="assignments">Phân công</TabsTrigger>
-          <TabsTrigger value="dependencies">Phụ thuộc</TabsTrigger>
-        </TabsList>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid grid-cols-4 w-full md:w-auto">
+              <TabsTrigger value="details">Chi tiết</TabsTrigger>
+              <TabsTrigger value="assignments">Phân công & RACI</TabsTrigger>
+              <TabsTrigger value="recommendations">Đề xuất người thực hiện</TabsTrigger>
+              <TabsTrigger value="dependencies">Phụ thuộc</TabsTrigger>
+            </TabsList>
 
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             <TabsContent value="details">
               <TaskDetailsTab
                 form={form}
@@ -629,64 +548,202 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
                 users={users}
                 skills={skills}
                 selectedSkills={selectedSkills}
-                onSkillChange={handleSkillChange}
+                onSkillChange={(skillId) => {
+                  if (selectedSkills.includes(skillId)) {
+                    setSelectedSkills(selectedSkills.filter(id => id !== skillId))
+                  } else {
+                    setSelectedSkills([...selectedSkills, skillId])
+                  }
+                }}
                 projectData={projectData}
               />
             </TabsContent>
 
             <TabsContent value="assignments">
-              <TaskAssignmentsTab users={users} raciUsers={raciUsers} onRaciChange={handleRaciChange} />
+              <TaskAssignmentsTab 
+                task={initialData} 
+                onRaciChange={handleRaciUpdate}
+                initialAssignments={initialRaciAssignments}
+              />
+            </TabsContent>
+
+            <TabsContent value="recommendations">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Đề xuất người thực hiện</CardTitle>
+                  <CardDescription>
+                    Dựa trên kinh nghiệm với kỹ năng yêu cầu và khối lượng công việc hiện tại (tối đa 2 việc đồng thời).
+                    Click vào người để gán làm người thực hiện chính (R) trong RACI.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingRecommendations ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                      <span>Đang tải đề xuất...</span>
+                    </div>
+                  ) : userRecommendations.length > 0 ? (
+                    <div className="space-y-3">
+                      {userRecommendations.map((rec, index) => {
+                        // Check if this user is already assigned as R in RACI
+                        const isCurrentResponsible = raciAssignments.some(
+                          a => a.user_id === rec.user_id && a.role === 'R'
+                        )
+                        
+                        return (
+                          <div
+                            key={rec.user_id}
+                            className={`p-4 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
+                              isCurrentResponsible
+                                ? "border-primary bg-primary/5" 
+                                : "hover:bg-gray-50"
+                            }`}
+                            onClick={() => {
+                              // Add or update user as Responsible in RACI
+                              const newAssignments = [...raciAssignments]
+                              
+                              // Remove any existing R role
+                              const existingRIndex = newAssignments.findIndex(a => a.role === 'R')
+                              if (existingRIndex >= 0) {
+                                newAssignments[existingRIndex].role = 'A' // Demote to Accountable
+                              }
+                              
+                              // Check if user already has a role
+                              const userIndex = newAssignments.findIndex(a => a.user_id === rec.user_id)
+                              if (userIndex >= 0) {
+                                newAssignments[userIndex].role = 'R'
+                              } else {
+                                newAssignments.push({ user_id: rec.user_id, role: 'R' })
+                              }
+                              
+                              handleRaciUpdate(newAssignments)
+                              toast.success(`Đã chọn ${rec.full_name} làm người thực hiện chính (R)`)
+                              
+                              // Switch to assignments tab to show the change
+                              setActiveTab('assignments')
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className={`rounded-full p-2 ${
+                                  index === 0 ? "bg-green-100" : "bg-gray-100"
+                                }`}>
+                                  <UserCheck className={`h-4 w-4 ${
+                                    index === 0 ? "text-green-600" : "text-gray-600"
+                                  }`} />
+                                </div>
+                                <div>
+                                  <p className="font-medium">{rec.full_name}</p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {index === 0 ? "Được đề xuất cao nhất" : "Phù hợp với công việc"}
+                                  </p>
+                                  {isCurrentResponsible && (
+                                    <Badge variant="default" className="mt-1">
+                                      Đang là người thực hiện chính
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-semibold">
+                                  {rec.completed_tasks_count} công việc
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Đang làm: {rec.workload} việc
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <UserCheck className="h-12 w-12 mx-auto mb-3 opacity-20" />
+                      <p>Không tìm thấy người phù hợp</p>
+                      <p className="text-sm mt-1">Tất cả mọi người đang bận hoặc chưa có kinh nghiệm với loại công việc này</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="dependencies">
-              <div className="space-y-6">
-                <div className="grid gap-4">
-                  <h3 className="text-lg font-medium">Phụ thuộc công việc</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Chọn các công việc mà công việc này phụ thuộc vào. Công việc này chỉ có thể bắt đầu khi các công việc phụ thuộc hoàn thành.
-                  </p>
-                  
-                  <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-4">
-                    {availableTasks?.map((task) => (
-                      <div key={task.id} className="flex items-center justify-between p-2 border rounded">
+            <Card>
+              <CardHeader>
+                <CardTitle>Công việc phụ thuộc</CardTitle>
+                <CardDescription>
+                  Chọn các công việc mà công việc này phụ thuộc vào. Công việc này chỉ có thể bắt đầu khi các công việc
+                  phụ thuộc hoàn thành.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* Debug info */}
+                <div className="mb-4 p-2 bg-gray-100 rounded text-xs">
+                  <p>Debug: Available tasks count: {availableTasks?.length || 0}</p>
+                  <p>Current task ID: {initialData.id}</p>
+                  <p>Selected dependencies: {selectedDependencies.join(", ")}</p>
+                </div>
+
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {availableTasks && availableTasks.length > 0 ? (
+                    availableTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
+                      >
                         <div className="flex items-center gap-2">
-                          <span className="text-sm">{task.name}</span>
+                          <span className="font-medium">{task.name}</span>
                           <Badge variant="outline" className="text-xs">
                             {task.status === "todo" && "Chưa bắt đầu"}
                             {task.status === "in_progress" && "Đang thực hiện"}
                             {task.status === "done" && "Hoàn thành"}
                             {task.status === "review" && "Đang xem xét"}
                             {task.status === "blocked" && "Bị chặn"}
+                            {task.status === "archived" && "Lưu trữ"}
                           </Badge>
                         </div>
-                        <Badge
+                        <Button
+                          type="button"
                           variant={selectedDependencies.includes(task.id.toString()) ? "default" : "outline"}
-                          className="cursor-pointer"
-                          onClick={() => handleDependencyChange(task.id.toString())}
+                          size="sm"
+                          onClick={() => handleDependencyChange(task.id)}
                         >
                           {selectedDependencies.includes(task.id.toString()) ? "Đã chọn" : "Chọn"}
-                        </Badge>
+                        </Button>
                       </div>
-                    ))}
-                    {(!availableTasks || availableTasks.length === 0) && (
-                      <p className="text-sm text-muted-foreground text-center py-4">Chưa có công việc nào khác trong dự án</p>
-                    )}
-                  </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8">
+                      <p className="text-sm text-muted-foreground">
+                        {availableTasks === null ? "Đang tải..." : "Chưa có công việc nào khác trong dự án"}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </TabsContent>
+              </CardContent>
+            </Card>
+          </TabsContent>
+          </Tabs>
 
-            <div className="flex justify-end gap-4">
-              <Button type="button" variant="outline" onClick={() => router.back()}>
-                Hủy
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Đang lưu..." : "Lưu thay đổi"}
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </Tabs>
+          {/* Single submit button for entire form */}
+          <div className="flex justify-end gap-4 pt-4 border-t">
+            <Button type="button" variant="outline" onClick={() => router.back()}>
+              Hủy
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Đang lưu...
+                </>
+              ) : (
+                "Lưu tất cả thay đổi"
+              )}
+            </Button>
+          </div>
+        </form>
+      </Form>
     </div>
   )
 }

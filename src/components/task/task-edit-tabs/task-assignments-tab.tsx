@@ -1,220 +1,249 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
-import type { Task, User as AllUser, RaciRole, TaskRaci } from '@/app/types/table-types'
+import { useState, useEffect } from 'react'
+import type { Task, User, RaciRole, TaskRaci } from '@/app/types/table-types'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Users, UserCheck, Info } from 'lucide-react'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from '@/components/ui/hover-card'
+import { Info, AlertCircle } from 'lucide-react'
 
-// Kiểu dữ liệu cho người dùng được đề xuất
-interface RecommendedUser {
-  user_id: string
-  full_name: string
-  completed_tasks_count: number
-  workload: number
-}
-
-// Kiểu dữ liệu cho việc phân công RACI
-type RaciAssignment = {
+export type RaciAssignment = {
   user_id: string
   role: RaciRole
 }
 
 interface TaskAssignmentsTabProps {
   task: Task
-  onUpdate: (updatedTask: Partial<Task>) => Promise<void>
+  // Callback to pass RACI changes to parent form
+  onRaciChange?: (assignments: RaciAssignment[]) => void
+  // Initial RACI assignments
+  initialAssignments?: RaciAssignment[]
 }
 
-export function TaskAssignmentsTab({ task, onUpdate }: TaskAssignmentsTabProps) {
-  const [recommendedUsers, setRecommendedUsers] = useState<RecommendedUser[]>([])
-  const [allUsers, setAllUsers] = useState<AllUser[]>([])
-  const [raci, setRaci] = useState<RaciAssignment[]>([])
-  const [initialRaci, setInitialRaci] = useState<RaciAssignment[]>([])
+const roleDescriptions = {
+  R: 'Responsible - Người thực hiện chính',
+  A: 'Accountable - Người chịu trách nhiệm cuối cùng',
+  C: 'Consulted - Người được tham vấn',
+  I: 'Informed - Người được thông báo'
+}
+
+export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = [] }: TaskAssignmentsTabProps) {
+  const [allUsers, setAllUsers] = useState<User[]>([])
+  const [raci, setRaci] = useState<RaciAssignment[]>(initialAssignments)
   const [loading, setLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
+  const [loadingRaci, setLoadingRaci] = useState(true)
+  const [hasChanges, setHasChanges] = useState(false)
 
-  // Fetch tất cả dữ liệu cần thiết
+  // Load users on mount
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      try {
-        const [recRes, usersRes, raciRes] = await Promise.all([
-          fetch(`/api/projects/${task.project_id}/tasks/${task.id}/recommended-users`),
-          fetch('/api/users'),
-          fetch(`/api/tasks/${task.id}/raci`),
-        ])
+    loadUsers()
+  }, [])
 
-        const recData = await recRes.json()
-        const usersData = await usersRes.json()
-        const raciData = await raciRes.json()
-        
-        if (recRes.ok) setRecommendedUsers(recData)
-        if (usersRes.ok) setAllUsers(usersData.data || [])
-        if (raciRes.ok) {
-            const currentRaci = raciData.map((r: TaskRaci) => ({ user_id: r.user_id, role: r.role }))
-            setRaci(currentRaci)
-            setInitialRaci(currentRaci) // Lưu trạng thái ban đầu để so sánh
-        }
-
-      } catch (error) {
-        toast.error('Không thể tải dữ liệu phân công.')
-        console.error(error)
-      } finally {
-        setLoading(false)
-      }
+  // Load RACI data when task changes
+  useEffect(() => {
+    if (task?.id) {
+      loadRaciData()
     }
-    fetchData()
-  }, [task.id, task.project_id])
+  }, [task.id])
 
-  // Xử lý khi thay đổi vai trò RACI
+  // Notify parent of RACI changes
+  useEffect(() => {
+    if (onRaciChange) {
+      onRaciChange(raci)
+    }
+  }, [raci, onRaciChange])
+
+  const loadUsers = async () => {
+    try {
+      const usersRes = await fetch('/api/user')
+      if (!usersRes.ok) {
+        throw new Error(`Failed to fetch users: ${usersRes.status}`)
+      }
+      const usersData = await usersRes.json()
+      const users = usersData.users || usersData.data || []
+      setAllUsers(users)
+    } catch (error) {
+      console.error('Error fetching users:', error)
+      toast.error('Không thể tải danh sách người dùng.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadRaciData = async () => {
+    try {
+      setLoadingRaci(true)
+      const raciRes = await fetch(`/api/tasks/${task.id}/raci`)
+      
+      if (!raciRes.ok) {
+        console.warn(`No RACI data found for task ${task.id}`)
+        setRaci([])
+        return
+      }
+      
+      const raciData = await raciRes.json()
+      const raciAssignments = raciData.raci || raciData.data || []
+      const currentRaci = raciAssignments.map((r: TaskRaci) => ({ 
+        user_id: r.user_id, 
+        role: r.role 
+      }))
+      
+      setRaci(currentRaci)
+    } catch (error) {
+      console.error('Error fetching RACI data:', error)
+    } finally {
+      setLoadingRaci(false)
+    }
+  }
+
   const handleRaciChange = (userId: string, role: RaciRole) => {
     setRaci(prevRaci => {
-      const newRaci = [...prevRaci]
+      let newRaci = [...prevRaci]
       const existingAssignmentIndex = newRaci.findIndex(a => a.user_id === userId)
 
+      // Only one person can be 'R' (Responsible)
       if (role === 'R') {
-        // Chỉ có một người được làm 'R'
-        // Xóa vai trò 'R' cũ nếu có
-        const oldRIndex = newRaci.findIndex(a => a.role === 'R')
-        if (oldRIndex > -1) {
-            newRaci.splice(oldRIndex, 1)
+        const currentRIndex = newRaci.findIndex(a => a.role === 'R')
+        if (currentRIndex > -1 && newRaci[currentRIndex].user_id !== userId) {
+          // Demote current R to A
+          newRaci[currentRIndex].role = 'A'
         }
       }
-
+      
       if (existingAssignmentIndex > -1) {
-        // Nếu user đã có vai trò
         if (newRaci[existingAssignmentIndex].role === role) {
-          // Bỏ chọn nếu click lại vai trò cũ
+          // If clicking same role, remove assignment
           newRaci.splice(existingAssignmentIndex, 1)
         } else {
-          // Chuyển vai trò
+          // Change role
           newRaci[existingAssignmentIndex].role = role
         }
       } else {
-        // Thêm vai trò mới
+        // Add new assignment
         newRaci.push({ user_id: userId, role })
       }
+      
       return newRaci
     })
-  }
-  
-  // Lưu thay đổi
-  const handleSaveChanges = async () => {
-    setIsSaving(true);
-    try {
-        // Tìm người chịu trách nhiệm chính (R)
-        const responsibleUser = raci.find(r => r.role === 'R');
-        
-        // Cập nhật trường assigned_to của task
-        await onUpdate({ assigned_to: responsibleUser?.user_id || null });
-
-        // Cập nhật các bản ghi trong task_raci
-        // Đây là logic đơn giản, thực tế cần so sánh initialRaci và raci để biết cái nào cần ADD, UPDATE, DELETE
-        // Tạm thời xóa hết và thêm lại cho đơn giản
-        await fetch(`/api/tasks/${task.id}/raci?deleteAll=true`, { method: 'DELETE' });
-
-        if (raci.length > 0) {
-            const res = await fetch(`/api/tasks/${task.id}/raci`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(raci),
-            });
-            if (!res.ok) throw new Error("Cập nhật RACI thất bại");
-        }
-        
-        toast.success('Đã cập nhật phân công thành công!');
-        setInitialRaci(raci) // Cập nhật trạng thái ban đầu
-    } catch (error) {
-        toast.error('Lưu thất bại.');
-        console.error(error);
-    } finally {
-        setIsSaving(false);
-    }
+    
+    setHasChanges(true)
   }
 
-  // Memoize để kiểm tra xem có thay đổi không
-  const hasChanges = useMemo(() => {
-    return JSON.stringify(raci.sort((a,b) => a.user_id.localeCompare(b.user_id))) !== JSON.stringify(initialRaci.sort((a,b) => a.user_id.localeCompare(b.user_id)));
-  }, [raci, initialRaci])
+  // Get user name by id
+  const getUserName = (userId: string) => {
+    const user = allUsers.find(u => u.id === userId)
+    return user?.full_name || 'Unknown User'
+  }
 
+  if (loading || loadingRaci) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Phân công Trách nhiệm (RACI)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-64 w-full" />
+        </CardContent>
+      </Card>
+    )
+  }
 
-  if (loading) {
-    return <Skeleton className="h-48 w-full" />
+  if (allUsers.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Phân công Trách nhiệm (RACI)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">
+            <Info className="h-8 w-8 mx-auto mb-2" />
+            <p>Không có người dùng nào trong hệ thống.</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium">Phân công Trách nhiệm (RACI)</h3>
-        <p className="text-sm text-muted-foreground">
-          Chọn vai trò cho từng thành viên. (R: Thực hiện, A: Chịu trách nhiệm, C: Tư vấn, I: Theo dõi)
-        </p>
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Phân công Trách nhiệm (RACI)</CardTitle>
+        <CardDescription>
+          Chọn vai trò cho từng cán bộ. Một công việc chỉ có một người thực hiện chính (R).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {hasChanges && (
+          <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              Có thay đổi chưa được lưu. Nhấn "Lưu tất cả thay đổi" ở cuối form để cập nhật.
+            </p>
+          </div>
+        )}
 
-      <div className="space-y-4">
-        {allUsers.map(user => {
-          const recommendation = recommendedUsers.find(rec => rec.user_id === user.id)
-          const assignment = raci.find(a => a.user_id === user.id)
-          return (
-            <div key={user.id} className={`p-3 border rounded-md flex items-center justify-between transition-all ${recommendation ? 'border-primary/50 bg-primary/5' : ''}`}>
-              <div className="flex items-center gap-3">
-                <span className="font-medium">{user.full_name}</span>
-                {recommendation && (
-                  <HoverCard>
-                    <HoverCardTrigger>
-                      <Badge variant="secondary" className="cursor-help">
-                        <UserCheck className="h-3 w-3 mr-1.5" />
-                        Gợi ý
-                      </Badge>
-                    </HoverCardTrigger>
-                    <HoverCardContent className="w-80">
-                      <div className="flex justify-between space-x-4">
-                          <div className="space-y-1">
-                              <h4 className="text-sm font-semibold">{user.full_name}</h4>
-                              <p className="text-sm">
-                                  Đây là gợi ý phù hợp cho công việc này.
-                              </p>
-                              <div className="flex items-center pt-2">
-                                  <span className="text-xs text-muted-foreground">
-                                      Kinh nghiệm: {recommendation.completed_tasks_count} việc, Đang bận: {recommendation.workload}/2 việc
-                                  </span>
-                              </div>
-                          </div>
-                      </div>
-                    </HoverCardContent>
-                  </HoverCard>
-                )}
+        <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+          <p className="text-sm font-medium mb-2">Giải thích vai trò:</p>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {Object.entries(roleDescriptions).map(([role, desc]) => (
+              <div key={role} className="flex items-center gap-2">
+                <Badge variant="outline" className="w-8 justify-center">{role}</Badge>
+                <span className="text-muted-foreground">{desc}</span>
               </div>
-              <div className="flex items-center gap-2">
-                {(['R', 'A', 'C', 'I'] as RaciRole[]).map(role => (
-                  <Button
-                    key={role}
-                    variant={assignment?.role === role ? 'default' : 'outline'}
-                    size="sm"
-                    className="w-10"
-                    onClick={() => handleRaciChange(user.id, role)}
-                  >
-                    {role}
-                  </Button>
-                ))}
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3 max-h-96 overflow-y-auto pr-2 border rounded-lg p-2">
+          {allUsers.map(user => {
+            const assignment = raci.find(a => a.user_id === user.id)
+            return (
+              <div key={user.id} className="p-3 border rounded-md flex items-center justify-between transition-all hover:bg-muted/50">
+                <div>
+                  <p className="font-medium">{user.full_name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {user.position} • {user.org_unit}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  {(['R', 'A', 'C', 'I'] as RaciRole[]).map(role => (
+                    <Button
+                      key={role}
+                      type="button"
+                      variant={assignment?.role === role ? 'default' : 'outline'}
+                      size="sm"
+                      className="w-10"
+                      onClick={() => handleRaciChange(user.id, role)}
+                      title={roleDescriptions[role]}
+                    >
+                      {role}
+                    </Button>
+                  ))}
+                </div>
               </div>
+            )
+          })}
+        </div>
+
+        {/* Show current assignments summary */}
+        {raci.length > 0 && (
+          <div className="mt-4 p-3 bg-muted/30 rounded-lg">
+            <p className="text-sm font-medium mb-2">Phân công hiện tại:</p>
+            <div className="space-y-1">
+              {raci.map(assignment => (
+                <div key={assignment.user_id} className="flex items-center gap-2 text-sm">
+                  <Badge variant="outline" className="w-8 justify-center">
+                    {assignment.role}
+                  </Badge>
+                  <span>{getUserName(assignment.user_id)}</span>
+                </div>
+              ))}
             </div>
-          )
-        })}
-      </div>
-
-      <div className="flex justify-end">
-        <Button onClick={handleSaveChanges} disabled={isSaving || !hasChanges}>
-          {isSaving ? 'Đang lưu...' : 'Lưu thay đổi'}
-        </Button>
-      </div>
-    </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }

@@ -317,33 +317,32 @@ export function TasksList({
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
-                      <DropdownMenuItem asChild>
-                        <Link href={`/dashboard/tasks/${task.id}`}>
-                          <EyeIcon className="mr-2 h-4 w-4" />
-                          Xem chi tiết
-                        </Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          (window.location.href = `/dashboard/tasks/${task.id}/edit`)
-                        }
-                      >
-                        <PencilIcon className="mr-2 h-4 w-4" />
-                        Chỉnh sửa
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-red-600"
-                        onClick={() => {
-                          setTaskToDelete(String(task.id))
-                          setIsConfirmingDelete(true)
-                        }}
-                      >
-                        <Trash2Icon className="mr-2 h-4 w-4" />
-                        Xóa
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
+                        <DropdownMenuLabel>Thao tác</DropdownMenuLabel>
+                        <DropdownMenuItem asChild>
+                          <Link href={`/dashboard/tasks/${task.id}`}>
+                            <EyeIcon className="mr-2 h-4 w-4" />
+                            Xem chi tiết
+                          </Link>
+                        </DropdownMenuItem>
+                        {/* SỬA LỖI: Sử dụng Link để điều hướng */}
+                        <DropdownMenuItem asChild>
+                           <Link href={`/dashboard/tasks/${task.id}/edit`}>
+                             <PencilIcon className="mr-2 h-4 w-4" />
+                             Chỉnh sửa
+                           </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-red-600"
+                          onClick={() => {
+                            setTaskToDelete(String(task.id));
+                            setIsConfirmingDelete(true);
+                          }}
+                        >
+                          <Trash2Icon className="mr-2 h-4 w-4" />
+                          Xóa
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
               </TableRow>

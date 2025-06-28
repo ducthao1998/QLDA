@@ -8,9 +8,8 @@ export async function GET(
 ) {
   try {
     const supabase = await createClient()
-    const projectId = (await params).id;
+    const projectId = params.id;
 
-    // Lấy thông tin xác thực
     const {
       data: { user },
       error: authError,
@@ -19,16 +18,21 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // SỬA LỖI: Thay thế join "task_skills" bằng "task_templates"
+    // SỬA LỖI: Bỏ join trên cột `assigned_to` đã bị xóa.
+    // Thay vào đó, lấy thông tin người dùng và vai trò qua bảng `task_raci`.
     const { data: tasks, error: tasksError } = await supabase
       .from('tasks')
       .select(
         `
         *,
-        users:assigned_to (
-          full_name,
-          position,
-          org_unit
+        task_raci (
+          role,
+          users (
+            id,
+            full_name,
+            position,
+            org_unit
+          )
         ),
         task_templates (
           required_skill_id,
@@ -48,6 +52,8 @@ export async function GET(
       return NextResponse.json({ error: tasksError.message }, { status: 500 })
     }
 
+    // Lưu ý: Client-side bây giờ sẽ nhận một mảng `task_raci`.
+    // Bạn sẽ cần xử lý mảng này để tìm người có vai trò 'R' và hiển thị.
     return NextResponse.json(tasks)
   } catch (error) {
     console.error('Error in GET /api/projects/[id]/tasks:', error)
@@ -65,7 +71,7 @@ export async function POST(
 ) {
   try {
     const supabase = await createClient()
-    const projectId = (await params).id
+    const projectId = params.id
     const { template_ids } = (await req.json()) as { template_ids?: number[] }
 
     if (
@@ -79,6 +85,7 @@ export async function POST(
       )
     }
 
+    // Lấy thông tin từ các template được chọn
     const { data: templates, error: templateError } = await supabase
       .from('task_templates')
       .select('*')
@@ -91,8 +98,10 @@ export async function POST(
         { status: 404 },
       )
     }
-
-    const phaseNames = templates.map(t => t.phase)
+    
+    // Giả sử template có thuộc tính `phase` để map với `project_phases`
+    // Lưu ý: Cần đảm bảo logic này phù hợp với cấu trúc dữ liệu của bạn
+    const phaseNames = templates.map((t: any) => t.phase).filter(Boolean);
     const { data: phases, error: phasesError } = await supabase
       .from('project_phases')
       .select('id, name')
@@ -101,9 +110,10 @@ export async function POST(
 
     if (phasesError) throw phasesError;
 
-    const phaseMap = new Map(phases.map(p => [p.name, p.id]));
+    const phaseMap = new Map(phases?.map(p => [p.name, p.id]));
 
-    const newTasks = templates.map(template => ({
+    // Tạo các task mới
+    const newTasks = templates.map((template: any) => ({
       project_id: projectId,
       name: template.name,
       note: template.description,

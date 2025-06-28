@@ -6,12 +6,16 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
-import { BarChart2Icon, FileTextIcon } from "lucide-react"
+import { BarChart2Icon, CalendarIcon, FileTextIcon } from "lucide-react"
 import { format } from "date-fns"
+import { vi } from "date-fns/locale"
 import type { UseFormReturn } from "react-hook-form"
-
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { TaskFormValues } from "../task-edit-form"
 import type { User, ProjectPhase, Skill } from "@/app/types/table-types"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 interface TaskDetailsTabProps {
   form: UseFormReturn<TaskFormValues>
@@ -82,58 +86,62 @@ export function TaskDetailsTab({
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="start_date"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Ngày bắt đầu *</FormLabel>
-                  <FormControl>
-                    <Input 
-                      type="datetime-local" 
-                      {...field}
-                      min={projectData?.start_date ? new Date(projectData.start_date).toISOString().slice(0, 16) : undefined}
-                      max={projectData?.end_date ? new Date(projectData.end_date).toISOString().slice(0, 16) : undefined}
-                    />
-                  </FormControl>
-                  {projectData && (
-                    <FormDescription>
-                      Từ {format(new Date(projectData.start_date), "dd/MM/yyyy")} đến{" "}
-                      {format(new Date(projectData.end_date), "dd/MM/yyyy")}
-                    </FormDescription>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          <FormField control={form.control} name="start_date" render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel>Ngày bắt đầu</FormLabel>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                                            {field.value ? (format(new Date(field.value), "PPP", { locale: vi })) : (<span>Chọn ngày</span>)}
+                                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar 
+                                                      mode="single" 
+                                                      selected={field.value ? new Date(field.value) : undefined} 
+                                                      onSelect={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")} 
+                                                      initialFocus 
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}/>
 
-            <FormField
-              control={form.control}
-              name="end_date"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Ngày kết thúc *</FormLabel>
-                  <FormControl>
-                    <Input 
-                      type="datetime-local" 
-                      {...field}
-                      min={projectData?.start_date ? new Date(projectData.start_date).toISOString().slice(0, 16) : undefined}
-                      max={projectData?.end_date ? new Date(projectData.end_date).toISOString().slice(0, 16) : undefined}
-                    />
-                  </FormControl>
-                  {projectData && (
-                    <FormDescription>
-                      Từ {format(new Date(projectData.start_date), "dd/MM/yyyy")} đến{" "}
-                      {format(new Date(projectData.end_date), "dd/MM/yyyy")}
-                    </FormDescription>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                                    <FormField control={form.control} name="end_date" render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <FormLabel>Ngày kết thúc</FormLabel>
+                                            <Popover>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button variant={"outline"} className={cn("pl-3 text-left font-normal", !field.value && "text-muted-foreground")}>
+                                                            {field.value ? (format(new Date(field.value), "PPP", { locale: vi })) : (<span>Chọn ngày</span>)}
+                                                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-auto p-0" align="start">
+                                                    <Calendar 
+                                                      mode="single" 
+                                                      selected={field.value ? new Date(field.value) : undefined} 
+                                                      onSelect={(date) => field.onChange(date ? format(date, "yyyy-MM-dd") : "")} 
+                                                      disabled={(date) => {
+                                                        const startDate = form.getValues("start_date");
+                                                        return startDate ? date < new Date(startDate) : false;
+                                                      }} 
+                                                      initialFocus 
+                                                    />
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}/>
           </div>
 
-          <FormField
+          {/* <FormField
             control={form.control}
             name="assigned_to"
             render={({ field }) => (
@@ -157,7 +165,7 @@ export function TaskDetailsTab({
                 <FormMessage />
               </FormItem>
             )}
-          />
+          /> */}
 
           <FormField
             control={form.control}
