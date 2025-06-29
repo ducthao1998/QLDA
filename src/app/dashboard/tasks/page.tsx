@@ -15,13 +15,14 @@ export default function TaskTemplatesPage() {
     async function getTaskTemplates() {
       try {
         const response = await fetch('/api/task-templates'); // Gọi API route như bình thường
-
         if (!response.ok) {
           throw new Error('Failed to fetch task templates');
         }
         
-        const data = await response.json();
-        setTaskTemplates(data);
+        const result = await response.json();
+        console.log(result)
+        // SỬA LỖI: Đảm bảo taskTemplates luôn là mảng
+        setTaskTemplates(Array.isArray(result.data) ? result.data : []);
       } catch (error) {
         console.error("Error fetching task templates:", error);
         toast.error("Lỗi tải danh sách mẫu công việc.");

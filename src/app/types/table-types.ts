@@ -135,17 +135,7 @@ export interface Skill {
   created_at: string;
 }
 
-// 9. task_templates
-export interface TaskTemplate {
-  id: number;
-  name: string;
-  description: string | null;
-  applicable_classification: string[]; // {"A", "B"} hoặc {"ALL"}
-  sequence_order: number;
-  default_duration_days: number | null;
-  required_skill_id: number | null;
-  created_at: string;
-}
+
 
 // ---- BẢNG MỚI ĐƯỢC THÊM VÀO ----
 // 10. task_skills (Bảng trung gian)
@@ -219,4 +209,22 @@ export interface TaskHistory {
   from_val: string | null
   to_val: string | null
   created_at: string
+}
+export interface TaskTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  applicable_classification: string[];
+  sequence_order: number;
+  default_duration_days: number | null;
+  // SỬA LỖI: Đã xóa `required_skill_id`
+  created_at: string;
+}
+
+// ... (các interface khác giữ nguyên)
+
+// THÊM MỚI: Interface cho bảng nối task_template_skills
+export interface TaskTemplateSkill {
+  template_id: number; // PK, FK -> task_templates.id
+  skill_id: number;    // PK, FK -> skills.id
 }
