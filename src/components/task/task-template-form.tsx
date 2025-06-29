@@ -26,7 +26,10 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { TaskTemplate } from '@/app/types/table-types'
+import { TaskTemplate, Skill } from '@/app/types/table-types'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { BarChart2Icon, Loader2 } from 'lucide-react'
 
 const PROJECT_PHASES = [
   'Khởi tạo & Lập kế hoạch',
@@ -54,17 +57,12 @@ const taskTemplateSchema = z.object({
     .int()
     .positive('Thứ tự phải là số nguyên dương.'),
   default_duration_days: z.coerce.number().int().min(0).optional().nullable(),
-  required_skill_id: z.string().optional().nullable(),
+  skill_ids: z.array(z.number()).optional(),
 })
 
 interface TaskTemplateFormProps {
-  template?: TaskTemplate
+  template?: TaskTemplate & { task_template_skills: { skill_id: number }[] };
   onFormSubmit: () => void
-}
-
-interface Skill {
-  id: number
-  name: string
 }
 
 export function TaskTemplateForm({
@@ -73,29 +71,22 @@ export function TaskTemplateForm({
 }: TaskTemplateFormProps) {
   const router = useRouter()
   const [skills, setSkills] = useState<Skill[]>([])
+  const [selectedSkills, setSelectedSkills] = useState<number[]>(
+    template?.task_template_skills
+      ? template.task_template_skills.map(s => s.skill_id)
+      : []
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     const fetchSkills = async () => {
       try {
         const response = await fetch('/api/skills')
-        if (!response.ok) {
-          throw new Error('Failed to fetch skills')
-        }
+        if (!response.ok) throw new Error('Failed to fetch skills')
         const data = await response.json()
-        if (data && Array.isArray(data.skills)) {
-          setSkills(data.skills)
-        } else {
-          console.error(
-            'API /api/skills did not return the expected { skills: [...] } format:',
-            data,
-          )
-          setSkills([])
-        }
+        setSkills(data.skills || [])
       } catch (error) {
-        console.error('Lỗi lấy danh sách kỹ năng:', error)
         toast.error('Không thể tải danh sách kỹ năng.')
-        setSkills([])
       }
     }
     fetchSkills()
@@ -109,9 +100,15 @@ export function TaskTemplateForm({
       applicable_classification: template?.applicable_classification || [],
       sequence_order: template?.sequence_order || 1,
       default_duration_days: template?.default_duration_days || undefined,
-      required_skill_id: template?.required_skill_id?.toString() || 'none',
+      skill_ids: template?.task_template_skills
+        ? template.task_template_skills.map(s => s.skill_id)
+        : [],
     },
   })
+
+  useEffect(() => {
+    form.setValue('skill_ids', selectedSkills)
+  }, [selectedSkills, form])
 
   const onSubmit = async (values: z.infer<typeof taskTemplateSchema>) => {
     setIsSubmitting(true)
@@ -123,10 +120,7 @@ export function TaskTemplateForm({
 
       const dataToSend = {
         ...values,
-        required_skill_id:
-          values.required_skill_id === 'none'
-            ? null
-            : values.required_skill_id,
+        skill_ids: selectedSkills,
       }
 
       const response = await fetch(url, {
@@ -154,6 +148,14 @@ export function TaskTemplateForm({
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const handleSkillChange = (skillId: number) => {
+    setSelectedSkills(prev =>
+      prev.includes(skillId)
+        ? prev.filter(id => id !== skillId)
+        : [...prev, skillId]
+    )
   }
 
   return (
@@ -186,6 +188,7 @@ export function TaskTemplateForm({
                 <Textarea
                   placeholder="Mô tả mục tiêu, yêu cầu đầu ra của công việc..."
                   {...field}
+                  value={field.value || ''}
                 />
               </FormControl>
               <FormMessage />
@@ -196,12 +199,9 @@ export function TaskTemplateForm({
         <FormField
           control={form.control}
           name="applicable_classification"
-          render={({ field }) => (
+          render={() => (
             <FormItem>
               <FormLabel>Áp dụng cho phân loại dự án</FormLabel>
-              <FormDescription>
-                Chọn các loại dự án mà công việc mẫu này sẽ được áp dụng.
-              </FormDescription>
               <div className="flex items-center space-x-4 pt-2">
                 {PROJECT_CLASSIFICATIONS.map((item) => (
                   <FormField
@@ -242,6 +242,29 @@ export function TaskTemplateForm({
             </FormItem>
           )}
         />
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Kỹ năng yêu cầu</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {skills.length > 0 ? skills.map((skill) => (
+                <Badge
+                  key={skill.id}
+                  variant={selectedSkills.includes(skill.id) ? "default" : "outline"}
+                  className="cursor-pointer text-base py-1 px-3"
+                  onClick={() => handleSkillChange(skill.id)}
+                >
+                  {skill.name}
+                </Badge>
+              )) : <p className="text-sm text-muted-foreground">Đang tải danh sách kỹ năng...</p>}
+            </div>
+            <FormDescription className="pt-3">
+              Chọn các kỹ năng cần thiết để thực hiện công việc này.
+            </FormDescription>
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <FormField
@@ -287,35 +310,6 @@ export function TaskTemplateForm({
           />
         </div>
 
-        <FormField
-          control={form.control}
-          name="required_skill_id"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Kỹ năng yêu cầu</FormLabel>
-              <Select
-                onValueChange={field.onChange}
-                defaultValue={field.value ?? undefined}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn kỹ năng (không bắt buộc)" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="none">Không yêu cầu</SelectItem>
-                  {skills.map((skill) => (
-                    <SelectItem key={skill.id} value={skill.id.toString()}>
-                      {skill.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
         <div className="flex justify-end space-x-4 pt-4">
           <Button
             type="button"
@@ -326,11 +320,12 @@ export function TaskTemplateForm({
             Hủy
           </Button>
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? 'Đang xử lý...'
-              : template
-              ? 'Lưu thay đổi' 
-              : 'Tạo công việc mẫu'}
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Đang xử lý...
+              </>
+            ) : template ? 'Lưu thay đổi' : 'Tạo công việc mẫu'}
           </Button>
         </div>
       </form>

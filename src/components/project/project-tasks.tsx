@@ -27,7 +27,7 @@ export function ProjectTasks({ projectId }: ProjectTasksProps) {
         throw new Error('Không thể tải danh sách công việc')
       }
       const data = await response.json()
-      setTasks(data)
+      setTasks(Array.isArray(data.data) ? data.data : [])
     } catch (err: any) {
       setError(err.message)
     } finally {

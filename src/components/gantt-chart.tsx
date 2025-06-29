@@ -3,14 +3,29 @@
 import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronLeftIcon, ChevronRightIcon, ZoomInIcon, ZoomOutIcon, RefreshCwIcon, CheckCircle, AlertCircle, TrendingUp, Clock, Users, Scale, ArrowRight, Sparkles, BarChart3, Target, Zap } from 'lucide-react'
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+  RefreshCwIcon,
+  CheckCircle,
+  AlertCircle,
+  TrendingUp,
+  Clock,
+  Users,
+  Scale,
+  ArrowRight,
+  Sparkles,
+  Calendar,
+  CalendarDays,
+  CalendarRange,
+} from "lucide-react"
 import { toast } from "sonner"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface GanttChartProps {
   projectId: string
@@ -60,6 +75,8 @@ interface OptimizationResult {
   critical_path: string[]
 }
 
+type ViewMode = "day" | "week" | "month"
+
 export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [zoom, setZoom] = useState(1)
@@ -72,6 +89,7 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<"cpm" | "genetic" | "resource_leveling">("cpm")
   const [selectedObjective, setSelectedObjective] = useState<"time" | "resource" | "multi">("multi")
+  const [viewMode, setViewMode] = useState<ViewMode>("month")
 
   // Load project data
   useEffect(() => {
@@ -82,7 +100,6 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
         setIsLoading(true)
         const response = await fetch(`/api/projects/${projectId}/gantt`)
         if (!response.ok) throw new Error("Không thể tải dữ liệu dự án")
-
         const data = await response.json()
         setProjectData(data)
       } catch (error) {
@@ -95,6 +112,59 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
 
     fetchProjectData()
   }, [projectId])
+
+  // Helper function to get time unit width
+  const getTimeUnitWidth = (projectDuration: number, chartWidth: number) => {
+    let baseWidth
+    switch (viewMode) {
+      case "day":
+        baseWidth = chartWidth / projectDuration
+        break
+      case "week":
+        baseWidth = chartWidth / (projectDuration / 7)
+        break
+      case "month":
+        baseWidth = chartWidth / (projectDuration / 30)
+        break
+      default:
+        baseWidth = chartWidth / projectDuration
+    }
+    return baseWidth * zoom
+  }
+
+  // Helper function to format date labels
+  const formatDateLabel = (date: Date) => {
+    switch (viewMode) {
+      case "day":
+        return `${date.getDate()}/${date.getMonth() + 1}`
+      case "week":
+        const weekStart = new Date(date)
+        weekStart.setDate(date.getDate() - date.getDay())
+        return `T${Math.ceil(date.getDate() / 7)} - ${date.getMonth() + 1}/${date.getFullYear()}`
+      case "month":
+        const months = ["Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12"]
+        return `${months[date.getMonth()]} ${date.getFullYear()}`
+      default:
+        return date.toLocaleDateString("vi-VN")
+    }
+  }
+
+  // Helper function to get next time unit
+  const getNextTimeUnit = (currentDate: Date) => {
+    const nextDate = new Date(currentDate)
+    switch (viewMode) {
+      case "day":
+        nextDate.setDate(currentDate.getDate() + 1)
+        break
+      case "week":
+        nextDate.setDate(currentDate.getDate() + 7)
+        break
+      case "month":
+        nextDate.setMonth(currentDate.getMonth() + 1)
+        break
+    }
+    return nextDate
+  }
 
   // Draw Gantt chart
   useEffect(() => {
@@ -130,7 +200,8 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
     const startDate = new Date(project.start_date)
     const endDate = new Date(project.end_date)
     const projectDuration = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-    const dayWidth = (chartWidth / projectDuration) * zoom
+
+    const unitWidth = getTimeUnitWidth(projectDuration, chartWidth)
 
     // Draw header background
     ctx.fillStyle = "#f8fafc"
@@ -153,28 +224,59 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       ctx.stroke()
     }
 
-    // Vertical grid lines and month labels
-    const months = ["Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12"]
+    // Vertical grid lines and time labels
     const currentDate = new Date(startDate)
-    currentDate.setDate(1)
+
+    // Adjust starting point based on view mode
+    switch (viewMode) {
+      case "day":
+        // Start from the first day
+        break
+      case "week":
+        // Start from the beginning of the week
+        currentDate.setDate(startDate.getDate() - startDate.getDay())
+        break
+      case "month":
+        // Start from the first day of the month
+        currentDate.setDate(1)
+        break
+    }
 
     while (currentDate <= endDate) {
       const days = (currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-      const x = chartStartX + days * dayWidth - scrollPosition
+      let x: number
+
+      switch (viewMode) {
+        case "day":
+          x = chartStartX + days * unitWidth - scrollPosition
+          break
+        case "week":
+          x = chartStartX + (days / 7) * unitWidth - scrollPosition
+          break
+        case "month":
+          x = chartStartX + (days / 30) * unitWidth - scrollPosition
+          break
+        default:
+          x = chartStartX + days * unitWidth - scrollPosition
+      }
 
       if (x >= chartStartX && x <= chartStartX + chartWidth) {
+        // Draw vertical grid line
         ctx.beginPath()
         ctx.moveTo(x, headerHeight)
         ctx.lineTo(x, canvas.height)
         ctx.stroke()
 
+        // Draw time label
         ctx.fillStyle = "#64748b"
         ctx.font = "12px Inter, sans-serif"
         ctx.textAlign = "center"
-        ctx.fillText(`${months[currentDate.getMonth()]} ${currentDate.getFullYear()}`, x, headerHeight / 2)
+        ctx.fillText(formatDateLabel(currentDate), x, headerHeight / 2)
       }
 
-      currentDate.setMonth(currentDate.getMonth() + 1)
+      // Move to next time unit
+      const nextDate = getNextTimeUnit(currentDate)
+      currentDate.setTime(nextDate.getTime())
     }
 
     // Draw column headers
@@ -182,8 +284,8 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
     ctx.font = "bold 14px Inter, sans-serif"
     ctx.textAlign = "left"
     ctx.fillText("Công việc", 10, headerHeight - 20)
-    ctx.fillText("Người thực hiện", 160, headerHeight - 20)
-    ctx.fillText("Tiến độ", 250, headerHeight - 20)
+    ctx.fillText("Người thực hiện", 140, headerHeight - 20)
+    ctx.fillText("Tiến độ", 260, headerHeight - 20)
 
     // Draw tasks
     tasks.forEach((task: Task, index: number) => {
@@ -215,9 +317,27 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       const taskStartDays = (taskStartDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
       const taskDuration = (taskEndDate.getTime() - taskStartDate.getTime()) / (1000 * 60 * 60 * 24) + 1
 
-      const barX = chartStartX + taskStartDays * dayWidth - scrollPosition
+      let barX: number, barWidth: number
+
+      switch (viewMode) {
+        case "day":
+          barX = chartStartX + taskStartDays * unitWidth - scrollPosition
+          barWidth = taskDuration * unitWidth
+          break
+        case "week":
+          barX = chartStartX + (taskStartDays / 7) * unitWidth - scrollPosition
+          barWidth = (taskDuration / 7) * unitWidth
+          break
+        case "month":
+          barX = chartStartX + (taskStartDays / 30) * unitWidth - scrollPosition
+          barWidth = (taskDuration / 30) * unitWidth
+          break
+        default:
+          barX = chartStartX + taskStartDays * unitWidth - scrollPosition
+          barWidth = taskDuration * unitWidth
+      }
+
       const barY = y + 10
-      const barWidth = taskDuration * dayWidth
       const barHeight = rowHeight - 20
 
       // Determine color based on status and phase
@@ -247,15 +367,6 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
         ctx.lineWidth = 2
         ctx.strokeRect(barX, barY, barWidth, barHeight)
 
-        // Highlight critical path tasks
-        if (optimizationResult?.critical_path.includes(task.id)) {
-          ctx.strokeStyle = "#ef4444"
-          ctx.lineWidth = 3
-          ctx.setLineDash([5, 5])
-          ctx.strokeRect(barX - 2, barY - 2, barWidth + 4, barHeight + 4)
-          ctx.setLineDash([])
-        }
-
         // Draw dependencies
         if (task.dependencies.length > 0) {
           ctx.strokeStyle = "#94a3b8"
@@ -268,7 +379,22 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
               const depIndex = tasks.indexOf(depTask)
               const depEndDate = new Date(depTask.end_date)
               const depEndDays = (depEndDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
-              const depX = chartStartX + depEndDays * dayWidth - scrollPosition
+
+              let depX: number
+              switch (viewMode) {
+                case "day":
+                  depX = chartStartX + depEndDays * unitWidth - scrollPosition
+                  break
+                case "week":
+                  depX = chartStartX + (depEndDays / 7) * unitWidth - scrollPosition
+                  break
+                case "month":
+                  depX = chartStartX + (depEndDays / 30) * unitWidth - scrollPosition
+                  break
+                default:
+                  depX = chartStartX + depEndDays * unitWidth - scrollPosition
+              }
+
               const depY = headerHeight + depIndex * rowHeight + rowHeight / 2
 
               // Draw arrow from dependency to current task
@@ -316,7 +442,7 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       ctx.fillStyle = "#0f172a"
       ctx.fillText("Đường găng", 225, canvas.height / dpr - 40)
     }
-  }, [projectData, optimizedData, zoom, scrollPosition, showOptimized, optimizationResult])
+  }, [projectData, optimizedData, zoom, scrollPosition, showOptimized, optimizationResult, viewMode])
 
   const handleOptimize = async () => {
     if (!projectId) return
@@ -374,11 +500,9 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
 
       setOptimizationResult(result)
       setShowOptimized(true)
-
       if (onOptimize) {
         onOptimize(result)
       }
-
       toast.success("Đã tối ưu hóa lịch trình thành công!")
     } catch (error) {
       console.error("Error optimizing schedule:", error)
@@ -392,19 +516,6 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
   const handleZoomOut = () => setZoom((prev) => Math.max(prev / 1.2, 0.5))
   const handleScrollLeft = () => setScrollPosition((prev) => Math.max(prev - 100, 0))
   const handleScrollRight = () => setScrollPosition((prev) => prev + 100)
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center h-64">
-          <div className="text-center">
-            <RefreshCwIcon className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p>Đang tải dữ liệu Gantt Chart...</p>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
 
   return (
     <div className="space-y-6">
@@ -420,38 +531,30 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
           <div className="grid md:grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium mb-2 block">Thuật toán</label>
-              <Select
+              <select
+                className="w-full px-3 py-2 border rounded-md"
                 value={selectedAlgorithm}
-                onValueChange={(value) => setSelectedAlgorithm(value as any)}
+                onChange={(e) => setSelectedAlgorithm(e.target.value as any)}
                 disabled={isOptimizing}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cpm">Phương pháp đường găng (CPM)</SelectItem>
-                  <SelectItem value="genetic">Thuật toán di truyền (GA)</SelectItem>
-                  <SelectItem value="resource_leveling">Cân bằng tài nguyên</SelectItem>
-                </SelectContent>
-              </Select>
+                <option value="cpm">Phương pháp đường găng (CPM)</option>
+                <option value="genetic">Thuật toán di truyền (GA)</option>
+                <option value="resource_leveling">Cân bằng tài nguyên</option>
+              </select>
             </div>
 
             <div>
               <label className="text-sm font-medium mb-2 block">Mục tiêu</label>
-              <Select
+              <select
+                className="w-full px-3 py-2 border rounded-md"
                 value={selectedObjective}
-                onValueChange={(value) => setSelectedObjective(value as any)}
+                onChange={(e) => setSelectedObjective(e.target.value as any)}
                 disabled={isOptimizing}
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="time">Tối ưu thời gian</SelectItem>
-                  <SelectItem value="resource">Tối ưu tài nguyên</SelectItem>
-                  <SelectItem value="multi">Tối ưu đa mục tiêu</SelectItem>
-                </SelectContent>
-              </Select>
+                <option value="time">Tối ưu thời gian</option>
+                <option value="resource">Tối ưu tài nguyên</option>
+                <option value="multi">Tối ưu đa mục tiêu</option>
+              </select>
             </div>
 
             <div className="flex items-end">
@@ -488,296 +591,320 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
 
       {/* Optimization Results */}
       {optimizationResult && (
-        <Tabs defaultValue="metrics" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="metrics">Kết quả tối ưu</TabsTrigger>
-            <TabsTrigger value="changes">Thay đổi lịch trình</TabsTrigger>
-            <TabsTrigger value="explanation">Giải thích</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="metrics">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Thời gian hoàn thành</CardTitle>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Ban đầu:</span>
-                      <span className="text-lg font-semibold">{optimizationResult.original_makespan} ngày</span>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-green-600" />
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Tối ưu:</span>
-                      <span className="text-2xl font-bold text-green-600">
-                        {optimizationResult.optimized_makespan} ngày
-                      </span>
-                    </div>
-                    <Progress value={100 - optimizationResult.improvement_percentage} className="mt-2" />
-                    <p className="text-xs text-green-600 font-medium">
-                      Giảm {optimizationResult.improvement_percentage.toFixed(1)}%
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Hiệu suất tài nguyên</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Trước:</span>
-                      <span className="text-lg font-semibold">
-                        {(optimizationResult.resource_utilization_before * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-blue-600" />
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Sau:</span>
-                      <span className="text-2xl font-bold text-blue-600">
-                        {(optimizationResult.resource_utilization_after * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <Progress value={optimizationResult.resource_utilization_after * 100} className="mt-2" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Cân bằng khối lượng</CardTitle>
-                  <Scale className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="text-2xl font-bold text-purple-600">
-                      {(optimizationResult.workload_balance * 100).toFixed(1)}%
-                    </div>
-                    <Progress value={optimizationResult.workload_balance * 100} className="mt-2" />
-                    <p className="text-xs text-muted-foreground">
-                      {optimizationResult.workload_balance > 0.8
-                        ? "Rất cân bằng"
-                        : optimizationResult.workload_balance > 0.6
-                          ? "Khá cân bằng"
-                          : "Cần cải thiện"}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="changes">
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
-              <CardHeader>
-                <CardTitle>Thay đổi lịch trình</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Thời gian hoàn thành</CardTitle>
+                <Clock className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {optimizationResult.schedule_changes.map((change, index) => (
-                    <div key={index} className="border rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">{change.task_name}</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Ban đầu:</span>
+                    <span className="text-lg font-semibold">{optimizationResult.original_makespan} ngày</span>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-green-600" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Tối ưu:</span>
+                    <span className="text-2xl font-bold text-green-600">
+                      {optimizationResult.optimized_makespan} ngày
+                    </span>
+                  </div>
+                  <Progress value={100 - optimizationResult.improvement_percentage} className="mt-2" />
+                  <p className="text-xs text-green-600 font-medium">
+                    Giảm {optimizationResult.improvement_percentage.toFixed(1)}% thời gian
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Hiệu suất tài nguyên</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Ban đầu:</span>
+                    <span className="text-lg font-semibold">
+                      {(optimizationResult.resource_utilization_before * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-blue-600" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">Tối ưu:</span>
+                    <span className="text-2xl font-bold text-blue-600">
+                      {(optimizationResult.resource_utilization_after * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <Progress value={optimizationResult.resource_utilization_after * 100} className="mt-2" />
+                  <p className="text-xs text-blue-600 font-medium">
+                    Tăng{" "}
+                    {(
+                      (optimizationResult.resource_utilization_after - optimizationResult.resource_utilization_before) *
+                      100
+                    ).toFixed(1)}
+                    % hiệu suất
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Cân bằng công việc</CardTitle>
+                <Scale className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{(optimizationResult.workload_balance * 100).toFixed(1)}%</div>
+                <Progress value={optimizationResult.workload_balance * 100} className="mt-2" />
+                <p className="text-xs text-muted-foreground mt-2">Mức độ đồng đều trong phân bổ công việc</p>
+                {optimizationResult.workload_balance > 0.8 && (
+                  <Badge variant="default" className="mt-2">
+                    Xuất sắc
+                  </Badge>
+                )}
+                {optimizationResult.workload_balance > 0.6 && optimizationResult.workload_balance <= 0.8 && (
+                  <Badge variant="secondary" className="mt-2">
+                    Tốt
+                  </Badge>
+                )}
+                {optimizationResult.workload_balance <= 0.6 && (
+                  <Badge variant="outline" className="mt-2">
+                    Cần cải thiện
+                  </Badge>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Detailed Explanation */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Chi tiết tối ưu hóa
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Strategy */}
+              <div>
+                <h4 className="font-semibold mb-2 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-yellow-600" />
+                  Chiến lược áp dụng
+                </h4>
+                <p className="text-sm text-muted-foreground bg-muted p-3 rounded-lg">
+                  {optimizationResult.explanation.strategy}
+                </p>
+              </div>
+
+              {/* Key Improvements */}
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  Cải thiện chính
+                </h4>
+                <div className="grid gap-2">
+                  {optimizationResult.explanation.key_improvements.map((improvement, index) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+                      <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+                      <span className="text-sm">{improvement}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Trade-offs */}
+              <div>
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-yellow-600" />
+                  Đánh đổi cần xem xét
+                </h4>
+                <div className="grid gap-2">
+                  {optimizationResult.explanation.trade_offs.map((tradeoff, index) => (
+                    <div key={index} className="flex items-start gap-3 p-3 bg-yellow-50 rounded-lg">
+                      <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                      <span className="text-sm">{tradeoff}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Why Optimal */}
+              <div>
+                <h4 className="font-semibold mb-2">Tại sao đây là giải pháp tối ưu?</h4>
+                <Alert>
+                  <TrendingUp className="h-4 w-4" />
+                  <AlertDescription>{optimizationResult.explanation.why_optimal}</AlertDescription>
+                </Alert>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Schedule Changes */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Thay đổi chi tiết trong lịch trình</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {optimizationResult.schedule_changes
+                  .filter((change) => change.change_type !== "unchanged")
+                  .map((change, index) => (
+                    <div key={index} className="border rounded-lg p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h5 className="font-medium">{change.task_name}</h5>
                         <Badge
                           variant={
                             change.change_type === "rescheduled"
-                              ? "default"
+                              ? "secondary"
                               : change.change_type === "reassigned"
-                                ? "secondary"
+                                ? "default"
                                 : "outline"
                           }
                         >
                           {change.change_type === "rescheduled" && "Dời lịch"}
-                          {change.change_type === "reassigned" && "Phân công lại"}
-                          {change.change_type === "both" && "Dời lịch & Phân công"}
-                          {change.change_type === "unchanged" && "Không thay đổi"}
+                          {change.change_type === "reassigned" && "Đổi người"}
+                          {change.change_type === "both" && "Dời lịch & Đổi người"}
                         </Badge>
                       </div>
-                      <div className="text-sm text-muted-foreground space-y-1">
-                        <p>
-                          <strong>Lý do:</strong> {change.reason}
-                        </p>
-                        <p>
-                          <strong>Tác động:</strong> {change.impact}
-                        </p>
-                        {change.change_type !== "unchanged" && (
-                          <div className="grid grid-cols-2 gap-4 mt-2">
-                            <div>
-                              <p className="text-xs font-medium">Thời gian:</p>
-                              <p className="text-xs">
-                                {new Date(change.original_start).toLocaleDateString()} →{" "}
-                                {new Date(change.new_start).toLocaleDateString()}
-                              </p>
+
+                      <div className="grid md:grid-cols-2 gap-4 text-sm">
+                        {change.change_type !== "reassigned" && (
+                          <div>
+                            <p className="text-muted-foreground mb-1">Thời gian:</p>
+                            <div className="flex items-center gap-2">
+                              <span>{new Date(change.original_start).toLocaleDateString("vi-VN")}</span>
+                              <ArrowRight className="h-4 w-4" />
+                              <span className="font-medium text-blue-600">
+                                {new Date(change.new_start).toLocaleDateString("vi-VN")}
+                              </span>
                             </div>
-                            {change.original_assignee !== change.new_assignee && (
-                              <div>
-                                <p className="text-xs font-medium">Người thực hiện:</p>
-                                <p className="text-xs">
-                                  {change.original_assignee || "Chưa gán"} → {change.new_assignee || "Chưa gán"}
-                                </p>
-                              </div>
-                            )}
+                          </div>
+                        )}
+
+                        {change.new_assignee && change.new_assignee !== change.original_assignee && (
+                          <div>
+                            <p className="text-muted-foreground mb-1">Người thực hiện:</p>
+                            <div className="flex items-center gap-2">
+                              <span>{change.original_assignee || "Chưa phân công"}</span>
+                              <ArrowRight className="h-4 w-4" />
+                              <span className="font-medium text-green-600">{change.new_assignee}</span>
+                            </div>
                           </div>
                         )}
                       </div>
+
+                      <div className="pt-2 border-t">
+                        <p className="text-sm text-muted-foreground">
+                          <span className="font-medium">Lý do: </span>
+                          {change.reason}
+                        </p>
+                        <p className="text-sm text-green-600 mt-1">
+                          <span className="font-medium">Tác động: </span>
+                          {change.impact}
+                        </p>
+                      </div>
                     </div>
                   ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="explanation">
-            <Card>
-              <CardHeader>
-                <CardTitle>Giải thích thuật toán</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h4 className="font-medium mb-2">Chiến lược:</h4>
-                  <p className="text-sm text-muted-foreground">{optimizationResult.explanation.strategy}</p>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h4 className="font-medium mb-2">Cải tiến chính:</h4>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    {optimizationResult.explanation.key_improvements.map((improvement, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-600" />
-                        {improvement}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h4 className="font-medium mb-2">Đánh đổi:</h4>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    {optimizationResult.explanation.trade_offs.map((tradeOff, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-amber-600" />
-                        {tradeOff}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h4 className="font-medium mb-2">Ràng buộc đã xem xét:</h4>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    {optimizationResult.explanation.constraints_considered.map((constraint, index) => (
-                      <li key={index} className="flex items-center gap-2">
-                        <Target className="h-4 w-4 text-blue-600" />
-                        {constraint}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <Separator />
-
-                <div>
-                  <h4 className="font-medium mb-2">Tại sao đây là giải pháp tối ưu:</h4>
-                  <p className="text-sm text-muted-foreground">{optimizationResult.explanation.why_optimal}</p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+              </div>
+            </CardContent>
+          </Card>
+        </>
       )}
 
-      {/* Gantt Chart Controls */}
+      {/* Gantt Chart */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              Biểu đồ Gantt
-              {showOptimized && (
-                <Badge variant="secondary" className="ml-2">
-                  Lịch tối ưu
-                </Badge>
-              )}
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              {optimizationResult && (
-                <Button
-                  variant={showOptimized ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setShowOptimized(!showOptimized)}
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  {showOptimized ? "Xem bản gốc" : "Xem bản tối ưu"}
-                </Button>
-              )}
-              <Button variant="outline" size="sm" onClick={handleScrollLeft}>
-                <ChevronLeftIcon className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleScrollRight}>
-                <ChevronRightIcon className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleZoomOut}>
-                <ZoomOutIcon className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleZoomIn}>
-                <ZoomInIcon className="h-4 w-4" />
-              </Button>
+            <CardTitle>Biểu đồ Gantt</CardTitle>
+            <div className="flex items-center gap-4">
+              {/* View Mode Selection */}
+              <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewMode)}>
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="day" className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" />
+                    Ngày
+                  </TabsTrigger>
+                  <TabsTrigger value="week" className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4" />
+                    Tuần
+                  </TabsTrigger>
+                  <TabsTrigger value="month" className="flex items-center gap-2">
+                    <CalendarRange className="h-4 w-4" />
+                    Tháng
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+
+              <div className="flex items-center gap-2">
+                {optimizedData && (
+                  <Button
+                    variant={showOptimized ? "default" : "outline"}
+                    onClick={() => setShowOptimized(!showOptimized)}
+                    size="sm"
+                  >
+                    {showOptimized ? "Xem lịch gốc" : "Xem lịch tối ưu"}
+                  </Button>
+                )}
+                <div className="flex gap-1">
+                  <Button variant="outline" size="icon" onClick={handleZoomOut}>
+                    <ZoomOutIcon className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={handleZoomIn}>
+                    <ZoomInIcon className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={handleScrollLeft}>
+                    <ChevronLeftIcon className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={handleScrollRight}>
+                    <ChevronRightIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="border rounded-lg overflow-hidden">
-            <canvas
-              ref={canvasRef}
-              className="w-full h-96 cursor-move"
-              style={{ minHeight: "400px" }}
-              onWheel={(e) => {
-                e.preventDefault()
-                if (e.deltaY > 0) {
-                  handleZoomOut()
-                } else {
-                  handleZoomIn()
-                }
-              }}
-            />
+          <div className="w-full h-[600px] overflow-hidden border rounded-lg">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-full">
+                <RefreshCwIcon className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <canvas ref={canvasRef} className="w-full h-full" style={{ width: "100%", height: "100%" }} />
+            )}
           </div>
 
-          {/* Project Statistics */}
-          {projectData?.project?.stats && (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 pt-4 border-t">
-              <div className="text-center">
-                <div className="text-2xl font-bold">{projectData.project.stats.total_tasks}</div>
-                <div className="text-xs text-muted-foreground">Tổng công việc</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{projectData.project.stats.completed_tasks}</div>
-                <div className="text-xs text-muted-foreground">Hoàn thành</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{projectData.project.stats.in_progress_tasks}</div>
-                <div className="text-xs text-muted-foreground">Đang thực hiện</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">{projectData.project.stats.overdue_tasks}</div>
-                <div className="text-xs text-muted-foreground">Quá hạn</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{projectData.project.stats.overall_progress}%</div>
-                <div className="text-xs text-muted-foreground">Tiến độ chung</div>
-              </div>
+          {/* Chart Legend */}
+          <div className="mt-4 flex flex-wrap gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-blue-500 rounded"></div>
+              <span>Chưa bắt đầu</span>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-orange-500 rounded"></div>
+              <span>Đang thực hiện</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-green-500 rounded"></div>
+              <span>Hoàn thành</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 bg-red-500 rounded"></div>
+              <span>Quá hạn</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-0 border-t-2 border-dashed border-gray-400"></div>
+              <span>Phụ thuộc</span>
+            </div>
+            <div className="flex items-center gap-2 ml-4">
+              <span className="text-muted-foreground">Chế độ xem:</span>
+              <Badge variant="outline">{viewMode === "day" ? "Ngày" : viewMode === "week" ? "Tuần" : "Tháng"}</Badge>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
