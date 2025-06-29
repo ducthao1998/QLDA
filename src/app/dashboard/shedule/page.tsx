@@ -376,7 +376,7 @@ export default function SchedulePage() {
       </div>
 
       {/* Debug Info */}
-      <Card className="bg-muted/30">
+      {/* <Card className="bg-muted/30">
         <CardHeader>
           <CardTitle className="text-sm">Debug Information</CardTitle>
         </CardHeader>
@@ -387,7 +387,7 @@ export default function SchedulePage() {
           <p>Phases Count: {debugInfo.phasesCount || 0}</p>
           <p>Loading Tasks: {isLoadingTasks ? "Yes" : "No"}</p>
         </CardContent>
-      </Card>
+      </Card> */}
 
       <Card>
         <CardHeader className="pb-3">
