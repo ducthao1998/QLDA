@@ -25,7 +25,6 @@ interface Skill {
   id: number
   name: string
   field?: string
-  description?: string
 }
 
 interface UserSkillData {
@@ -51,7 +50,7 @@ function SkillFieldsManagement() {
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null)
   
   // Form states
-  const [skillForm, setSkillForm] = useState({ name: '', field: '', description: '' })
+  const [skillForm, setSkillForm] = useState({ name: '', field: '' })
 
   useEffect(() => {
     loadData()
@@ -103,8 +102,7 @@ function SkillFieldsManagement() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: skillForm.name,
-          field: skillForm.field,
-          description: skillForm.description
+          field: skillForm.field
         }),
       })
       
@@ -113,7 +111,7 @@ function SkillFieldsManagement() {
       toast.success(editingSkill ? 'Cập nhật kỹ năng thành công' : 'Thêm kỹ năng thành công')
       setIsSkillDialogOpen(false)
       setEditingSkill(null)
-      setSkillForm({ name: '', field: '', description: '' })
+      setSkillForm({ name: '', field: '' })
       loadData()
     } catch (error) {
       toast.error('Có lỗi xảy ra')
@@ -175,7 +173,7 @@ function SkillFieldsManagement() {
                   <DialogTrigger asChild>
                     <Button onClick={() => {
                       setEditingSkill(null)
-                      setSkillForm({ name: '', field: '', description: '' })
+                      setSkillForm({ name: '', field: '' })
                     }}>
                       <Plus className="mr-2 h-4 w-4" />
                       Thêm kỹ năng
@@ -206,15 +204,6 @@ function SkillFieldsManagement() {
                           placeholder="VD: Công nghệ thông tin, Xây dựng..."
                         />
                       </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="skill-desc">Mô tả</Label>
-                        <Textarea
-                          id="skill-desc"
-                          value={skillForm.description}
-                          onChange={(e) => setSkillForm({ ...skillForm, description: e.target.value })}
-                          placeholder="Mô tả chi tiết về kỹ năng này..."
-                        />
-                      </div>
                     </div>
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setIsSkillDialogOpen(false)}>
@@ -234,7 +223,6 @@ function SkillFieldsManagement() {
                     <TableRow>
                       <TableHead>Kỹ năng</TableHead>
                       <TableHead>Lĩnh vực</TableHead>
-                      <TableHead>Mô tả</TableHead>
                       <TableHead className="text-right">Thao tác</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -249,9 +237,6 @@ function SkillFieldsManagement() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {skill.description || '-'}
-                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button
@@ -262,7 +247,6 @@ function SkillFieldsManagement() {
                                 setSkillForm({
                                   name: skill.name,
                                   field: skill.field || '',
-                                  description: skill.description || '',
                                 })
                                 setIsSkillDialogOpen(true)
                               }}

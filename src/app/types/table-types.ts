@@ -61,7 +61,88 @@ export interface Project {
     full_name: string
     position: string
     org_unit: string
+  user_statistics: {
+    by_user: Array<{
+      user_id: string
+      full_name: string
+      position: string
+      org_unit: string
+      total_tasks: number
+      completed_tasks: number
+      in_progress_tasks: number
+      overdue_tasks: number
+      completion_rate: number
+      avg_task_duration: number
+      workload_score: number
+    }>
+    skills_utilization: Array<{
+      skill_name: string
+      skill_field: string
+      users_count: number
+      tasks_count: number
+      utilization_rate: number
+    }>
+    workload_distribution: Array<{
+      org_unit: string
+      total_users: number
+      total_tasks: number
+      avg_workload: number
+      completion_rate: number
+    }>
   }
+  time_statistics: {
+    monthly_trends: Array<{
+      month: string
+      completed_tasks: number
+      created_tasks: number
+      overdue_tasks: number
+      completion_rate: number
+    }>
+    weekly_productivity: Array<{
+      week: string
+      productivity_score: number
+      tasks_completed: number
+      avg_completion_time: number
+    }>
+    deadline_performance: Array<{
+      period: string
+      on_time: number
+      late: number
+      early: number
+      on_time_rate: number
+    }>
+  }
+  advanced_analytics: {
+    bottlenecks: Array<{
+      type: string
+      description: string
+      impact_score: number
+      affected_tasks: number
+      recommendations: string[]
+    }>
+    predictions: {
+      project_completion_forecast: Array<{
+        project_name: string
+        predicted_completion: string
+        confidence: number
+        risk_factors: string[]
+      }>
+      resource_needs: Array<{
+        skill_name: string
+        current_capacity: number
+        predicted_demand: number
+        gap: number
+      }>
+    }
+    kpis: {
+      efficiency_score: number
+      quality_score: number
+      resource_utilization: number
+      customer_satisfaction: number
+      innovation_index: number
+    }
+  }
+}
 }
 
 // 4. tasks
@@ -135,15 +216,22 @@ export interface Skill {
   created_at: string;
 }
 
+// 9. task_templates
+export interface TaskTemplate {
+  id: number;
+  name: string;
+  description: string | null;
+  applicable_classification: string[];
+  sequence_order: number;
+  default_duration_days: number | null;
+  created_at: string;
+}
 
-
-// ---- BẢNG MỚI ĐƯỢC THÊM VÀO ----
 // 10. task_skills (Bảng trung gian)
 export interface TaskSkill {
     task_id: string;      // PK, FK -> tasks.id
     skill_id: number;     // PK, FK -> skills.id
 }
-
 
 // 11. user_skill_matrix (VIEW mới)
 export interface UserSkillMatrixView {
@@ -158,7 +246,7 @@ export interface UserSkillMatrixView {
 }
 
 // ==========================================================
-// CÁC BẢNG PHỤ (VẪN CÓ THỂ CẦN THIẾT)
+// CÁC BẢNG PHỤ (VẦN CÓ THỂ CẦN THIẾT)
 // ==========================================================
 
 // 12. worklogs
@@ -210,21 +298,31 @@ export interface TaskHistory {
   to_val: string | null
   created_at: string
 }
-export interface TaskTemplate {
-  id: number;
-  name: string;
-  description: string | null;
-  applicable_classification: string[];
-  sequence_order: number;
-  default_duration_days: number | null;
-  // SỬA LỖI: Đã xóa `required_skill_id`
-  created_at: string;
-}
 
-// ... (các interface khác giữ nguyên)
-
-// THÊM MỚI: Interface cho bảng nối task_template_skills
+// 17. task_template_skills (Bảng trung gian)
 export interface TaskTemplateSkill {
   template_id: number; // PK, FK -> task_templates.id
   skill_id: number;    // PK, FK -> skills.id
 }
+
+// ==========================================================
+// DASHBOARD STATISTICS TYPES
+// ==========================================================
+
+export interface DashboardData {
+  overview: {
+    total_projects: number
+    active_projects: number
+    total_tasks: number
+    completed_tasks: number
+    overdue_tasks: number
+    users_count: number
+    completion_rate: number
+    on_time_rate: number
+  }
+  task_statistics: {
+    by_status: Array<{ status: string; count: number; percentage: number }>
+    by_template: Array<{ template_name: string; count: number; avg_duration: number }>
+    by_phase: Array<{ phase_name: string; count: number; completion_rate: number }>
+    by_classification: Array<{ classification: string; count: number; avg_progress: number }>
+  }}
