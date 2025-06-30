@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name, field, description } = body
+    const { name, field } = body
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Tên kỹ năng không được để trống" }, { status: 400 })
@@ -47,8 +47,7 @@ export async function POST(request: Request) {
       .from("skills")
       .insert({ 
         name: name.trim(),
-        field: field?.trim() || null,
-        description: description?.trim() || null
+        field: field?.trim() || null
       })
       .select()
       .single()
