@@ -524,7 +524,7 @@ async function getTimeStatistics(supabase: any, from: string, to: string, orgUni
 
 async function getAdvancedAnalytics(supabase: any, from: string, to: string, orgUnit: string) {
   try {
-    const bottlenecks = []
+    const bottlenecks: any[] = []
 
     // 1. Check for overloaded users
     const { data: userWorkload } = await supabase
