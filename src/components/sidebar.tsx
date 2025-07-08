@@ -1,11 +1,12 @@
 "use client"
 
+import type React from "react"
+
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
 import { createClient } from "@/lib/supabase/client"
-
+import { getUserPermissions, type UserPermissions } from "@/lib/permissions"
 import {
   Sidebar as ShadSidebar,
   SidebarContent,
@@ -18,7 +19,6 @@ import {
   SidebarMenuButton,
   useSidebar,
 } from "@/components/ui/sidebar"
-
 import {
   BarChart3Icon,
   CalendarIcon,
@@ -28,7 +28,6 @@ import {
   LayoutIcon,
   Settings2Icon,
   UsersIcon,
-  // user-menu icons
   BadgeCheck,
   Bell,
   ChevronsUpDown,
@@ -36,7 +35,6 @@ import {
   LogOut,
   Sparkles,
 } from "lucide-react"
-
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,30 +52,76 @@ import { ShadLogo } from "@/utils/logo"
 /*                                DATA SECTION                                */
 /* -------------------------------------------------------------------------- */
 
-const navItems = [
-  { title: "Tổng Quan",     href: "/dashboard",          icon: HomeIcon },
-  { title: "Dự Án",         href: "/dashboard/projects", icon: LayoutIcon },
-  { title: "Nhiệm Vụ",      href: "/dashboard/tasks",    icon: ClipboardListIcon },
-  { title: "Nhóm",          href: "/dashboard/team",     icon: UsersIcon },
-  { title: "Ma Trận RACI",  href: "/dashboard/raci",     icon: FileTextIcon },
-  { title: "Biểu Đồ Gantt", href: "/dashboard/gantt",    icon: BarChart3Icon },
-  { title: "Lịch",          href: "/dashboard/shedule", icon: CalendarIcon },
-  { title: "Cài Đặt",       href: "/dashboard/settings", icon: Settings2Icon },
+interface NavItem {
+  title: string
+  href: string
+  icon: React.ComponentType<{ className?: string }>
+  requiresPermission?: keyof UserPermissions
+}
+
+const navItems: NavItem[] = [
+  { title: "Tổng Quan", href: "/dashboard", icon: HomeIcon },
+  { title: "Dự Án", href: "/dashboard/projects", icon: LayoutIcon },
+  {
+    title: "Nhiệm Vụ",
+    href: "/dashboard/tasks",
+    icon: ClipboardListIcon,
+    requiresPermission: "canViewTasks",
+  },
+  {
+    title: "Nhóm",
+    href: "/dashboard/team",
+    icon: UsersIcon,
+    requiresPermission: "canViewTeam",
+  },
+  { title: "Ma Trận RACI", href: "/dashboard/raci", icon: FileTextIcon },
+  {
+    title: "Biểu Đồ Gantt",
+    href: "/dashboard/gantt",
+    icon: BarChart3Icon,
+    requiresPermission: "canViewGantt",
+  },
+  { title: "Lịch", href: "/dashboard/schedule", icon: CalendarIcon },
+  { title: "Cài Đặt", href: "/dashboard/settings", icon: Settings2Icon },
 ]
 
-const currentUser = {
-  name: "Nguyễn Văn A",
-  email: "nva@example.com",
-  avatar: "/avatars/user.jpg",
+interface CurrentUser {
+  name: string
+  email: string
+  avatar: string
+  position: string
 }
 
 /* -------------------------------------------------------------------------- */
 /*                                NAV USER UI                                 */
 /* -------------------------------------------------------------------------- */
-
-function NavUser() {
+function NavUser({ currentUser }: { currentUser: CurrentUser | null }) {
   const { isMobile } = useSidebar()
-  const { name, email, avatar } = currentUser
+  const supabase = createClient()
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    window.location.href = "/login"
+  }
+
+  if (!currentUser) {
+    return (
+      <SidebarMenu>
+        <SidebarMenuItem>
+          <SidebarMenuButton size="lg" disabled>
+            <Avatar className="h-8 w-8 rounded-lg">
+              <AvatarFallback className="rounded-lg">?</AvatarFallback>
+            </Avatar>
+            <div className="grid flex-1 truncate text-left text-sm leading-tight">
+              <span className="truncate font-semibold">Đang tải...</span>
+            </div>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+    )
+  }
+
+  const { name, email, avatar, position } = currentUser
 
   return (
     <SidebarMenu>
@@ -89,8 +133,8 @@ function NavUser() {
               className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={avatar} alt={name} />
-                <AvatarFallback className="rounded-lg">NV</AvatarFallback>
+                <AvatarImage src={avatar || "/placeholder.svg"} alt={name} />
+                <AvatarFallback className="rounded-lg">{name?.charAt(0)?.toUpperCase() || "U"}</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 truncate text-left text-sm leading-tight">
                 <span className="truncate font-semibold">{name}</span>
@@ -99,7 +143,6 @@ function NavUser() {
               <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
           </DropdownMenuTrigger>
-
           <DropdownMenuContent
             className="min-w-56 rounded-lg"
             side={isMobile ? "bottom" : "right"}
@@ -109,27 +152,24 @@ function NavUser() {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={avatar} alt={name} />
-                  <AvatarFallback className="rounded-lg">NV</AvatarFallback>
+                  <AvatarImage src={avatar || "/placeholder.svg"} alt={name} />
+                  <AvatarFallback className="rounded-lg">{name?.charAt(0)?.toUpperCase() || "U"}</AvatarFallback>
                 </Avatar>
                 <div className="grid flex-1 truncate text-left text-sm leading-tight">
                   <span className="truncate font-semibold">{name}</span>
                   <span className="truncate text-xs">{email}</span>
+                  <span className="truncate text-xs text-muted-foreground">{position}</span>
                 </div>
               </div>
             </DropdownMenuLabel>
-
             <DropdownMenuSeparator />
-
             <DropdownMenuGroup>
               <DropdownMenuItem>
                 <Sparkles />
                 <span>Nâng cấp Pro</span>
               </DropdownMenuItem>
             </DropdownMenuGroup>
-
             <DropdownMenuSeparator />
-
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
                 <Link href="/settings/account">
@@ -147,10 +187,8 @@ function NavUser() {
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
-
             <DropdownMenuSeparator />
-
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={handleLogout}>
               <LogOut /> <span>Đăng xuất</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -163,72 +201,119 @@ function NavUser() {
 /* -------------------------------------------------------------------------- */
 /*                              MAIN SIDEBAR UI                               */
 /* -------------------------------------------------------------------------- */
-
-export function Sidebar(
-  props: React.ComponentProps<typeof ShadSidebar>
-) {
+export function Sidebar(props: React.ComponentProps<typeof ShadSidebar>) {
   const pathname = usePathname()
-  const [isManager, setIsManager] = useState(false)
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [userPermissions, setUserPermissions] = useState<UserPermissions | null>(null)
+  const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   useEffect(() => {
-    const checkUserRole = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('position')
-          .eq('id', user.id)
-          .single()
-        
-        setIsManager(userData?.position?.toLowerCase() === 'quản lý')
+    const fetchUserData = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (user) {
+          const { data: userData } = await supabase
+            .from("users")
+            .select("full_name, position, org_unit")
+            .eq("id", user.id)
+            .single()
+
+          if (userData) {
+            const permissions = getUserPermissions(userData.position || "")
+
+            setCurrentUser({
+              name: userData.full_name || "Người dùng",
+              email: user.email || "",
+              avatar: "/avatars/user.jpg", // Default avatar
+              position: userData.position || "Chưa xác định",
+            })
+
+            setUserPermissions(permissions)
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error)
+      } finally {
+        setLoading(false)
       }
     }
 
-    checkUserRole()
+    fetchUserData()
   }, [])
+
+  // Filter nav items based on permissions
+  const filteredNavItems = navItems.filter((item) => {
+    if (!item.requiresPermission || !userPermissions) {
+      return true
+    }
+    return userPermissions[item.requiresPermission] === true
+  })
+
+  if (loading) {
+    return (
+      <ShadSidebar collapsible="icon" variant="floating" {...props}>
+        <SidebarHeader className="flex items-center gap-2 px-4 py-3">
+          <ShadLogo className="h-5 w-5 shrink-0 text-slate-900 dark:text-slate-100" />
+          <span className="text-base font-semibold sidebar:hidden">HTQL Dự Án</span>
+        </SidebarHeader>
+        <Separator />
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarMenu>
+              {/* Loading skeleton */}
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SidebarMenuItem key={i}>
+                  <SidebarMenuButton disabled>
+                    <div className="h-5 w-5 bg-muted rounded animate-pulse" />
+                    <div className="h-4 w-20 bg-muted rounded animate-pulse" />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarRail />
+      </ShadSidebar>
+    )
+  }
 
   return (
     <ShadSidebar collapsible="icon" variant="floating" {...props}>
       {/* header */}
       <SidebarHeader className="flex items-center gap-2 px-4 py-3">
         <ShadLogo className="h-5 w-5 shrink-0 text-slate-900 dark:text-slate-100" />
-        <span className="text-base font-semibold sidebar:hidden">
-          HTQL Dự Án
-        </span>
+        <span className="text-base font-semibold sidebar:hidden">HTQL Dự Án</span>
       </SidebarHeader>
       <Separator />
+
       {/* menu */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {navItems.map(({ title, href, icon: Icon }) => {
-              if (href === "/dashboard/team" && !isManager) {
-                return null
-              }
-              return (
-                <SidebarMenuItem key={href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === href}
-                    tooltip={title}
-                  >
-                    <Link href={href}>
-                      <Icon className="h-5 w-5" />
-                      <span>{title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )
-            })}
+            {filteredNavItems.map(({ title, href, icon: Icon }) => (
+              <SidebarMenuItem key={href}>
+                <SidebarMenuButton asChild isActive={pathname === href} tooltip={title}>
+                  <Link href={href}>
+                    <Icon className="h-5 w-5" />
+                    <span>{title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <Separator />   
+
+      <Separator />
+
       {/* avatar + dropdown */}
-      {/* <SidebarFooter>
-        <NavUser />
-      </SidebarFooter> */}
+      <SidebarFooter>
+        <NavUser currentUser={currentUser} />
+      </SidebarFooter>
 
       {/* rail thu nhỏ */}
       <SidebarRail />

@@ -1,8 +1,7 @@
-'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { format } from 'date-fns'
-import { vi } from 'date-fns/locale'
+"use client"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import {
   PlusIcon,
   ChevronRightIcon,
@@ -11,27 +10,14 @@ import {
   ListTodoIcon,
   Pencil,
   Trash2,
-} from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import { Label } from '@/components/ui/label'
-import { toast } from 'sonner'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Progress } from '@/components/ui/progress'
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { toast } from "sonner"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,13 +27,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import { Skeleton } from '../ui/skeleton'
+} from "@/components/ui/alert-dialog"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { Skeleton } from "../ui/skeleton"
+import type { UserPermissions } from "@/lib/permissions"
 
 interface ProjectPhase {
   id: string
@@ -63,10 +46,7 @@ interface ProjectPhasesProps {
   projectId: string
   phases: ProjectPhase[]
   onRefresh: () => Promise<void>
-  userPermissions: {
-    canEdit: boolean
-    canDelete: boolean
-  }
+  userPermissions: UserPermissions
 }
 
 interface PhaseProgress {
@@ -76,33 +56,25 @@ interface PhaseProgress {
 }
 
 const statusLabels: Record<string, string> = {
-  planning: 'Lập kế hoạch',
-  in_progress: 'Đang thực hiện',
-  on_hold: 'Tạm dừng',
-  completed: 'Hoàn thành',
+  planning: "Lập kế hoạch",
+  in_progress: "Đang thực hiện",
+  on_hold: "Tạm dừng",
+  completed: "Hoàn thành",
 }
 
-export function ProjectPhases({
-  projectId,
-  phases,
-  onRefresh,
-  userPermissions,
-}: ProjectPhasesProps) {
+export function ProjectPhases({ projectId, phases, onRefresh, userPermissions }: ProjectPhasesProps) {
   const router = useRouter()
   const [isAddingPhase, setIsAddingPhase] = useState(false)
   const [isEditingPhase, setIsEditingPhase] = useState(false)
   const [editingPhase, setEditingPhase] = useState<ProjectPhase | null>(null)
   const [phaseToDelete, setPhaseToDelete] = useState<string | null>(null)
-  const [progressMap, setProgressMap] = useState<
-    Record<string, PhaseProgress | null>
-  >({})
+  const [progressMap, setProgressMap] = useState<Record<string, PhaseProgress | null>>({})
   const [isLoadingProgress, setIsLoadingProgress] = useState(true)
   const [openPhases, setOpenPhases] = useState<Record<string, boolean>>({})
   const [newPhase, setNewPhase] = useState({
-    name: '',
-    description: '',
-    order_no:
-      phases.length > 0 ? Math.max(...phases.map(p => p.order_no)) + 1 : 1,
+    name: "",
+    description: "",
+    order_no: phases.length > 0 ? Math.max(...phases.map((p) => p.order_no)) + 1 : 1,
   })
 
   useEffect(() => {
@@ -121,10 +93,8 @@ export function ProjectPhases({
         return
       }
       setIsLoadingProgress(true)
-      const progressPromises = phases.map(phase =>
-        fetch(`/api/projects/${projectId}/phases/${phase.id}/progress`).then(
-          res => (res.ok ? res.json() : null),
-        ),
+      const progressPromises = phases.map((phase) =>
+        fetch(`/api/projects/${projectId}/phases/${phase.id}/progress`).then((res) => (res.ok ? res.json() : null)),
       )
       const results = await Promise.all(progressPromises)
       const newProgressMap: Record<string, PhaseProgress | null> = {}
@@ -141,59 +111,53 @@ export function ProjectPhases({
   const handleAddPhase = async () => {
     try {
       const response = await fetch(`/api/projects/${projectId}/phases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newPhase),
       })
-      if (!response.ok) throw new Error('Failed to add phase')
-      toast.success('Thêm giai đoạn thành công')
+      if (!response.ok) throw new Error("Failed to add phase")
+      toast.success("Thêm giai đoạn thành công")
       setIsAddingPhase(false)
-      setNewPhase({ name: '', description: '', order_no: phases.length + 2 })
+      setNewPhase({ name: "", description: "", order_no: phases.length + 2 })
       onRefresh()
     } catch (error) {
-      toast.error('Lỗi', { description: 'Không thể thêm giai đoạn mới' })
+      toast.error("Lỗi", { description: "Không thể thêm giai đoạn mới" })
     }
   }
 
   const handleEditPhase = async () => {
     if (!editingPhase) return
     try {
-      const response = await fetch(
-        `/api/projects/${projectId}/phases/${editingPhase.id}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: editingPhase.name,
-            description: editingPhase.description,
-            order_no: editingPhase.order_no,
-          }),
-        },
-      )
-      if (!response.ok) throw new Error('Failed to update phase')
-      toast.success('Cập nhật giai đoạn thành công')
+      const response = await fetch(`/api/projects/${projectId}/phases/${editingPhase.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editingPhase.name,
+          description: editingPhase.description,
+          order_no: editingPhase.order_no,
+        }),
+      })
+      if (!response.ok) throw new Error("Failed to update phase")
+      toast.success("Cập nhật giai đoạn thành công")
       setIsEditingPhase(false)
       setEditingPhase(null)
       onRefresh()
     } catch (error) {
-      toast.error('Lỗi', { description: 'Không thể cập nhật giai đoạn' })
+      toast.error("Lỗi", { description: "Không thể cập nhật giai đoạn" })
     }
   }
 
   const handleDeletePhase = async () => {
     if (!phaseToDelete) return
     try {
-      const response = await fetch(
-        `/api/projects/${projectId}/phases/${phaseToDelete}`,
-        {
-          method: 'DELETE',
-        },
-      )
-      if (!response.ok) throw new Error('Failed to delete phase')
-      toast.success('Xóa giai đoạn thành công')
+      const response = await fetch(`/api/projects/${projectId}/phases/${phaseToDelete}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) throw new Error("Failed to delete phase")
+      toast.success("Xóa giai đoạn thành công")
       onRefresh()
     } catch (error) {
-      toast.error('Lỗi', { description: 'Không thể xóa giai đoạn' })
+      toast.error("Lỗi", { description: "Không thể xóa giai đoạn" })
     } finally {
       setPhaseToDelete(null)
     }
@@ -205,11 +169,11 @@ export function ProjectPhases({
   }
 
   const navigateToTasks = (phaseId: string) => {
-    router.push(`/dashboard/projects/${projectId}/tasks?phaseId=${phaseId}`)
+    router.push(`/dashboard/tasks?projectId=${projectId}&phaseId=${phaseId}`)
   }
 
   const togglePhase = (phaseId: string) => {
-    setOpenPhases(prev => ({
+    setOpenPhases((prev) => ({
       ...prev,
       [phaseId]: !prev[phaseId],
     }))
@@ -219,7 +183,7 @@ export function ProjectPhases({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Các giai đoạn dự án</h2>
-        {userPermissions.canEdit && (
+        {userPermissions.canManagePhases && (
           <Dialog open={isAddingPhase} onOpenChange={setIsAddingPhase}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
@@ -237,9 +201,7 @@ export function ProjectPhases({
                   <Input
                     id="name"
                     value={newPhase.name}
-                    onChange={e =>
-                      setNewPhase({ ...newPhase, name: e.target.value })
-                    }
+                    onChange={(e) => setNewPhase({ ...newPhase, name: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -247,9 +209,7 @@ export function ProjectPhases({
                   <Textarea
                     id="description"
                     value={newPhase.description}
-                    onChange={e =>
-                      setNewPhase({ ...newPhase, description: e.target.value })
-                    }
+                    onChange={(e) => setNewPhase({ ...newPhase, description: e.target.value })}
                   />
                 </div>
                 <div className="space-y-2">
@@ -259,7 +219,7 @@ export function ProjectPhases({
                     type="number"
                     min="1"
                     value={newPhase.order_no}
-                    onChange={e =>
+                    onChange={(e) =>
                       setNewPhase({
                         ...newPhase,
                         order_no: Number.parseInt(e.target.value),
@@ -282,31 +242,20 @@ export function ProjectPhases({
       {phases.length === 0 ? (
         <div className="text-center py-10 border-2 border-dashed rounded-lg bg-muted/50">
           <h3 className="text-lg font-medium">Chưa có giai đoạn nào</h3>
-          <p className="text-sm text-muted-foreground mt-2">
-            Hãy thêm giai đoạn để bắt đầu quản lý dự án.
-          </p>
+          <p className="text-sm text-muted-foreground mt-2">Hãy thêm giai đoạn để bắt đầu quản lý dự án.</p>
         </div>
       ) : (
         <div className="border rounded-md divide-y">
-          {phases.map(phase => {
+          {phases.map((phase) => {
             const progressData = progressMap[phase.id]
             const isOpen = openPhases[phase.id]
-
             return (
-              <Collapsible
-                key={phase.id}
-                open={isOpen}
-                onOpenChange={() => togglePhase(phase.id)}
-                className="w-full"
-              >
+              <Collapsible key={phase.id} open={isOpen} onOpenChange={() => togglePhase(phase.id)} className="w-full">
                 <CollapsibleTrigger asChild>
                   <div className="flex items-center w-full text-left px-4 py-3 bg-background hover:bg-muted/50 transition-colors cursor-pointer">
                     <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted mr-4 flex-shrink-0">
-                      <span className="text-sm font-medium">
-                        {phase.order_no}
-                      </span>
+                      <span className="text-sm font-medium">{phase.order_no}</span>
                     </div>
-
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium truncate">{phase.name}</h3>
@@ -321,8 +270,7 @@ export function ProjectPhases({
                           <div className="flex items-center">
                             <ListTodoIcon className="mr-1 h-3 w-3" />
                             <span>
-                              {progressData.completedTasks}/
-                              {progressData.totalTasks} việc
+                              {progressData.completedTasks}/{progressData.totalTasks} việc
                             </span>
                           </div>
                           <div className="flex items-center">
@@ -331,30 +279,24 @@ export function ProjectPhases({
                         </div>
                       ) : null}
                     </div>
-
                     <div className="flex items-center gap-2 ml-2">
                       <DropdownMenu>
-                        <DropdownMenuTrigger
-                          asChild
-                          onClick={e => e.stopPropagation()}
-                        >
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                           <Button variant="ghost" size="icon" className="h-8 w-8">
                             <MoreHorizontalIcon className="h-4 w-4" />
                             <span className="sr-only">Tùy chọn</span>
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {userPermissions.canEdit && (
-                            <DropdownMenuItem
-                              onClick={() => handleEditClick(phase)}
-                            >
+                          {userPermissions.canManagePhases && (
+                            <DropdownMenuItem onClick={() => handleEditClick(phase)}>
                               <Pencil className="h-4 w-4 mr-2" />
                               Chỉnh sửa
                             </DropdownMenuItem>
                           )}
-                          {userPermissions.canDelete && (
+                          {userPermissions.canManagePhases && (
                             <DropdownMenuItem
-                              onSelect={e => e.preventDefault()}
+                              onSelect={(e) => e.preventDefault()}
                               className="text-destructive"
                               onClick={() => setPhaseToDelete(phase.id)}
                             >
@@ -366,7 +308,7 @@ export function ProjectPhases({
                       </DropdownMenu>
                       <ChevronDownIcon
                         className={`h-5 w-5 text-muted-foreground transition-transform ${
-                          isOpen ? 'transform rotate-180' : ''
+                          isOpen ? "transform rotate-180" : ""
                         }`}
                       />
                     </div>
@@ -375,12 +317,12 @@ export function ProjectPhases({
                 <CollapsibleContent>
                   <div className="px-4 py-4 pl-16 bg-muted/20 border-t">
                     <p className="text-sm text-muted-foreground mb-4">
-                      {phase.description || 'Không có mô tả chi tiết.'}
+                      {phase.description || "Không có mô tả chi tiết."}
                     </p>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-8 text-xs"
+                      className="h-8 text-xs bg-transparent"
                       onClick={() => navigateToTasks(phase.id)}
                     >
                       Xem danh sách công việc
@@ -405,24 +347,16 @@ export function ProjectPhases({
               <Label htmlFor="edit-name">Tên giai đoạn</Label>
               <Input
                 id="edit-name"
-                value={editingPhase?.name || ''}
-                onChange={e =>
-                  setEditingPhase(prev =>
-                    prev ? { ...prev, name: e.target.value } : null,
-                  )
-                }
+                value={editingPhase?.name || ""}
+                onChange={(e) => setEditingPhase((prev) => (prev ? { ...prev, name: e.target.value } : null))}
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-description">Mô tả</Label>
               <Textarea
                 id="edit-description"
-                value={editingPhase?.description || ''}
-                onChange={e =>
-                  setEditingPhase(prev =>
-                    prev ? { ...prev, description: e.target.value } : null,
-                  )
-                }
+                value={editingPhase?.description || ""}
+                onChange={(e) => setEditingPhase((prev) => (prev ? { ...prev, description: e.target.value } : null))}
               />
             </div>
             <div className="space-y-2">
@@ -432,12 +366,8 @@ export function ProjectPhases({
                 type="number"
                 min="1"
                 value={editingPhase?.order_no || 1}
-                onChange={e =>
-                  setEditingPhase(prev =>
-                    prev
-                      ? { ...prev, order_no: Number.parseInt(e.target.value) }
-                      : null,
-                  )
+                onChange={(e) =>
+                  setEditingPhase((prev) => (prev ? { ...prev, order_no: Number.parseInt(e.target.value) } : null))
                 }
               />
             </div>
@@ -452,16 +382,12 @@ export function ProjectPhases({
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        open={!!phaseToDelete}
-        onOpenChange={() => setPhaseToDelete(null)}
-      >
+      <AlertDialog open={!!phaseToDelete} onOpenChange={() => setPhaseToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Xóa giai đoạn</AlertDialogTitle>
             <AlertDialogDescription>
-              Bạn có chắc chắn muốn xóa giai đoạn này? Hành động này không thể
-              hoàn tác.
+              Bạn có chắc chắn muốn xóa giai đoạn này? Hành động này không thể hoàn tác.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -473,3 +399,5 @@ export function ProjectPhases({
     </div>
   )
 }
+
+export default ProjectPhases

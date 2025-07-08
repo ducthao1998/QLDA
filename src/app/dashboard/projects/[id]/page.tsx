@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server"
 import { notFound, redirect } from "next/navigation"
-import { ProjectDetails } from "@/components/project/project-details" 
+import { ProjectDetails } from "@/components/project/project-details"
+import { ProjectBoard } from "@/components/project/project-board"
+import { getUserPermissions } from "@/lib/permissions"
 
 export default async function ProjectPage({ params }: { params: { id: string } }) {
   const supabase = await createClient()
@@ -8,7 +10,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
   // Lấy thông tin dự án
   const { data: project, error: projectError } = await supabase
-    .from('projects')
+    .from("projects")
     .select(`
       *,
       users!created_by (
@@ -17,7 +19,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
         org_unit
       )
     `)
-    .eq('id', id)
+    .eq("id", id)
     .single()
 
   if (projectError || !project) {
@@ -25,42 +27,57 @@ export default async function ProjectPage({ params }: { params: { id: string } }
   }
 
   // Check if user has access to this project
-  const { data: { user: authUser } } = await supabase.auth.getUser()
+  const {
+    data: { user: authUser },
+  } = await supabase.auth.getUser()
   if (!authUser) {
-    redirect('/login')
+    redirect("/login")
   }
 
   const { data: currentUser } = await supabase
-    .from('users')
-    .select('org_unit, position')
-    .eq('id', authUser.id)
+    .from("users")
+    .select("id, email, phone_number, created_at, updated_at, org_unit, position, full_name")
+    .eq("id", authUser.id)
     .single()
 
-  // if (!currentUser || currentUser.org_unit !== project.users.org_unit) {
-  //   redirect('/dashboard/projects')
-  // }
+  if (!currentUser) {
+    redirect("/dashboard/projects")
+  }
+
+  // Lấy permissions dựa trên position
+  const userPermissions = getUserPermissions(currentUser.position)
 
   // Lấy danh sách phase của dự án
   const { data: phases, error: phasesError } = await supabase
-    .from('project_phases')
-    .select('*')
-    .eq('project_id', id)
-    .order('created_at', { ascending: true })
+    .from("project_phases")
+    .select("*")
+    .eq("project_id", id)
+    .order("order_no", { ascending: true })
 
   if (phasesError) {
-    console.error('Error fetching phases:', phasesError)
+    console.error("Error fetching phases:", phasesError)
   }
 
-  const userPermissions = {
-    canEdit: currentUser.position.toLowerCase() === "quản lý",
-    canDelete: currentUser.position.toLowerCase() === "quản lý"
+  // Render component khác nhau dựa trên viewMode
+  if (userPermissions.viewMode === "board") {
+    return (
+      <ProjectBoard
+        projectId={id}
+        initialProject={project}
+        initialPhases={phases || []}
+        userPermissions={userPermissions}
+        currentUser={currentUser}
+      />
+    )
   }
 
-  return <ProjectDetails 
-    projectId={id} 
-    initialProject={project} 
-    initialPhases={phases || []} 
-    userPermissions={userPermissions}
-  />
+  // Render giao diện admin cho quản lý
+  return (
+    <ProjectDetails
+      projectId={id}
+      initialProject={project}
+      initialPhases={phases || []}
+      userPermissions={userPermissions}
+    />
+  )
 }
-
