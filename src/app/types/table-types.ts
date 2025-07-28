@@ -37,7 +37,6 @@ export interface User {
   email: string
   phone_number: string | null
   created_at: string
-  updated_at: string
 }
 
 // 2. external_orgs
@@ -54,13 +53,14 @@ export interface Project {
   description: string
   status: string
   start_date: string
-  end_date: string
   classification: ProjectClassification | null
   project_field: string | null
+  total_investment?: string | null
   users?: {
     full_name: string
     position: string
     org_unit: string
+  }
   user_statistics: {
     by_user: Array<{
       user_id: string
@@ -143,24 +143,18 @@ export interface Project {
     }
   }
 }
-}
 
 // 4. tasks
 export interface Task {
    id: number
    project_id: string  // FK -> projects.id
    name: string
-  status: TaskStatus
-   start_date: string
-   end_date: string
-   phase_id: string      // FK -> project_phases.id
+   status: TaskStatus
    note?: string
-   unit_in_charge?: string
-   legal_basis?: string
-   max_retries?: number
+   duration_days?: number
    template_id?: number | null; // FK -> task_templates.id
-    // KHÔNG cần thêm skill_id ở đây. Mối quan hệ được xử lý qua bảng task_skills.
-  }
+   // KHÔNG cần thêm skill_id ở đây. Mối quan hệ được xử lý qua bảng task_skills.
+}
 
 // 5. task_dependencies
 export interface TaskDependency {
@@ -222,9 +216,9 @@ export interface TaskTemplate {
   name: string;
   description: string | null;
   applicable_classification: string[];
-  sequence_order: number;
   default_duration_days: number | null;
   created_at: string;
+  sequence_order?: number; // Added for sorting templates
 }
 
 // 10. task_skills (Bảng trung gian)
@@ -326,3 +320,9 @@ export interface DashboardData {
     by_phase: Array<{ phase_name: string; count: number; completion_rate: number }>
     by_classification: Array<{ classification: string; count: number; avg_progress: number }>
   }}
+
+  export interface TaskTemplateDependency {
+    id: number;                      // serial PK (auto)
+    template_id: number;             // FK -> task_templates.id (Công việc này)
+    depends_on_template_id: number;  // FK -> task_templates.id (...phụ thuộc vào công việc mẫu này)
+  }

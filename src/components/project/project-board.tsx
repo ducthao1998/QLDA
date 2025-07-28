@@ -50,10 +50,8 @@ export function ProjectBoard({
   currentUser,
 }: ProjectBoardProps) {
   const [tasks, setTasks] = useState<TaskWithDetails[]>([])
-  const [phases, setPhases] = useState<ProjectPhase[]>(initialPhases)
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedPhase, setSelectedPhase] = useState<string>("all")
   const [selectedAssignee, setSelectedAssignee] = useState<string>("all")
   const [selectedTask, setSelectedTask] = useState<TaskWithDetails | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -66,20 +64,14 @@ export function ProjectBoard({
     try {
       setLoading(true)
 
-      // Fetch tasks và phases song song
-      const [tasksRes, phasesRes] = await Promise.all([
-        fetch(`/api/projects/${projectId}/tasks`),
-        fetch(`/api/projects/${projectId}/phases`),
-      ])
+      // Fetch tasks only (no phases needed)
+      const tasksRes = await fetch(`/api/projects/${projectId}/tasks`)
 
-      if (!tasksRes.ok || !phasesRes.ok) {
+      if (!tasksRes.ok) {
         throw new Error("Failed to fetch data")
       }
 
-      const [tasksData, phasesData] = await Promise.all([tasksRes.json(), phasesRes.json()])
-
-      const phasesArray = phasesData.phases || []
-      setPhases(phasesArray)
+      const tasksData = await tasksRes.json()
 
       // Fetch RACI data cho từng task để lấy người responsible
       const tasksWithDetails = await Promise.all(
@@ -90,24 +82,19 @@ export function ProjectBoard({
               const raciData = await raciRes.json()
               const responsibleUser = raciData.raci?.find((r: TaskRaci) => r.role === "R")
 
-              const taskPhase = phasesArray.find((p: ProjectPhase) => p.id === task.phase_id)
-
               return {
                 ...task,
-                project_phases: taskPhase,
                 responsible_user: responsibleUser?.users,
               }
             }
             return {
               ...task,
-              project_phases: phasesArray.find((p: ProjectPhase) => p.id === task.phase_id),
               responsible_user: null,
             }
           } catch (error) {
             console.error(`Error fetching RACI for task ${task.id}:`, error)
             return {
               ...task,
-              project_phases: phasesArray.find((p: ProjectPhase) => p.id === task.phase_id),
               responsible_user: null,
             }
           }
@@ -163,21 +150,21 @@ export function ProjectBoard({
     const matchesSearch =
       task.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       task.responsible_user?.full_name?.toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesPhase = selectedPhase === "all" || task.phase_id === selectedPhase
     const matchesAssignee =
       selectedAssignee === "all" ||
       (selectedAssignee === "me" && task.responsible_user?.full_name === currentUser.full_name) ||
       task.responsible_user?.full_name === selectedAssignee
 
-    return matchesSearch && matchesPhase && matchesAssignee
+    return matchesSearch && matchesAssignee
   })
 
   const getTasksByStatus = (status: string) => {
     return filteredTasks.filter((task) => task.status === status)
   }
 
+  // Remove overdue check since we no longer have end_date
   const isOverdue = (task: TaskWithDetails) => {
-    return task.end_date && new Date(task.end_date) < new Date() && task.status !== "done"
+    return false
   }
 
   if (loading) {
@@ -216,20 +203,6 @@ export function ProjectBoard({
             className="pl-10"
           />
         </div>
-
-        <Select value={selectedPhase} onValueChange={setSelectedPhase}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Chọn giai đoạn" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Tất cả giai đoạn</SelectItem>
-            {phases.map((phase) => (
-              <SelectItem key={phase.id} value={phase.id}>
-                {phase.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
         <Select value={selectedAssignee} onValueChange={setSelectedAssignee}>
           <SelectTrigger className="w-48">
@@ -298,18 +271,6 @@ export function ProjectBoard({
                                 </DropdownMenu>
                               </div>
 
-                              {/* Phase */}
-                              {task.project_phases && (
-                                <Badge variant="outline" className="text-xs">
-                                  {task.project_phases.name}
-                                </Badge>
-                              )}
-
-                              {/* Unit in charge */}
-                              {task.unit_in_charge && (
-                                <div className="text-xs text-muted-foreground">Đơn vị: {task.unit_in_charge}</div>
-                              )}
-
                               {/* Assignee */}
                               <div className="flex items-center gap-2">
                                 <Avatar className="h-6 w-6">
@@ -322,22 +283,12 @@ export function ProjectBoard({
                                 </span>
                               </div>
 
-                              {/* Dates */}
-                              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                  {isOverdue(task) ? (
-                                    <AlertCircleIcon className="h-3 w-3 text-red-500" />
-                                  ) : (
-                                    <CalendarIcon className="h-3 w-3" />
-                                  )}
-                                  {task.end_date && format(new Date(task.end_date), "dd/MM", { locale: vi })}
+                              {/* Duration */}
+                              {task.duration_days && (
+                                <div className="text-xs text-muted-foreground">
+                                  Thời gian: {task.duration_days} ngày
                                 </div>
-                                {task.max_retries && (
-                                  <Badge variant="secondary" className="text-xs">
-                                    Max: {task.max_retries}
-                                  </Badge>
-                                )}
-                              </div>
+                              )}
                             </CardContent>
                           </Card>
                         )}
@@ -367,7 +318,6 @@ export function ProjectBoard({
       {showCreateModal && (
         <CreateTaskModal
           projectId={projectId}
-          phases={phases}
           open={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onSuccess={fetchTasks}

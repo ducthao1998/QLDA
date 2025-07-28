@@ -17,45 +17,45 @@ export function getUserPermissions(position: string): UserPermissions {
   console.log("getUserPermissions - Input position:", position)
   console.log("getUserPermissions - Normalized position:", normalizedPosition)
 
-  switch (normalizedPosition) {
-    case "quản lý":
-      return {
-        canViewGantt: true,
-        canViewTasks: true,
-        canViewTeam: true,
-        canEditProject: true,
-        canDeleteProject: true,
-        canManagePhases: true,
-        canAssignTasks: true,
-        viewMode: "admin",
-      }
+  // Handle different variations of position names
+  if (normalizedPosition.includes("quản lý") || normalizedPosition === "quản lý") {
+    return {
+      canViewGantt: true,
+      canViewTasks: true,
+      canViewTeam: true,
+      canEditProject: true,
+      canDeleteProject: true,
+      canManagePhases: true,
+      canAssignTasks: true,
+      viewMode: "admin",
+    }
+  }
 
-    case "chỉ huy":
-    case "cán bộ":
-      return {
-        canViewGantt: false,
-        canViewTasks: false,
-        canViewTeam: false,
-        canEditProject: false,
-        canDeleteProject: false,
-        canManagePhases: false,
-        canAssignTasks: true,
-        viewMode: "board",
-      }
+  if (normalizedPosition.includes("chỉ huy") || normalizedPosition === "chỉ huy" ||
+      normalizedPosition.includes("cán bộ") || normalizedPosition === "cán bộ") {
+    return {
+      canViewGantt: false,
+      canViewTasks: true,
+      canViewTeam: true,
+      canEditProject: false,
+      canDeleteProject: false,
+      canManagePhases: false,
+      canAssignTasks: true,
+      viewMode: "board",
+    }
+  }
 
-    default:
-      console.warn("getUserPermissions - Unknown position, using default permissions:", position)
-      // Default permissions for unknown positions
-      return {
-        canViewGantt: false,
-        canViewTasks: false,
-        canViewTeam: false,
-        canEditProject: false,
-        canDeleteProject: false,
-        canManagePhases: false,
-        canAssignTasks: true,
-        viewMode: "board", // Default to board view instead of blocking
-      }
+  console.warn("getUserPermissions - Unknown position, using default permissions:", position)
+  // Default permissions for unknown positions - give board access
+  return {
+    canViewGantt: false,
+    canViewTasks: true,
+    canViewTeam: true,
+    canEditProject: false,
+    canDeleteProject: false,
+    canManagePhases: false,
+    canAssignTasks: true,
+    viewMode: "board",
   }
 }
 

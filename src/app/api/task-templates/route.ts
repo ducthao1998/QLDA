@@ -9,6 +9,7 @@ const taskTemplateSchema = z.object({
   sequence_order: z.number().int().positive("Thứ tự phải là số nguyên dương"),
   default_duration_days: z.number().int().min(0).optional().nullable(),
   skill_ids: z.array(z.number()).optional(),
+  dependency_template_ids: z.array(z.number()).optional(),
 })
 
 export async function GET(request: Request) {
@@ -22,7 +23,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { data, error } = await supabase
+    // Get all task templates first
+    const { data: templates, error: templatesError } = await supabase
       .from("task_templates")
       .select(`
         *,
@@ -33,12 +35,68 @@ export async function GET(request: Request) {
       `)
       .order("sequence_order", { ascending: true })
 
-    if (error) {
-      console.error("Error fetching task templates:", error)
+    if (templatesError) {
+      console.error("Error fetching task templates:", templatesError)
       return NextResponse.json({ error: "Failed to fetch task templates" }, { status: 500 })
     }
 
-    return NextResponse.json({ data: data || [] })
+    if (!templates || templates.length === 0) {
+      return NextResponse.json({ data: [] })
+    }
+
+    // Get all dependencies in one query
+    const { data: dependencies, error: depsError } = await supabase
+      .from("task_template_dependencies")
+      .select(`
+        template_id,
+        depends_on_template_id,
+        depends_on_template:task_templates!task_template_dependencies_depends_on_template_id_fkey(
+          id,
+          name,
+          sequence_order
+        )
+      `)
+
+    if (depsError) {
+      console.error("Error fetching dependencies:", depsError)
+      return NextResponse.json({ error: "Failed to fetch dependencies" }, { status: 500 })
+    }
+
+    // Create lookup maps for efficient processing
+    const dependenciesMap = new Map<number, any[]>()
+    const dependentsMap = new Map<number, any[]>()
+
+    // Process dependencies
+    dependencies?.forEach((dep: any) => {
+      // Dependencies (what this template depends on)
+      if (!dependenciesMap.has(dep.template_id)) {
+        dependenciesMap.set(dep.template_id, [])
+      }
+      dependenciesMap.get(dep.template_id)!.push({
+        depends_on_template_id: dep.depends_on_template_id,
+        template_name: Array.isArray(dep.depends_on_template)
+          ? (dep.depends_on_template[0]?.name || 'Unknown Template')
+          : (dep.depends_on_template?.name || 'Unknown Template')
+      })
+
+      // Dependents (what depends on this template)
+      if (!dependentsMap.has(dep.depends_on_template_id)) {
+        dependentsMap.set(dep.depends_on_template_id, [])
+      }
+      dependentsMap.get(dep.depends_on_template_id)!.push({
+        template_id: dep.template_id,
+        template_name: templates.find(t => t.id === dep.template_id)?.name || 'Unknown Template'
+      })
+    })
+
+    // Combine templates with their dependencies and dependents
+    const enhancedTemplates = templates.map(template => ({
+      ...template,
+      dependencies: dependenciesMap.get(template.id) || [],
+      dependents: dependentsMap.get(template.id) || []
+    }))
+
+    return NextResponse.json({ data: enhancedTemplates })
   } catch (error: any) {
     console.error("Error in GET /api/task-templates:", error)
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
@@ -69,7 +127,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const { name, sequence_order, skill_ids, ...restData } = validation.data
+    const { name, sequence_order, skill_ids, dependency_template_ids, ...restData } = validation.data
 
     // Check for duplicate name
     const { data: existingName, error: nameError } = await supabase
@@ -101,6 +159,16 @@ export async function POST(request: Request) {
 
     if (existingSequence) {
       return NextResponse.json({ error: `Thứ tự "${sequence_order}" đã được sử dụng.` }, { status: 409 })
+    }
+
+    // Kiểm tra circular dependencies nếu có dependency_template_ids
+    if (dependency_template_ids && dependency_template_ids.length > 0) {
+      const circularCheck = await checkCircularDependencies(supabase, null, dependency_template_ids)
+      if (circularCheck.hasCircular) {
+        return NextResponse.json({ 
+          error: `Phát hiện phụ thuộc vòng tròn với: ${circularCheck.conflictingTemplates.join(', ')}` 
+        }, { status: 400 })
+      }
     }
 
     // Insert task template
@@ -136,9 +204,120 @@ export async function POST(request: Request) {
       }
     }
 
+    // Insert dependencies if provided
+    if (dependency_template_ids && dependency_template_ids.length > 0) {
+      const dependenciesToInsert = dependency_template_ids.map((depends_on_template_id) => ({
+        template_id: template.id,
+        depends_on_template_id,
+      }))
+
+      const { error: dependencyInsertError } = await supabase.from("task_template_dependencies").insert(dependenciesToInsert)
+
+      if (dependencyInsertError) {
+        console.error("Error inserting dependencies:", dependencyInsertError)
+        // Rollback template creation if dependencies insertion fails
+        await supabase.from("task_templates").delete().eq("id", template.id)
+        return NextResponse.json({ error: "Lỗi khi thêm phụ thuộc: " + dependencyInsertError.message }, { status: 500 })
+      }
+    }
+
     return NextResponse.json(template, { status: 201 })
   } catch (error: any) {
     console.error("Error in POST /api/task-templates:", error)
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
   }
+}
+
+// Helper function để kiểm tra circular dependencies
+async function checkCircularDependencies(
+  supabase: any, 
+  templateId: number | null, 
+  dependencyIds: number[]
+): Promise<{ hasCircular: boolean; conflictingTemplates: string[] }> {
+  
+  // Lấy tất cả dependencies hiện tại
+  const { data: allDependencies, error } = await supabase
+    .from('task_template_dependencies')
+    .select(`
+      template_id,
+      depends_on_template_id,
+      template:task_templates!task_template_dependencies_template_id_fkey(name),
+      depends_on_template:task_templates!task_template_dependencies_depends_on_template_id_fkey(name)
+    `)
+
+  if (error) {
+    console.error('Error fetching dependencies for circular check:', error)
+    return { hasCircular: false, conflictingTemplates: [] }
+  }
+
+  // Tạo adjacency list
+  const dependencyGraph: Record<number, number[]> = {}
+  const templateNames: Record<number, string> = {}
+
+  // Build current graph
+  allDependencies?.forEach((dep: any) => {
+    if (!dependencyGraph[dep.template_id]) {
+      dependencyGraph[dep.template_id] = []
+    }
+    dependencyGraph[dep.template_id].push(dep.depends_on_template_id)
+    templateNames[dep.template_id] = dep.template?.name || 'Unknown'
+    templateNames[dep.depends_on_template_id] = dep.depends_on_template?.name || 'Unknown'
+  })
+
+  // Add new dependencies to check
+  if (templateId) {
+    if (!dependencyGraph[templateId]) {
+      dependencyGraph[templateId] = []
+    }
+    dependencyGraph[templateId] = [...dependencyGraph[templateId], ...dependencyIds]
+  }
+
+  // DFS to detect cycles
+  const visited = new Set<number>()
+  const recursionStack = new Set<number>()
+  const conflictingTemplates: string[] = []
+
+  function dfs(node: number, path: number[]): boolean {
+    if (recursionStack.has(node)) {
+      // Found cycle - collect template names in cycle
+      const cycleStart = path.indexOf(node)
+      const cycle = path.slice(cycleStart).concat([node])
+      cycle.forEach(id => {
+        if (templateNames[id]) {
+          conflictingTemplates.push(templateNames[id])
+        }
+      })
+      return true
+    }
+
+    if (visited.has(node)) {
+      return false
+    }
+
+    visited.add(node)
+    recursionStack.add(node)
+    path.push(node)
+
+    const dependencies = dependencyGraph[node] || []
+    for (const dep of dependencies) {
+      if (dfs(dep, [...path])) {
+        return true
+      }
+    }
+
+    recursionStack.delete(node)
+    return false
+  }
+
+  // Check for cycles starting from any node
+  for (const nodeId in dependencyGraph) {
+    const node = parseInt(nodeId)
+    if (!visited.has(node)) {
+      if (dfs(node, [])) {
+        return { hasCircular: true, conflictingTemplates: [...new Set(conflictingTemplates)] }
+      }
+    }
+  }
+
+  return { hasCircular: false, conflictingTemplates: [] }
 }
