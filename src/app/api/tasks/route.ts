@@ -11,7 +11,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get tasks with related data for optimization
+    // Get tasks with related data including template and dependencies
     const { data: tasks, error } = await supabase
       .from("tasks")
       .select(`
@@ -19,25 +19,20 @@ export async function GET() {
         project:project_id (
           name
         ),
-        users:assigned_to (
-          full_name,
-          avatar_url
+        task_templates:template_id (
+          name,
+          description
         ),
-        task_progress (
-          planned_start,
-          planned_finish,
-          actual_start,
-          actual_finish,
-          status_snapshot
-        ),
-        user_task_perf (
-          planned_hours,
-          actual_hours,
-          on_time,
-          qual_score
+        task_dependencies!task_id (
+          depends_on_id,
+          dependency_task:depends_on_id (
+            id,
+            name,
+            status
+          )
         )
       `)
-      .order("weight", { ascending: false })
+      .order("created_at", { ascending: false })
 
     if (error) {
       console.error("Error fetching tasks:", error)
@@ -84,4 +79,4 @@ CREATE TABLE IF NOT EXISTS tasks (
   is_imported BOOLEAN DEFAULT FALSE,
   import_date TIMESTAMP WITH TIME ZONE
 );
-`; 
+`;

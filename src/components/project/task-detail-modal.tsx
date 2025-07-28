@@ -8,20 +8,18 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CalendarIcon, ClockIcon, EditIcon, SaveIcon, XIcon, BuildingIcon } from "lucide-react"
-import { format } from "date-fns"
-import { vi } from "date-fns/locale"
+import { EditIcon, SaveIcon, XIcon } from "lucide-react"
 import { toast } from "sonner"
-import type { Task, ProjectPhase, Comment, Worklog, TaskStatus } from "@/app/types/table-types"
+import type { Task, Worklog, TaskStatus } from "@/app/types/table-types"
 import type { UserPermissions } from "@/lib/permissions"
 
 interface TaskWithDetails extends Task {
-  project_phases?: ProjectPhase
   responsible_user?: {
     full_name: string
     position: string
     org_unit: string
   }
+  duration_days?: number
 }
 
 interface TaskDetailModalProps {
@@ -44,8 +42,6 @@ const statusOptions = [
 export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions }: TaskDetailModalProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editedTask, setEditedTask] = useState(task)
-  const [comment, setComment] = useState("")
-  const [comments, setComments] = useState<Comment[]>([])
   const [workLogs, setWorkLogs] = useState<Worklog[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -57,7 +53,7 @@ export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions
 
   const fetchTaskDetails = async () => {
     try {
-      // Fetch work logs (comments API không có sẵn theo danh sách API)
+      // Fetch work logs
       const workLogsRes = await fetch(`/api/tasks/${task.id}/worklogs`).catch(() => ({ ok: false }))
 
       if (workLogsRes.ok && workLogsRes instanceof Response) {
@@ -81,11 +77,7 @@ export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions
           status: editedTask.status,
           name: editedTask.name,
           note: editedTask.note,
-          unit_in_charge: editedTask.unit_in_charge,
-          legal_basis: editedTask.legal_basis,
-          max_retries: editedTask.max_retries,
-          start_date: editedTask.start_date,
-          end_date: editedTask.end_date,
+          duration_days: editedTask.duration_days,
         }),
       })
 
@@ -182,21 +174,6 @@ export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions
               )}
             </div>
 
-            {/* Legal Basis */}
-            <div>
-              <h3 className="font-semibold mb-2">Căn cứ pháp lý</h3>
-              {isEditing ? (
-                <Textarea
-                  value={editedTask.legal_basis || ""}
-                  onChange={(e) => setEditedTask({ ...editedTask, legal_basis: e.target.value })}
-                  placeholder="Căn cứ pháp lý..."
-                  rows={3}
-                />
-              ) : (
-                <p className="text-muted-foreground">{task.legal_basis || "Chưa có căn cứ pháp lý"}</p>
-              )}
-            </div>
-
             {/* Work Logs */}
             {workLogs.length > 0 && (
               <div>
@@ -207,7 +184,7 @@ export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium text-sm">{log.spent_hours} giờ</span>
                         <span className="text-xs text-muted-foreground">
-                          {format(new Date(log.log_date), "dd/MM/yyyy", { locale: vi })}
+                          {new Date(log.log_date).toLocaleDateString('vi-VN')}
                         </span>
                       </div>
                       {log.note && <p className="text-sm text-muted-foreground">{log.note}</p>}
@@ -248,7 +225,7 @@ export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions
 
             {/* Assignee */}
             <div>
-              <h4 className="font-medium mb-2">Người thực hiện (R)</h4>
+              <h4 className="font-medium mb-2">Người thực hiện</h4>
               <div className="flex items-center gap-2">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback>{task.responsible_user?.full_name?.charAt(0) || "?"}</AvatarFallback>
@@ -260,88 +237,24 @@ export function TaskDetailModal({ task, open, onClose, onUpdate, userPermissions
               </div>
             </div>
 
-            {/* Phase */}
-            {task.project_phases && (
-              <div>
-                <h4 className="font-medium mb-2">Giai đoạn</h4>
-                <Badge variant="outline">{task.project_phases.name}</Badge>
-              </div>
-            )}
-
-            {/* Unit in charge */}
+            {/* Duration */}
             <div>
-              <h4 className="font-medium mb-2">Đơn vị phụ trách</h4>
-              {isEditing ? (
-                <Input
-                  value={editedTask.unit_in_charge || ""}
-                  onChange={(e) => setEditedTask({ ...editedTask, unit_in_charge: e.target.value })}
-                  placeholder="Đơn vị phụ trách..."
-                />
-              ) : (
-                <div className="flex items-center gap-2">
-                  <BuildingIcon className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{task.unit_in_charge || "Chưa xác định"}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Max Retries */}
-            <div>
-              <h4 className="font-medium mb-2">Số lần thử lại tối đa</h4>
+              <h4 className="font-medium mb-2">Số ngày thực hiện</h4>
               {isEditing ? (
                 <Input
                   type="number"
-                  value={editedTask.max_retries || ""}
+                  min="1"
+                  value={editedTask.duration_days || 1}
                   onChange={(e) =>
                     setEditedTask({
                       ...editedTask,
-                      max_retries: e.target.value ? Number.parseInt(e.target.value) : undefined,
+                      duration_days: parseInt(e.target.value) || 1,
                     })
                   }
-                  placeholder="Số lần thử lại..."
+                  placeholder="Số ngày..."
                 />
               ) : (
-                <span className="text-sm">{task.max_retries || "Không giới hạn"}</span>
-              )}
-            </div>
-
-            {/* Dates */}
-            <div>
-              <h4 className="font-medium mb-2">Thời gian</h4>
-              {isEditing ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-muted-foreground">Ngày bắt đầu</label>
-                    <Input
-                      type="date"
-                      value={editedTask.start_date}
-                      onChange={(e) => setEditedTask({ ...editedTask, start_date: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground">Ngày kết thúc</label>
-                    <Input
-                      type="date"
-                      value={editedTask.end_date}
-                      onChange={(e) => setEditedTask({ ...editedTask, end_date: e.target.value })}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2 text-sm">
-                  {task.start_date && (
-                    <div className="flex items-center gap-2">
-                      <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                      <span>Bắt đầu: {format(new Date(task.start_date), "dd/MM/yyyy", { locale: vi })}</span>
-                    </div>
-                  )}
-                  {task.end_date && (
-                    <div className="flex items-center gap-2">
-                      <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                      <span>Kết thúc: {format(new Date(task.end_date), "dd/MM/yyyy", { locale: vi })}</span>
-                    </div>
-                  )}
-                </div>
+                <span className="text-sm">{(task as any).duration_days || 1} ngày</span>
               )}
             </div>
           </div>

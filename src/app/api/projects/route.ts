@@ -124,10 +124,10 @@ export async function POST(req: Request) {
       name,
       description,
       start_date,
-      end_date,
       status,
       classification,
       project_field,
+      total_investment,
     } = body
 
     if (!name || !project_field || !classification) {
@@ -137,19 +137,18 @@ export async function POST(req: Request) {
       )
     }
 
-    // SỬA LỖI: Đảm bảo 'created_by' được gán bằng ID của người dùng đã xác thực.
-    // Đây là bước quan trọng nhất để sửa lỗi và liên kết dự án với người tạo.
+    // Tạo dự án với các trường theo interface Project
     const { data: newProject, error: insertError } = await supabase
       .from('projects')
       .insert({
         name,
         description,
         start_date,
-        end_date,
-        status,
+        status: status || 'planning',
         classification,
         project_field,
-        created_by: authUser.id, // Gán ID của người dùng đã xác thực
+        total_investment,
+        created_by: authUser.id,
       })
       .select()
       .single()

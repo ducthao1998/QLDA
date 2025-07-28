@@ -10,28 +10,22 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
-import type { ProjectPhase, TaskStatus } from "@/app/types/table-types"
+import type { TaskStatus } from "@/app/types/table-types"
 
 interface CreateTaskModalProps {
   projectId: string
-  phases: ProjectPhase[]
   open: boolean
   onClose: () => void
   onSuccess: () => void
 }
 
-export function CreateTaskModal({ projectId, phases, open, onClose, onSuccess }: CreateTaskModalProps) {
+export function CreateTaskModal({ projectId, open, onClose, onSuccess }: CreateTaskModalProps) {
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     name: "",
     note: "",
     status: "todo" as TaskStatus,
-    phase_id: "",
-    start_date: "",
-    end_date: "",
-    unit_in_charge: "",
-    legal_basis: "",
-    max_retries: undefined as number | undefined,
+    duration_days: 1,
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -51,7 +45,7 @@ export function CreateTaskModal({ projectId, phases, open, onClose, onSuccess }:
         },
         body: JSON.stringify({
           ...formData,
-          max_retries: formData.max_retries || null,
+          duration_days: formData.duration_days || 1,
         }),
       })
 
@@ -66,12 +60,7 @@ export function CreateTaskModal({ projectId, phases, open, onClose, onSuccess }:
         name: "",
         note: "",
         status: "todo",
-        phase_id: "",
-        start_date: "",
-        end_date: "",
-        unit_in_charge: "",
-        legal_basis: "",
-        max_retries: undefined,
+        duration_days: 1,
       })
     } catch (error) {
       toast.error("Không thể tạo công việc")
@@ -110,35 +99,18 @@ export function CreateTaskModal({ projectId, phases, open, onClose, onSuccess }:
             />
           </div>
 
-          <div>
-            <Label htmlFor="legal_basis">Căn cứ pháp lý</Label>
-            <Textarea
-              id="legal_basis"
-              value={formData.legal_basis}
-              onChange={(e) => setFormData({ ...formData, legal_basis: e.target.value })}
-              placeholder="Căn cứ pháp lý..."
-              rows={2}
-            />
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="phase">Giai đoạn</Label>
-              <Select
-                value={formData.phase_id}
-                onValueChange={(value) => setFormData({ ...formData, phase_id: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Chọn giai đoạn" />
-                </SelectTrigger>
-                <SelectContent>
-                  {phases.map((phase) => (
-                    <SelectItem key={phase.id} value={phase.id}>
-                      {phase.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label htmlFor="duration_days">Số ngày thực hiện *</Label>
+              <Input
+                id="duration_days"
+                type="number"
+                min="1"
+                value={formData.duration_days}
+                onChange={(e) => setFormData({ ...formData, duration_days: parseInt(e.target.value) || 1 })}
+                placeholder="Số ngày..."
+                required
+              />
             </div>
 
             <div>
@@ -159,56 +131,6 @@ export function CreateTaskModal({ projectId, phases, open, onClose, onSuccess }:
                   <SelectItem value="archived">Lưu trữ</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="unit_in_charge">Đơn vị phụ trách</Label>
-              <Input
-                id="unit_in_charge"
-                value={formData.unit_in_charge}
-                onChange={(e) => setFormData({ ...formData, unit_in_charge: e.target.value })}
-                placeholder="Đơn vị phụ trách..."
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="max_retries">Số lần thử lại tối đa</Label>
-              <Input
-                id="max_retries"
-                type="number"
-                value={formData.max_retries || ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    max_retries: e.target.value ? Number.parseInt(e.target.value) : undefined,
-                  })
-                }
-                placeholder="Số lần thử lại..."
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label htmlFor="start_date">Ngày bắt đầu</Label>
-              <Input
-                id="start_date"
-                type="date"
-                value={formData.start_date}
-                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="end_date">Ngày kết thúc</Label>
-              <Input
-                id="end_date"
-                type="date"
-                value={formData.end_date}
-                onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-              />
             </div>
           </div>
 

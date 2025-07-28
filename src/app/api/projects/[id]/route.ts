@@ -87,10 +87,10 @@ export async function PUT(
       name,
       description,
       start_date,
-      end_date,
       status,
       classification,
       project_field,
+      total_investment,
     } = body
 
     if (!name || !project_field || !classification) {
@@ -106,10 +106,10 @@ export async function PUT(
         name,
         description,
         start_date,
-        end_date,
         status,
         classification,
         project_field,
+        total_investment,
         updated_at: new Date().toISOString(),
       })
       .eq('id', param.id)

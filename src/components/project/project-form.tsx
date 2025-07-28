@@ -35,32 +35,17 @@ import { Calendar } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 
-const formSchema = z
-  .object({
-    name: z.string().min(1, 'Tên dự án là bắt buộc'),
-    description: z.string().optional(),
-    start_date: z.date().optional(),
-    end_date: z.date().optional(),
-    status: z.string().optional(),
-    classification: z.string({
-      required_error: 'Vui lòng chọn phân loại dự án.',
-    }),
-    project_field: z.string({
-      required_error: 'Vui lòng chọn lĩnh vực dự án.',
-    }),
-  })
-  .refine(
-    (data) => {
-      if (data.start_date && data.end_date) {
-        return data.end_date >= data.start_date
-      }
-      return true
-    },
-    {
-      message: 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.',
-      path: ['end_date'],
-    },
-  )
+const formSchema = z.object({
+  name: z.string().min(1, 'Tên dự án là bắt buộc'),
+  project_goal: z.string().optional(),
+  start_date: z.date().optional(),
+  status: z.string().optional(),
+  classification: z.string({
+    required_error: 'Vui lòng chọn phân loại dự án.',
+  }),
+  implementation_location: z.string().optional(),
+  total_investment: z.string().optional(),
+})
 
 interface ProjectFormProps {
   project?: Project
@@ -73,26 +58,28 @@ export function ProjectForm({ project }: ProjectFormProps) {
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: project?.name || '',
-      description: project?.description || '',
+      project_goal: project?.description || '',
       start_date: project?.start_date
         ? new Date(project.start_date)
         : undefined,
-      end_date: project?.end_date ? new Date(project.end_date) : undefined,
       status: project?.status || 'active',
       classification: project?.classification || undefined,
-      project_field: project?.project_field || '',
+      implementation_location: project?.project_field || '',
+      total_investment: '',
     },
   })
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     const formattedValues = {
-      ...values,
+      name: values.name,
+      description: values.project_goal || '',
       start_date: values.start_date
         ? format(values.start_date, 'yyyy-MM-dd')
         : undefined,
-      end_date: values.end_date
-        ? format(values.end_date, 'yyyy-MM-dd')
-        : undefined,
+      status: values.status || 'active',
+      classification: values.classification,
+      project_field: values.implementation_location || '',
+      total_investment: values.total_investment || '',
     }
 
     try {
@@ -140,15 +127,16 @@ export function ProjectForm({ project }: ProjectFormProps) {
             </FormItem>
           )}
         />
+        
         <FormField
           control={form.control}
-          name="description"
+          name="project_goal"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Mô tả</FormLabel>
+              <FormLabel>Mục tiêu dự án</FormLabel>
               <FormControl>
                 <Textarea
-                  placeholder="Nhập mô tả chi tiết cho dự án..."
+                  placeholder="Nhập mục tiêu chi tiết cho dự án..."
                   {...field}
                 />
               </FormControl>
@@ -156,19 +144,19 @@ export function ProjectForm({ project }: ProjectFormProps) {
             </FormItem>
           )}
         />
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* SỬA LỖI: Chuyển từ Select sang Input để tăng tính linh hoạt */}
           <FormField
             control={form.control}
-            name="project_field"
+            name="implementation_location"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Lĩnh vực Dự án</FormLabel>
+                <FormLabel>Địa điểm thực hiện</FormLabel>
                 <FormControl>
-                  <Input placeholder="Ví dụ: Xây dựng, CNTT..." {...field} />
+                  <Input placeholder="Ví dụ: Hà Nội, TP.HCM..." {...field} />
                 </FormControl>
                 <FormDescription>
-                  Nhập lĩnh vực để tải các công việc mẫu tương ứng.
+                  Nhập địa điểm thực hiện dự án.
                 </FormDescription>
                 <FormMessage />
               </FormItem>
@@ -177,25 +165,16 @@ export function ProjectForm({ project }: ProjectFormProps) {
 
           <FormField
             control={form.control}
-            name="classification"
+            name="total_investment"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Phân loại Dự án</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
-                >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn phân loại" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="A">Nhóm A</SelectItem>
-                    <SelectItem value="B">Nhóm B</SelectItem>
-                    <SelectItem value="C">Nhóm C</SelectItem>
-                  </SelectContent>
-                </Select>
+                <FormLabel>Tổng mức đầu tư</FormLabel>
+                <FormControl>
+                  <Input placeholder="Ví dụ: 10 tỷ VND..." {...field} />
+                </FormControl>
+                <FormDescription>
+                  Nhập tổng mức đầu tư của dự án.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -241,50 +220,34 @@ export function ProjectForm({ project }: ProjectFormProps) {
               </FormItem>
             )}
           />
+
           <FormField
             control={form.control}
-            name="end_date"
+            name="classification"
             render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel>Ngày kết thúc</FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant={'outline'}
-                        className={cn(
-                          'w-full pl-3 text-left font-normal',
-                          !field.value && 'text-muted-foreground',
-                        )}
-                      >
-                        {field.value ? (
-                          format(field.value, 'dd/MM/yyyy')
-                        ) : (
-                          <span>Chọn ngày</span>
-                        )}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      disabled={(date) =>
-                        form.getValues('start_date')
-                          ? date < form.getValues('start_date')!
-                          : false
-                      }
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+              <FormItem>
+                <FormLabel>Phân loại Dự án</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  defaultValue={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Chọn phân loại" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="A">Nhóm A</SelectItem>
+                    <SelectItem value="B">Nhóm B</SelectItem>
+                    <SelectItem value="C">Nhóm C</SelectItem>
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}
           />
         </div>
+
         <div className="flex justify-end space-x-4">
           <Button
             type="button"
@@ -308,4 +271,3 @@ export function ProjectForm({ project }: ProjectFormProps) {
     </Form>
   )
 }
-

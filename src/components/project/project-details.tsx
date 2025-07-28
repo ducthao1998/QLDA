@@ -27,7 +27,6 @@ import { ProjectRaci } from "@/components/project/project-raci"
 import { toast } from "sonner"
 import type { Project as BaseProject } from "@/app/types/table-types"
 import { LoadingSpinner } from "@/components/ui/loading"
-import { ProjectPhases } from "./project-phases"
 import type { UserPermissions } from "@/lib/permissions"
 
 // Mở rộng kiểu Project để bao gồm thông tin user được join
@@ -222,7 +221,6 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
       <Tabs defaultValue="overview" className="space-y-4">
         <TabsList>
           <TabsTrigger value="overview">Tổng quan</TabsTrigger>
-          {userPermissions.canManagePhases && <TabsTrigger value="phases">Giai đoạn</TabsTrigger>}
           {userPermissions.canViewTasks && <TabsTrigger value="tasks">Công việc</TabsTrigger>}
           {userPermissions.canViewTeam && <TabsTrigger value="team">Đội ngũ</TabsTrigger>}
         </TabsList>
@@ -244,14 +242,13 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
             </Card>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Thời gian</CardTitle>
+                <CardTitle className="text-sm font-medium">Ngày bắt đầu</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center text-sm text-muted-foreground">
                   <CalendarIcon className="h-4 w-4 mr-2" />
                   <span>
-                    {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })} -{" "}
-                    {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
+                    {project.start_date ? format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi }) : "Chưa xác định"}
                   </span>
                 </div>
               </CardContent>
@@ -281,7 +278,7 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="flex items-center text-sm">
                 <FolderKanban className="h-4 w-4 mr-2 text-muted-foreground" />
-                <strong>Lĩnh vực:</strong>
+                <strong>Địa điểm thực hiện:</strong>
                 <span className="ml-2">{project.project_field || "Chưa xác định"}</span>
               </div>
               <div className="flex items-center text-sm">
@@ -291,20 +288,15 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
                   {project.classification ? `Nhóm ${project.classification}` : "Chưa xác định"}
                 </span>
               </div>
+              <div className="flex items-center text-sm">
+                <InfoIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                <strong>Tổng mức đầu tư:</strong>
+                <span className="ml-2">{(project as any).total_investment || "Chưa xác định"}</span>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {userPermissions.canManagePhases && (
-          <TabsContent value="phases">
-            <ProjectPhases
-              projectId={project.id}
-              phases={phases}
-              onRefresh={fetchPhases}
-              userPermissions={userPermissions}
-            />
-          </TabsContent>
-        )}
 
         {userPermissions.canViewTasks && (
           <TabsContent value="tasks">

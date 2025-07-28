@@ -34,9 +34,10 @@ export default async function ProjectPage({ params }: { params: { id: string } }
     redirect("/login")
   }
 
+  // FIX: Removed updated_at column that doesn't exist
   const { data: currentUser } = await supabase
     .from("users")
-    .select("id, email, phone_number, created_at, updated_at, org_unit, position, full_name")
+    .select("id, email, phone_number, created_at, org_unit, position, full_name")
     .eq("id", authUser.id)
     .single()
 
@@ -76,7 +77,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
     <ProjectDetails
       projectId={id}
       initialProject={project}
-      initialPhases={phases || []}
+      initialPhases={[]}
       userPermissions={userPermissions}
     />
   )

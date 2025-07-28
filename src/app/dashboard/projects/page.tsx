@@ -3,12 +3,14 @@ import { Button } from "@/components/ui/button"
 import { PlusIcon } from "lucide-react"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
+import { getUserPermissions } from "@/lib/permissions"
 
 export default async function ProjectsPage() {
   const supabase = await createClient()
   
   // Get current user's position
   const { data: { user: authUser } } = await supabase.auth.getUser()
+
   if (!authUser) {
     return null
   }
@@ -19,13 +21,13 @@ export default async function ProjectsPage() {
     .eq("id", authUser.id)
     .single()
 
-  const isManager = currentUser?.position?.toLowerCase() === "quản lý"
+  const userPermissions = getUserPermissions(currentUser?.position || "")
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Dự Án</h1>
-        {isManager && (
+        {userPermissions.canEditProject && (
           <Button asChild>
             <Link href="/dashboard/projects/new">
               <PlusIcon className="mr-2 h-4 w-4" />

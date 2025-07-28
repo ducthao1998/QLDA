@@ -61,7 +61,7 @@ export async function GET(
   }
 }
 
-// Hàm POST giữ nguyên để không ảnh hưởng đến các chức năng khác
+// Tạo tasks từ templates với hỗ trợ dependencies
 export async function POST(
   req: Request,
   { params }: { params: { id: string } },
@@ -82,9 +82,15 @@ export async function POST(
       )
     }
 
+    // Lấy templates với dependencies
     const { data: templates, error: templateError } = await supabase
       .from('task_templates')
-      .select('*')
+      .select(`
+        *,
+        task_template_dependencies!task_template_dependencies_template_id_fkey (
+          depends_on_template_id
+        )
+      `)
       .in('id', template_ids)
 
     if (templateError) throw templateError;
@@ -95,35 +101,94 @@ export async function POST(
       )
     }
 
-    // Giả sử template có thuộc tính `phase` để map với `project_phases`
-    const phaseNames = templates.map((t: any) => t.phase).filter(Boolean);
+    // Lấy phases cho project
     const { data: phases, error: phasesError } = await supabase
       .from('project_phases')
       .select('id, name')
       .eq('project_id', projectId)
-      .in('name', phaseNames)
 
     if (phasesError) throw phasesError;
 
-    const phaseMap = new Map(phases?.map(p => [p.name, p.id]));
+    // Tạo tasks theo thứ tự sequence_order để đảm bảo dependencies được tạo đúng
+    const sortedTemplates = templates.sort((a, b) => a.sequence_order - b.sequence_order)
+    const createdTasks: any[] = []
+    const templateToTaskMap = new Map<number, string>() // template_id -> task_id
 
-    const newTasks = templates.map((template: any) => ({
-      project_id: projectId,
-      name: template.name,
-      note: template.description,
-      status: 'todo' as const,
-      template_id: template.id,
-      phase_id: phaseMap.get(template.phase),
-    }))
+    for (const template of sortedTemplates) {
+      // Tạo task từ template
+      const newTask = {
+        project_id: projectId,
+        name: template.name,
+        note: template.description,
+        status: 'todo' as const,
+        template_id: template.id,
+        duration_days: template.default_duration_days,
+        // Tạm thời không set phase_id, có thể cập nhật sau
+        phase_id: phases?.[0]?.id || null,
+      }
 
-    const { data, error: insertError } = await supabase
-      .from('tasks')
-      .insert(newTasks)
-      .select()
+      const { data: insertedTask, error: insertError } = await supabase
+        .from('tasks')
+        .insert(newTask)
+        .select()
+        .single()
 
-    if (insertError) throw insertError
+      if (insertError) throw insertError
 
-    return NextResponse.json(data, { status: 201 })
+      createdTasks.push(insertedTask)
+      templateToTaskMap.set(template.id, insertedTask.id)
+
+      // Tạo dependencies cho task này
+      if (template.task_template_dependencies && template.task_template_dependencies.length > 0) {
+        const taskDependencies = template.task_template_dependencies
+          .map((dep: any) => {
+            const dependsOnTaskId = templateToTaskMap.get(dep.depends_on_template_id)
+            if (dependsOnTaskId) {
+              return {
+                task_id: insertedTask.id,
+                depends_on_id: dependsOnTaskId,
+              }
+            }
+            return null
+          })
+          .filter(Boolean)
+
+        if (taskDependencies.length > 0) {
+          const { error: depError } = await supabase
+            .from('task_dependencies')
+            .insert(taskDependencies)
+
+          if (depError) {
+            console.error('Error creating task dependencies:', depError)
+            // Không throw error để không làm gián đoạn việc tạo tasks
+          }
+        }
+      }
+
+      // Tạo task skills nếu template có skills
+      const { data: templateSkills, error: skillsError } = await supabase
+        .from('task_template_skills')
+        .select('skill_id')
+        .eq('template_id', template.id)
+
+      if (!skillsError && templateSkills && templateSkills.length > 0) {
+        const taskSkills = templateSkills.map((ts: any) => ({
+          task_id: insertedTask.id,
+          skill_id: ts.skill_id,
+        }))
+
+        const { error: taskSkillError } = await supabase
+          .from('task_skills')
+          .insert(taskSkills)
+
+        if (taskSkillError) {
+          console.error('Error creating task skills:', taskSkillError)
+          // Không throw error để không làm gián đoạn việc tạo tasks
+        }
+      }
+    }
+
+    return NextResponse.json(createdTasks, { status: 201 })
   } catch (error: any) {
     console.error('Error creating tasks from template:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
