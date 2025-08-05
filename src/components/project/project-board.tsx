@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { CalendarIcon, PlusIcon, SearchIcon, MoreHorizontalIcon, AlertCircleIcon } from "lucide-react"
+import { CalendarIcon, PlusIcon, SearchIcon, MoreHorizontalIcon, AlertCircleIcon, Bot } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -17,6 +17,7 @@ import type { Project, ProjectPhase, Task, User, TaskRaci } from "@/app/types/ta
 import type { UserPermissions } from "@/lib/permissions"
 import { CreateTaskModal } from "./create-task-modal"
 import { TaskDetailModal } from "./task-detail-modal"
+import { AutoAssignRaciModal } from "./auto-assign-raci-modal"
 
 interface ProjectBoardProps {
   projectId: string
@@ -55,6 +56,7 @@ export function ProjectBoard({
   const [selectedAssignee, setSelectedAssignee] = useState<string>("all")
   const [selectedTask, setSelectedTask] = useState<TaskWithDetails | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showAutoAssignModal, setShowAutoAssignModal] = useState(false)
 
   useEffect(() => {
     fetchTasks()

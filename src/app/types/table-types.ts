@@ -187,16 +187,7 @@ export interface TaskRaci {
   }
 }
 
-// 7. project_phases
-export interface ProjectPhase {
-  id: string
-  project_id: string
-  name: string
-  description: string
-  order_no: number
-  created_at: string
-  updated_at: string
-}
+
 
 // ==========================================================
 // CÁC BẢNG & VIEW MỚI
@@ -317,7 +308,6 @@ export interface DashboardData {
   task_statistics: {
     by_status: Array<{ status: string; count: number; percentage: number }>
     by_template: Array<{ template_name: string; count: number; avg_duration: number }>
-    by_phase: Array<{ phase_name: string; count: number; completion_rate: number }>
     by_classification: Array<{ classification: string; count: number; avg_progress: number }>
   }}
 

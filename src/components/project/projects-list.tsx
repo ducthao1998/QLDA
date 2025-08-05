@@ -171,8 +171,8 @@ function ProjectsListContent() {
             <TableRow>
               <TableHead>Mã</TableHead>
               <TableHead>Tên</TableHead>
-              <TableHead>Trạng Thái</TableHead>
-              <TableHead>Thời Gian</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead>Thời gian bắt đầu</TableHead>
               <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -203,8 +203,8 @@ function ProjectsListContent() {
                       <div className="flex items-center gap-2">
                         <ClockIcon className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">
-                          {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })} -{" "}
-                          {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })}
+                          {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })}
+                          {/* -{" "} {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })} */}
                         </span>
                       </div>
                     </TableCell>
