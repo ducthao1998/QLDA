@@ -65,7 +65,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       <ProjectBoard
         projectId={id}
         initialProject={project}
-        initialPhases={phases || []}
+        // initialPhases={phases || []}
         userPermissions={userPermissions}
         currentUser={currentUser}
       />

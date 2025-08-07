@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { TaskDetailsTab } from "./edit/task-detail-tabs"
 import { TaskAssignmentsTab } from "./task-edit-tabs/task-assignments-tab"
+import { DependencyTreeVisualization } from "./dependency-tree-visualization"
 
 import type { Task, TaskStatus, User, Skill, RaciRole } from "@/app/types/table-types"
 
@@ -55,8 +56,7 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
   const [selectedDependencies, setSelectedDependencies] = useState<string[]>([])
   const [originalDependencies, setOriginalDependencies] = useState<string[]>([])
   const [projectData, setProjectData] = useState<{ start_date: string; end_date: string } | null>(null)
-  const [userRecommendations, setUserRecommendations] = useState<UserRecommendation[]>([])
-  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false)
+  const [isAutoAssigning, setIsAutoAssigning] = useState(false)
   const [dependencySearch, setDependencySearch] = useState("")
 
   // Dependency validation states
@@ -86,7 +86,6 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     loadAvailableTasks()
     loadTaskDependencies()
     loadProjectData()
-    loadUserRecommendations()
     loadRaciAssignments()
   }, [initialData.id])
 
@@ -98,13 +97,6 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
       setDependencyValidation({ isValid: true })
     }
   }, [selectedDependencies, availableTasks])
-
-  // Reload recommendations when skills change
-  useEffect(() => {
-    if (users.length > 0 && skills.length > 0) {
-      loadUserRecommendations()
-    }
-  }, [selectedSkills, users, skills])
 
   // All the load functions (unchanged from previous version)
   async function loadUsers() {
@@ -199,34 +191,6 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
     }
   }
 
-    async function loadUserRecommendations() {
-    try {
-      setIsLoadingRecommendations(true)
-      
-      // Chỉ tính toán đề xuất nếu có kỹ năng được chọn
-      if (selectedSkills.length === 0) {
-        setUserRecommendations([])
-        return
-      }
-
-      // Gọi API để lấy đề xuất từ server
-      const res = await fetch(`/api/projects/${projectId}/tasks/${initialData.id}/recommended-users`)
-      
-      if (!res.ok) {
-        console.error("Failed to load recommendations")
-        setUserRecommendations([])
-        return
-      }
-
-      const data = await res.json()
-      setUserRecommendations(data.data || [])
-    } catch (err) {
-      console.error("Error loading user recommendations:", err)
-      setUserRecommendations([])
-    } finally {
-      setIsLoadingRecommendations(false)
-    }
-  }
 
   async function loadRaciAssignments() {
     try {
@@ -488,92 +452,6 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
             projectData={projectData}
           />
 
-          {/* User Recommendations */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Target className="h-5 w-5" />
-                Đề xuất người thực hiện
-              </CardTitle>
-              <CardDescription>
-                Dựa trên kinh nghiệm với kỹ năng yêu cầu và khối lượng công việc hiện tại (tối đa 2 việc đồng thời).
-                Click vào người để gán làm người thực hiện chính (R) trong RACI.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoadingRecommendations ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin mr-2" />
-                  <span>Đang tải đề xuất...</span>
-                </div>
-              ) : userRecommendations.length > 0 ? (
-                <div className="space-y-3">
-                  {userRecommendations.map((rec, index) => {
-                    const isCurrentResponsible = raciAssignments.some(
-                      (a) => a.user_id === rec.user_id && a.role === "R",
-                    )
-
-                    return (
-                      <div
-                        key={rec.user_id}
-                        className={`p-4 border rounded-lg cursor-pointer transition-all hover:shadow-md ${
-                          isCurrentResponsible ? "border-primary bg-primary/5" : "hover:bg-gray-50"
-                        }`}
-                        onClick={() => {
-                          const newAssignments = [...raciAssignments]
-                          const existingRIndex = newAssignments.findIndex((a) => a.role === "R")
-                          if (existingRIndex >= 0) {
-                            newAssignments[existingRIndex].role = "A"
-                          }
-                          const userIndex = newAssignments.findIndex((a) => a.user_id === rec.user_id)
-                          if (userIndex >= 0) {
-                            newAssignments[userIndex].role = "R"
-                          } else {
-                            newAssignments.push({ user_id: rec.user_id, role: "R" })
-                          }
-                          handleRaciUpdate(newAssignments)
-                          toast.success(`Đã chọn ${rec.full_name} làm người thực hiện chính (R)`)
-                        }}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className={`rounded-full p-2 ${index === 0 ? "bg-green-100" : "bg-gray-100"}`}>
-                              <UserCheck
-                                className={`h-4 w-4 ${index === 0 ? "text-green-600" : "text-gray-600"}`}
-                              />
-                            </div>
-                            <div>
-                              <p className="font-medium">{rec.full_name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {index === 0 ? "Được đề xuất cao nhất" : "Phù hợp với công việc"}
-                              </p>
-                              {isCurrentResponsible && (
-                                <Badge variant="default" className="mt-1">
-                                  Đang là người thực hiện chính
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold">{rec.completed_tasks_count} công việc</p>
-                            <p className="text-xs text-muted-foreground">Đang làm: {rec.workload} việc</p>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <UserCheck className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                  <p>Không tìm thấy người phù hợp</p>
-                  <p className="text-sm mt-1">
-                    Tất cả mọi người đang bận hoặc chưa có kinh nghiệm với loại công việc này
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
           {/* RACI Assignments */}
           <Card>
@@ -588,9 +466,12 @@ export function TaskEditForm({ initialData, projectId }: TaskEditFormProps) {
                 task={initialData}
                 onRaciChange={handleRaciUpdate}
                 initialAssignments={initialRaciAssignments}
+                projectId={projectId}
               />
             </CardContent>
           </Card>
+
+        
 
           {/* Dependencies */}
           <Card>

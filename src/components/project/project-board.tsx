@@ -13,7 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { toast } from "sonner"
 import { format } from "date-fns"
 import { vi } from "date-fns/locale"
-import type { Project, ProjectPhase, Task, User, TaskRaci } from "@/app/types/table-types"
+import type { Project, Task, User, TaskRaci } from "@/app/types/table-types"
 import type { UserPermissions } from "@/lib/permissions"
 import { CreateTaskModal } from "./create-task-modal"
 import { TaskDetailModal } from "./task-detail-modal"
@@ -22,13 +22,11 @@ import { AutoAssignRaciModal } from "./auto-assign-raci-modal"
 interface ProjectBoardProps {
   projectId: string
   initialProject: Project
-  initialPhases: ProjectPhase[]
   userPermissions: UserPermissions
   currentUser: User
 }
 
 interface TaskWithDetails extends Task {
-  project_phases?: ProjectPhase
   responsible_user?: {
     full_name: string
     position: string
@@ -46,7 +44,6 @@ const statusColumns = [
 export function ProjectBoard({
   projectId,
   initialProject,
-  initialPhases,
   userPermissions,
   currentUser,
 }: ProjectBoardProps) {

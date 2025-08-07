@@ -21,13 +21,10 @@ export async function GET(request: Request, { params }: { params: { id: string }
       .select(`
         id,
         name,
-        status,
-        project_phases (
-          name
-        )
+        status
       `)
       .eq("project_id", projectId)
-      .order("id")
+      .order("id") as { data: Array<{ id: number; name: string; status: string }> | null; error: any }
 
     if (tasksError) {
       console.error("Error fetching tasks:", tasksError)

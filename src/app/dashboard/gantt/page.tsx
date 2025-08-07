@@ -19,6 +19,11 @@ import {
   AlertCircleIcon,
   CheckCircleIcon,
   ArrowRightIcon,
+  BrainIcon,
+  NetworkIcon,
+  ScaleIcon,
+  SparklesIcon,
+  CalendarIcon,
 } from "lucide-react"
 
 interface Project {

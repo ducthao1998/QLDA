@@ -281,14 +281,14 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
     }
   }
 
-  const isTaskIncomplete = (task: Task) => {
-    return !task.start_date || !task.end_date
-  }
+  // const isTaskIncomplete = (task: Task) => {
+  //   return !task.start_date || !task.end_date
+  // }
 
-  const isTaskOverdue = (task: Task) => {
-    if (!task.end_date || task.status === "done") return false
-    return new Date(task.end_date) < new Date()
-  }
+  // const isTaskOverdue = (task: Task) => {
+  //   if (!task.end_date || task.status === "done") return false
+  //   return new Date(task.end_date) < new Date()
+  // }
 
   const isTaskUnassigned = (task: Task) => {
     return !task.responsible_user?.full_name
@@ -324,9 +324,9 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
       }
 
       // Incomplete filter
-      if (showIncomplete && !isTaskIncomplete(task)) {
-        return false
-      }
+      // if (showIncomplete && !isTaskIncomplete(task)) {
+      //   return false
+      // }
 
       // Unassigned filter
       if (showUnassigned && !isTaskUnassigned(task)) {
@@ -350,14 +350,14 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
           aValue = a.status
           bValue = b.status
           break
-        case "start_date":
-          aValue = a.start_date ? new Date(a.start_date) : new Date(0)
-          bValue = b.start_date ? new Date(b.start_date) : new Date(0)
-          break
-        case "end_date":
-          aValue = a.end_date ? new Date(a.end_date) : new Date(0)
-          bValue = b.end_date ? new Date(b.end_date) : new Date(0)
-          break
+        // case "start_date":
+        //   aValue = a.start_date ? new Date(a.start_date) : new Date(0)
+        //   bValue = b.start_date ? new Date(b.start_date) : new Date(0)
+        //   break
+        // case "end_date":
+        //   aValue = a.end_date ? new Date(a.end_date) : new Date(0)
+        //   bValue = b.end_date ? new Date(b.end_date) : new Date(0)
+        //   break
         case "phase":
           aValue = a.project_phases?.order_no || 999
           bValue = b.project_phases?.order_no || 999
@@ -546,12 +546,12 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
           <div className="font-medium text-blue-900">Tổng công việc</div>
           <div className="text-2xl font-bold text-blue-600">{filteredAndSortedTasks.length}</div>
         </div>
-        <div className="bg-yellow-50 p-3 rounded-lg">
+        {/* <div className="bg-yellow-50 p-3 rounded-lg">
           <div className="font-medium text-yellow-900">Chưa hoàn thiện</div>
           <div className="text-2xl font-bold text-yellow-600">
             {filteredAndSortedTasks.filter(isTaskIncomplete).length}
           </div>
-        </div>
+        </div> */}
         <div className="bg-red-50 p-3 rounded-lg">
           <div className="font-medium text-red-900">Chưa gán người</div>
           <div className="text-2xl font-bold text-red-600">
@@ -623,7 +623,7 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                   {getSortIcon("status")}
                 </Button>
               </TableHead>
-              <TableHead>
+              {/* <TableHead>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -644,14 +644,14 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                   Ngày kết thúc
                   {getSortIcon("end_date")}
                 </Button>
-              </TableHead>
+              </TableHead> */}
               <TableHead className="w-[80px]">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {paginatedTasks.map((task) => {
-              const incomplete = isTaskIncomplete(task)
-              const overdue = isTaskOverdue(task)
+              // const incomplete = isTaskIncomplete(task)
+              // const overdue = isTaskOverdue(task)
               const unassigned = isTaskUnassigned(task)
 
               return (
@@ -659,8 +659,7 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                   key={task.id}
                   className={`
                     ${selectedTasks.includes(String(task.id)) ? "bg-muted/50" : ""}
-                    ${incomplete ? "bg-yellow-50 border-l-4 border-l-yellow-400" : ""}
-                    ${overdue ? "bg-red-50 border-l-4 border-l-red-400" : ""}
+                
                     ${unassigned ? "bg-orange-50 border-l-4 border-l-orange-400" : ""}
                   `}
                 >
@@ -675,10 +674,10 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                   <TableCell className="font-medium">
                     <div className="flex items-center gap-2">
                       {task.name}
-                      {incomplete && (
+                      {/* {incomplete && (
                         <AlertTriangle className="h-4 w-4 text-yellow-600" />
                       )}
-                      {overdue && <Calendar className="h-4 w-4 text-red-600" />}
+                      {overdue && <Calendar className="h-4 w-4 text-red-600" />} */}
                       {unassigned && <Users className="h-4 w-4 text-orange-600" />}
                     </div>
                   </TableCell>
@@ -706,12 +705,12 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                       {statusColors[task.status]?.label || task.status}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  {/* <TableCell>
                     {formatDate(task.start_date) || <span className="text-red-600 text-sm font-medium">Chưa có</span>}
                   </TableCell>
                   <TableCell>
                     {formatDate(task.end_date) || <span className="text-red-600 text-sm font-medium">Chưa có</span>}
-                  </TableCell>
+                  </TableCell> */}
                   <TableCell>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>

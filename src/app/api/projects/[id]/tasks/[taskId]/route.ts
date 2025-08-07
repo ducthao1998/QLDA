@@ -79,14 +79,7 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
     if (body.name) updateData.name = body.name
     if (body.note !== undefined) updateData.note = body.note
     if (body.status) updateData.status = body.status
-    if (body.start_date) updateData.start_date = body.start_date
-    if (body.end_date) updateData.end_date = body.end_date
-    if (body.phase_id) updateData.phase_id = body.phase_id
     if (body.assigned_to !== undefined) updateData.assigned_to = body.assigned_to
-    if (body.unit_in_charge !== undefined) updateData.unit_in_charge = body.unit_in_charge
-    if (body.legal_basis !== undefined) updateData.legal_basis = body.legal_basis
-    if (body.max_retries !== undefined) updateData.max_retries = body.max_retries
-
     // Update task with only changed fields
     const { data, error } = await supabase
       .from("tasks")

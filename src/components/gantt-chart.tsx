@@ -37,13 +37,26 @@ interface Task {
   name: string
   start_date: string
   end_date: string
-  phase_id: string
+  duration_days: number
   status: string
   progress: number
   assigned_to?: string
   assigned_user_name?: string
+  assigned_user_position?: string
+  assigned_user_org?: string
   dependencies: string[]
+  required_skills: Array<{
+    id: number
+    name: string
+    field: string
+  }>
   is_overdue: boolean
+  actual_start?: string
+  actual_finish?: string
+  planned_start?: string
+  planned_finish?: string
+  template_id?: number
+  note?: string
 }
 
 interface OptimizationResult {
@@ -82,36 +95,80 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
   const [zoom, setZoom] = useState(1)
   const [scrollPosition, setScrollPosition] = useState(0)
   const [projectData, setProjectData] = useState<any>(null)
-  const [optimizedData, setOptimizedData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [showOptimized, setShowOptimized] = useState(false)
   const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null)
-  const [isOptimizing, setIsOptimizing] = useState(false)
-  const [selectedAlgorithm, setSelectedAlgorithm] = useState<"cpm" | "genetic" | "resource_leveling">("cpm")
-  const [selectedObjective, setSelectedObjective] = useState<"time" | "resource" | "multi">("multi")
   const [viewMode, setViewMode] = useState<ViewMode>("month")
 
-  // Load project data
+  // Load project data and auto-optimize
   useEffect(() => {
     if (!projectId) return
 
-    async function fetchProjectData() {
+    async function fetchProjectDataAndOptimize() {
       try {
         setIsLoading(true)
+        console.log("Fetching project data for ID:", projectId)
+        
+        // Fetch project data
         const response = await fetch(`/api/projects/${projectId}/gantt`)
-        if (!response.ok) throw new Error("Không thể tải dữ liệu dự án")
+        console.log("Response status:", response.status)
+        
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error("API Error:", errorText)
+          throw new Error(`Không thể tải dữ liệu dự án: ${response.status}`)
+        }
+        
         const data = await response.json()
+        console.log("Received data:", data)
+        console.log("Tasks count:", data.tasks?.length || 0)
+        console.log("Project:", data.project)
+        
         setProjectData(data)
+
+        // Auto-optimize using Multi-Project CPM
+        if (data.tasks && data.tasks.length > 0) {
+          console.log("Auto-optimizing project...")
+          const optimizeResponse = await fetch(`/api/projects/${projectId}/optimize`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              algorithm: "multi_project_cpm",
+              objective: {
+                type: "multi",
+                weights: {
+                  time_weight: 0.4,
+                  resource_weight: 0.3,
+                  cost_weight: 0.3,
+                },
+              },
+            }),
+          })
+
+          if (optimizeResponse.ok) {
+            const optimizationData = await optimizeResponse.json()
+            setOptimizationResult(optimizationData)
+            if (onOptimize) {
+              onOptimize(optimizationData)
+            }
+            console.log("Auto-optimization completed:", optimizationData)
+            toast.success("Dự án đã được tối ưu hóa tự động!")
+          } else {
+            console.warn("Auto-optimization failed, continuing with original data")
+          }
+        }
       } catch (error) {
         console.error("Error fetching project data:", error)
-        toast.error("Lỗi khi tải dữ liệu dự án")
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        toast.error(`Lỗi khi tải dữ liệu dự án: ${errorMessage}`)
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchProjectData()
-  }, [projectId])
+    fetchProjectDataAndOptimize()
+  }, [projectId, onOptimize])
 
   // Helper function to get time unit width
   const getTimeUnitWidth = (projectDuration: number, chartWidth: number) => {
@@ -169,10 +226,18 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
   // Draw Gantt chart
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !projectData) return
+    if (!canvas || !projectData) {
+      console.log("Canvas or project data missing:", { canvas: !!canvas, projectData: !!projectData })
+      return
+    }
 
     const ctx = canvas.getContext("2d")
-    if (!ctx) return
+    if (!ctx) {
+      console.log("Cannot get canvas context")
+      return
+    }
+
+    console.log("Drawing Gantt chart with data:", projectData)
 
     const dpr = window.devicePixelRatio || 1
 
@@ -191,11 +256,13 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
     const rowHeight = 45
     const headerHeight = 80
 
-    // Get display data (original or optimized)
-    const displayData = showOptimized && optimizedData ? optimizedData : projectData
-    const { project, tasks = [], phases = [] } = displayData || {}
+    // Get display data
+    const { project, tasks = [] } = projectData || {}
 
-    if (!project?.start_date || !project?.end_date) return
+    if (!project?.start_date || !project?.end_date) {
+      console.log("Missing project dates:", project)
+      return
+    }
 
     const startDate = new Date(project.start_date)
     const endDate = new Date(project.end_date)
@@ -340,7 +407,7 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       const barY = y + 10
       const barHeight = rowHeight - 20
 
-      // Determine color based on status and phase
+      // Determine color based on status and critical path
       let barColor = "#3b82f6" // Default blue
       if (task.status === "done") {
         barColor = "#10b981" // Green
@@ -348,6 +415,11 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
         barColor = "#ef4444" // Red
       } else if (task.status === "in_progress") {
         barColor = "#f59e0b" // Orange
+      }
+
+      // Highlight critical path tasks
+      if (optimizationResult?.critical_path?.includes(task.id)) {
+        barColor = "#dc2626" // Critical path red
       }
 
       // Only draw if visible
@@ -419,98 +491,22 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       }
     })
 
-    // Draw comparison if showing optimized view
-    if (showOptimized && optimizationResult) {
-      // Draw legend
+    // Draw legend
+    if (optimizationResult) {
       ctx.fillStyle = "#0f172a"
       ctx.font = "12px Inter, sans-serif"
       ctx.textAlign = "left"
       ctx.fillText("Chú thích:", 10, canvas.height / dpr - 40)
 
-      ctx.fillStyle = "#3b82f620"
+      // Critical path indicator
+      ctx.fillStyle = "#dc262620"
       ctx.fillRect(80, canvas.height / dpr - 50, 20, 15)
-      ctx.strokeStyle = "#3b82f6"
+      ctx.strokeStyle = "#dc2626"
       ctx.strokeRect(80, canvas.height / dpr - 50, 20, 15)
       ctx.fillStyle = "#0f172a"
-      ctx.fillText("Lịch tối ưu", 105, canvas.height / dpr - 40)
-
-      // Draw critical path indicator
-      ctx.fillStyle = "#ef444420"
-      ctx.fillRect(200, canvas.height / dpr - 50, 20, 15)
-      ctx.strokeStyle = "#ef4444"
-      ctx.strokeRect(200, canvas.height / dpr - 50, 20, 15)
-      ctx.fillStyle = "#0f172a"
-      ctx.fillText("Đường găng", 225, canvas.height / dpr - 40)
+      ctx.fillText("Đường găng", 105, canvas.height / dpr - 40)
     }
-  }, [projectData, optimizedData, zoom, scrollPosition, showOptimized, optimizationResult, viewMode])
-
-  const handleOptimize = async () => {
-    if (!projectId) return
-
-    setIsOptimizing(true)
-    try {
-      const response = await fetch(`/api/projects/${projectId}/optimize`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          algorithm: selectedAlgorithm,
-          objective: {
-            type: selectedObjective,
-            weights:
-              selectedObjective === "multi"
-                ? {
-                    time_weight: 0.4,
-                    resource_weight: 0.3,
-                    cost_weight: 0.3,
-                  }
-                : undefined,
-          },
-        }),
-      })
-
-      if (!response.ok) throw new Error("Không thể tối ưu hóa lịch trình")
-
-      const result = await response.json()
-
-      // Update optimized data
-      if (result.schedule_changes) {
-        const optimizedTasks = projectData.tasks.map((task: Task) => {
-          const change = result.schedule_changes.find((c: any) => c.task_id === task.id)
-
-          if (change && change.change_type !== "unchanged") {
-            return {
-              ...task,
-              start_date: change.new_start,
-              end_date: change.new_end,
-              assigned_to: change.new_assignee || task.assigned_to,
-              is_optimized: true,
-            }
-          }
-
-          return task
-        })
-
-        setOptimizedData({
-          ...projectData,
-          tasks: optimizedTasks,
-        })
-      }
-
-      setOptimizationResult(result)
-      setShowOptimized(true)
-      if (onOptimize) {
-        onOptimize(result)
-      }
-      toast.success("Đã tối ưu hóa lịch trình thành công!")
-    } catch (error) {
-      console.error("Error optimizing schedule:", error)
-      toast.error("Lỗi khi tối ưu hóa lịch trình")
-    } finally {
-      setIsOptimizing(false)
-    }
-  }
+  }, [projectData, zoom, scrollPosition, optimizationResult, viewMode])
 
   const handleZoomIn = () => setZoom((prev) => Math.min(prev * 1.2, 3))
   const handleZoomOut = () => setZoom((prev) => Math.max(prev / 1.2, 0.5))
@@ -519,76 +515,6 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
 
   return (
     <div className="space-y-6">
-      {/* Optimization Controls */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" />
-            Tối ưu hóa lịch trình dự án
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-3 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Thuật toán</label>
-              <select
-                className="w-full px-3 py-2 border rounded-md"
-                value={selectedAlgorithm}
-                onChange={(e) => setSelectedAlgorithm(e.target.value as any)}
-                disabled={isOptimizing}
-              >
-                <option value="cpm">Phương pháp đường găng (CPM)</option>
-                <option value="genetic">Thuật toán di truyền (GA)</option>
-                <option value="resource_leveling">Cân bằng tài nguyên</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Mục tiêu</label>
-              <select
-                className="w-full px-3 py-2 border rounded-md"
-                value={selectedObjective}
-                onChange={(e) => setSelectedObjective(e.target.value as any)}
-                disabled={isOptimizing}
-              >
-                <option value="time">Tối ưu thời gian</option>
-                <option value="resource">Tối ưu tài nguyên</option>
-                <option value="multi">Tối ưu đa mục tiêu</option>
-              </select>
-            </div>
-
-            <div className="flex items-end">
-              <Button onClick={handleOptimize} disabled={isOptimizing} className="w-full">
-                {isOptimizing ? (
-                  <>
-                    <RefreshCwIcon className="mr-2 h-4 w-4 animate-spin" />
-                    Đang tối ưu...
-                  </>
-                ) : (
-                  <>
-                    <TrendingUp className="mr-2 h-4 w-4" />
-                    Tối ưu hóa
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {selectedAlgorithm && (
-            <Alert className="mt-4">
-              <AlertDescription>
-                {selectedAlgorithm === "cpm" &&
-                  "CPM xác định chuỗi công việc quan trọng nhất và tối ưu hóa để rút ngắn thời gian hoàn thành dự án."}
-                {selectedAlgorithm === "genetic" &&
-                  "GA sử dụng nguyên lý tiến hóa để tìm kiếm giải pháp tối ưu qua nhiều thế hệ."}
-                {selectedAlgorithm === "resource_leveling" &&
-                  "Cân bằng việc phân bổ công việc để tránh quá tải và tối ưu hóa hiệu suất làm việc."}
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Optimization Results */}
       {optimizationResult && (
         <>
@@ -685,7 +611,7 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
-                Chi tiết tối ưu hóa
+                Chi tiết tối ưu hóa - {optimizationResult.algorithm_used}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -744,74 +670,76 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
           </Card>
 
           {/* Schedule Changes */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Thay đổi chi tiết trong lịch trình</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {optimizationResult.schedule_changes
-                  .filter((change) => change.change_type !== "unchanged")
-                  .map((change, index) => (
-                    <div key={index} className="border rounded-lg p-4 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h5 className="font-medium">{change.task_name}</h5>
-                        <Badge
-                          variant={
-                            change.change_type === "rescheduled"
-                              ? "secondary"
-                              : change.change_type === "reassigned"
-                                ? "default"
-                                : "outline"
-                          }
-                        >
-                          {change.change_type === "rescheduled" && "Dời lịch"}
-                          {change.change_type === "reassigned" && "Đổi người"}
-                          {change.change_type === "both" && "Dời lịch & Đổi người"}
-                        </Badge>
-                      </div>
+          {optimizationResult.schedule_changes && optimizationResult.schedule_changes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Thay đổi chi tiết trong lịch trình</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {optimizationResult.schedule_changes
+                    .filter((change) => change.change_type !== "unchanged")
+                    .map((change, index) => (
+                      <div key={index} className="border rounded-lg p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-medium">{change.task_name}</h5>
+                          <Badge
+                            variant={
+                              change.change_type === "rescheduled"
+                                ? "secondary"
+                                : change.change_type === "reassigned"
+                                  ? "default"
+                                  : "outline"
+                            }
+                          >
+                            {change.change_type === "rescheduled" && "Dời lịch"}
+                            {change.change_type === "reassigned" && "Đổi người"}
+                            {change.change_type === "both" && "Dời lịch & Đổi người"}
+                          </Badge>
+                        </div>
 
-                      <div className="grid md:grid-cols-2 gap-4 text-sm">
-                        {change.change_type !== "reassigned" && (
-                          <div>
-                            <p className="text-muted-foreground mb-1">Thời gian:</p>
-                            <div className="flex items-center gap-2">
-                              <span>{new Date(change.original_start).toLocaleDateString("vi-VN")}</span>
-                              <ArrowRight className="h-4 w-4" />
-                              <span className="font-medium text-blue-600">
-                                {new Date(change.new_start).toLocaleDateString("vi-VN")}
-                              </span>
+                        <div className="grid md:grid-cols-2 gap-4 text-sm">
+                          {change.change_type !== "reassigned" && (
+                            <div>
+                              <p className="text-muted-foreground mb-1">Thời gian:</p>
+                              <div className="flex items-center gap-2">
+                                <span>{new Date(change.original_start).toLocaleDateString("vi-VN")}</span>
+                                <ArrowRight className="h-4 w-4" />
+                                <span className="font-medium text-blue-600">
+                                  {new Date(change.new_start).toLocaleDateString("vi-VN")}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          )}
 
-                        {change.new_assignee && change.new_assignee !== change.original_assignee && (
-                          <div>
-                            <p className="text-muted-foreground mb-1">Người thực hiện:</p>
-                            <div className="flex items-center gap-2">
-                              <span>{change.original_assignee || "Chưa phân công"}</span>
-                              <ArrowRight className="h-4 w-4" />
-                              <span className="font-medium text-green-600">{change.new_assignee}</span>
+                          {change.new_assignee && change.new_assignee !== change.original_assignee && (
+                            <div>
+                              <p className="text-muted-foreground mb-1">Người thực hiện:</p>
+                              <div className="flex items-center gap-2">
+                                <span>{change.original_assignee || "Chưa phân công"}</span>
+                                <ArrowRight className="h-4 w-4" />
+                                <span className="font-medium text-green-600">{change.new_assignee}</span>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
+                          )}
+                        </div>
 
-                      <div className="pt-2 border-t">
-                        <p className="text-sm text-muted-foreground">
-                          <span className="font-medium">Lý do: </span>
-                          {change.reason}
-                        </p>
-                        <p className="text-sm text-green-600 mt-1">
-                          <span className="font-medium">Tác động: </span>
-                          {change.impact}
-                        </p>
+                        <div className="pt-2 border-t">
+                          <p className="text-sm text-muted-foreground">
+                            <span className="font-medium">Lý do: </span>
+                            {change.reason}
+                          </p>
+                          <p className="text-sm text-green-600 mt-1">
+                            <span className="font-medium">Tác động: </span>
+                            {change.impact}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
+                    ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
@@ -819,7 +747,7 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Biểu đồ Gantt</CardTitle>
+            <CardTitle>Biểu đồ Gantt - Đã tối ưu hóa tự động</CardTitle>
             <div className="flex items-center gap-4">
               {/* View Mode Selection */}
               <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewMode)}>
@@ -839,72 +767,62 @@ export function GanttChart({ projectId, onOptimize }: GanttChartProps) {
                 </TabsList>
               </Tabs>
 
+              {/* Controls */}
               <div className="flex items-center gap-2">
-                {optimizedData && (
-                  <Button
-                    variant={showOptimized ? "default" : "outline"}
-                    onClick={() => setShowOptimized(!showOptimized)}
-                    size="sm"
-                  >
-                    {showOptimized ? "Xem lịch gốc" : "Xem lịch tối ưu"}
-                  </Button>
-                )}
-                <div className="flex gap-1">
-                  <Button variant="outline" size="icon" onClick={handleZoomOut}>
-                    <ZoomOutIcon className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={handleZoomIn}>
-                    <ZoomInIcon className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={handleScrollLeft}>
-                    <ChevronLeftIcon className="h-4 w-4" />
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={handleScrollRight}>
-                    <ChevronRightIcon className="h-4 w-4" />
-                  </Button>
-                </div>
+                <Button variant="outline" size="sm" onClick={handleScrollLeft}>
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleScrollRight}>
+                  <ChevronRightIcon className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleZoomOut}>
+                  <ZoomOutIcon className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleZoomIn}>
+                  <ZoomInIcon className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.location.reload()}
+                  disabled={isLoading}
+                >
+                  <RefreshCwIcon className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                </Button>
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="w-full h-[600px] overflow-hidden border rounded-lg">
-            {isLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <RefreshCwIcon className="h-8 w-8 animate-spin text-muted-foreground" />
+          {isLoading ? (
+            <div className="flex items-center justify-center h-96">
+              <div className="text-center">
+                <RefreshCwIcon className="h-8 w-8 animate-spin mx-auto mb-4" />
+                <p className="text-muted-foreground">Đang tải và tối ưu hóa dự án...</p>
               </div>
-            ) : (
-              <canvas ref={canvasRef} className="w-full h-full" style={{ width: "100%", height: "100%" }} />
-            )}
-          </div>
-
-          {/* Chart Legend */}
-          <div className="mt-4 flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-blue-500 rounded"></div>
-              <span>Chưa bắt đầu</span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-orange-500 rounded"></div>
-              <span>Đang thực hiện</span>
+          ) : projectData ? (
+            <div className="relative">
+              <canvas
+                ref={canvasRef}
+                className="w-full border rounded-lg"
+                style={{ height: `${Math.max(400, (projectData.tasks?.length || 0) * 45 + 120)}px` }}
+              />
+              {optimizationResult && (
+                <div className="absolute top-4 right-4 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                  ✨ Đã tối ưu hóa
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-green-500 rounded"></div>
-              <span>Hoàn thành</span>
+          ) : (
+            <div className="flex items-center justify-center h-96">
+              <div className="text-center">
+                <AlertCircle className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
+                <h3 className="text-lg font-medium mb-2">Không có dữ liệu</h3>
+                <p className="text-muted-foreground">Không thể tải dữ liệu dự án hoặc dự án chưa có công việc nào.</p>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-red-500 rounded"></div>
-              <span>Quá hạn</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0 border-t-2 border-dashed border-gray-400"></div>
-              <span>Phụ thuộc</span>
-            </div>
-            <div className="flex items-center gap-2 ml-4">
-              <span className="text-muted-foreground">Chế độ xem:</span>
-              <Badge variant="outline">{viewMode === "day" ? "Ngày" : viewMode === "week" ? "Tuần" : "Tháng"}</Badge>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>
