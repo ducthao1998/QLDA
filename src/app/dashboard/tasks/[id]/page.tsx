@@ -24,6 +24,7 @@ import { format } from "date-fns"
 import { vi } from "date-fns/locale"
 import type { RaciRole, TaskStatus } from "@/app/types/table-types"
 import { cn } from "@/lib/utils"
+import { DependencyTreeVisualization } from "@/components/task/dependency-tree-visualization"
 
 // Định nghĩa kiểu dữ liệu chi tiết cho task sau khi query
 type UserInfo = { id: string; full_name: string | null; position: string | null }
@@ -34,16 +35,11 @@ type TaskDetail = {
   name: string
   note: string | null
   status: TaskStatus
-  start_date: string | null
-  end_date: string | null
   project_id: string
-  phase_id: string | null
   unit_in_charge: string | null
-  legal_basis: string | null
-  max_retries: number | null
   template_id: number | null
+  duration_days: number | null
   projects: { id: string; name: string } | null
-  project_phases: { id: string; name: string } | null
   task_templates: { id: number; name: string } | null
   task_raci: RaciInfo[]
   task_skills: { skills: { id: number; name: string } | null }[]
@@ -98,10 +94,9 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
   const { data: task, error } = await supabase
     .from("tasks")
     .select(`
-        id, name, note, status, start_date, end_date, project_id, phase_id,
-        unit_in_charge, legal_basis, max_retries, template_id,
+        id, name, note, status,project_id,
+        unit_in_charge, template_id, duration_days,
         projects ( id, name ),
-        project_phases ( id, name ),
         task_templates ( id, name ),
         task_raci ( role, users ( id, full_name, position ) ),
         task_skills ( skills ( id, name ) )
@@ -120,7 +115,6 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
 
   const responsibleUser = task.task_raci.find((r) => r.role === "R")?.users
   const accountableUser = task.task_raci.find((r) => r.role === "A")?.users
-  const daysRemaining = getDaysRemaining(task.end_date)
   const statusInfo = statusMap[task.status] || statusMap.todo
 
   return (
@@ -181,32 +175,7 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
             </CardContent>
           </Card>
 
-          {/* Thông tin pháp lý và đơn vị */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <ScaleIcon className="h-5 w-5" />
-                  Cơ sở pháp lý
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm">{task.legal_basis || "Không có cơ sở pháp lý cụ thể"}</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <BuildingIcon className="h-5 w-5" />
-                  Đơn vị phụ trách
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm">{task.unit_in_charge || "Chưa xác định đơn vị phụ trách"}</p>
-              </CardContent>
-            </Card>
-          </div>
+       
 
           {/* Phân công RACI */}
           <Card>
@@ -241,6 +210,11 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
               )}
             </CardContent>
           </Card>
+             {/* Dependency Tree Visualization */}
+   <DependencyTreeVisualization
+        projectId={task.project_id}
+        currentTaskId={task.id.toString()}
+      />
         </div>
 
         {/* Cột phải: Thông tin tóm tắt */}
@@ -284,15 +258,8 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
                   </div>
                 </div>
 
-                <Separator />
 
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground flex items-center gap-1">
-                    <LayersIcon className="h-3 w-3" />
-                    Giai đoạn:
-                  </span>
-                  <span className="font-semibold text-sm">{task.project_phases?.name || "Chưa xác định"}</span>
-                </div>
+                <Separator />
 
                 {task.template_id && (
                   <div className="flex justify-between items-center">
@@ -320,58 +287,14 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
             <CardContent className="space-y-4">
               <div className="space-y-3">
                 <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Ngày bắt đầu:</span>
-                  <span className="font-semibold text-sm">{formatDate(task.start_date)}</span>
+                  <span className="text-sm text-muted-foreground">Khoảng thời gian hoàn thành công việc:</span>
+                  <span className="font-semibold text-sm">{task.duration_days}</span>
                 </div>
-
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Ngày kết thúc:</span>
-                  <span className="font-semibold text-sm">{formatDate(task.end_date)}</span>
-                </div>
-
-                {daysRemaining !== null && (
-                  <>
-                    <Separator />
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-muted-foreground flex items-center gap-1">
-                        <ClockIcon className="h-3 w-3" />
-                        Thời gian còn lại:
-                      </span>
-                      <Badge
-                        variant={daysRemaining < 0 ? "destructive" : daysRemaining <= 3 ? "secondary" : "outline"}
-                        className="text-xs"
-                      >
-                        {daysRemaining < 0
-                          ? `Quá hạn ${Math.abs(daysRemaining)} ngày`
-                          : daysRemaining === 0
-                            ? "Hết hạn hôm nay"
-                            : `Còn ${daysRemaining} ngày`}
-                      </Badge>
-                    </div>
-                  </>
-                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Cấu hình nâng cao */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <RefreshCwIcon className="h-5 w-5" />
-                Cấu hình nâng cao
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Số lần thử lại tối đa:</span>
-                <Badge variant="outline" className="text-xs">
-                  {task.max_retries ?? "Không giới hạn"}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-
+          
           {/* Kỹ năng yêu cầu */}
           <Card>
             <CardHeader>

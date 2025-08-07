@@ -27,9 +27,6 @@ export async function GET(
         id,
         name,
         status,
-        start_date,
-        end_date,
-        phase_id,
         project_id,
         task_raci (
           role,
@@ -42,7 +39,6 @@ export async function GET(
       `,
       )
       .eq('project_id', projectId)
-      .order('start_date', { ascending: true, nullsFirst: false }); // Sắp xếp theo ngày bắt đầu
 
     if (tasksError) {
       console.error('Lỗi khi lấy danh sách công việc:', tasksError)
@@ -102,12 +98,12 @@ export async function POST(
     }
 
     // Lấy phases cho project
-    const { data: phases, error: phasesError } = await supabase
-      .from('project_phases')
-      .select('id, name')
-      .eq('project_id', projectId)
+    // const { data: phases, error: phasesError } = await supabase
+    //   .from('project_phases')
+    //   .select('id, name')
+    //   .eq('project_id', projectId)
 
-    if (phasesError) throw phasesError;
+    // if (phasesError) throw phasesError;
 
     // Tạo tasks theo thứ tự sequence_order để đảm bảo dependencies được tạo đúng
     const sortedTemplates = templates.sort((a, b) => a.sequence_order - b.sequence_order)
@@ -124,7 +120,7 @@ export async function POST(
         template_id: template.id,
         duration_days: template.default_duration_days,
         // Tạm thời không set phase_id, có thể cập nhật sau
-        phase_id: phases?.[0]?.id || null,
+        // phase_id: phases?.[0]?.id || null,
       }
 
       const { data: insertedTask, error: insertError } = await supabase

@@ -106,7 +106,7 @@ export function AutoAssignRaciModal({
 
     try {
       const response = await fetch(
-        `/api/projects/${projectId}/auto-assign-raci?task_ids=${selectedTasks.join(',')}`,
+        `/api/tasks/auto-assign-raci?task_ids=${selectedTasks.join(',')}&project_id=${projectId}`,
         {
           method: 'GET'
         }
@@ -139,13 +139,14 @@ export function AutoAssignRaciModal({
     setIsLoading(true)
 
     try {
-      const response = await fetch(`/api/projects/${projectId}/auto-assign-raci`, {
+      const response = await fetch(`/api/tasks/auto-assign-raci`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           task_ids: selectedTasks,
+          project_id: projectId,
           max_concurrent_tasks: maxConcurrentTasks
         })
       })

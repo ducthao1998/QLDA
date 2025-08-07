@@ -7,7 +7,9 @@ import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Info, AlertCircle } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Info, AlertCircle, Bot, Loader2, HelpCircle } from 'lucide-react'
+import { AssignmentExplanationTooltip } from '../assignment-explanation-tooltip'
 
 export type RaciAssignment = {
   user_id: string
@@ -20,6 +22,8 @@ interface TaskAssignmentsTabProps {
   onRaciChange?: (assignments: RaciAssignment[]) => void
   // Initial RACI assignments
   initialAssignments?: RaciAssignment[]
+  // Project ID for auto assignment
+  projectId?: string
 }
 
 const roleDescriptions = {
@@ -29,12 +33,14 @@ const roleDescriptions = {
   I: 'Informed - Người được thông báo'
 }
 
-export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = [] }: TaskAssignmentsTabProps) {
+export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = [], projectId }: TaskAssignmentsTabProps) {
   const [allUsers, setAllUsers] = useState<User[]>([])
   const [raci, setRaci] = useState<RaciAssignment[]>(initialAssignments)
   const [loading, setLoading] = useState(true)
   const [loadingRaci, setLoadingRaci] = useState(true)
   const [hasChanges, setHasChanges] = useState(false)
+  const [isAutoAssigning, setIsAutoAssigning] = useState(false)
+  const [autoAssignedUsers, setAutoAssignedUsers] = useState<Set<string>>(new Set())
 
   // Load users on mount
   useEffect(() => {
@@ -137,6 +143,64 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
     return user?.full_name || 'Unknown User'
   }
 
+  const handleAutoAssign = async () => {
+    if (!projectId || !task.id) {
+      toast.error('Thiếu thông tin dự án hoặc công việc')
+      return
+    }
+
+    try {
+      setIsAutoAssigning(true)
+      
+      const response = await fetch(`/api/tasks/auto-assign-raci`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          task_ids: [task.id],
+          project_id: projectId,
+          max_concurrent_tasks: 2
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Không thể tự động phân công')
+      }
+
+      const result = await response.json()
+      
+      if (result.success && result.assignments.length > 0) {
+        const assignment = result.assignments[0]
+        
+        // Cập nhật RACI với kết quả auto assign
+        setRaci([{
+          user_id: assignment.user_id,
+          role: 'R' as RaciRole
+        }])
+        
+        // Track user được auto-assign
+        setAutoAssignedUsers(new Set([assignment.user_id]))
+        
+        setHasChanges(true)
+        
+        toast.success(
+          `Đã tự động phân công cho ${assignment.user_name} (độ tin cậy: ${Math.round(assignment.confidence_score * 100)}%)`
+        )
+      } else if (result.unassigned && result.unassigned.length > 0) {
+        toast.warning(`Không thể tự động phân công: ${result.unassigned[0].reason}`)
+      } else {
+        toast.warning('Không tìm thấy người phù hợp để phân công')
+      }
+      
+    } catch (error) {
+      console.error('Error auto assigning:', error)
+      toast.error('Có lỗi xảy ra khi tự động phân công')
+    } finally {
+      setIsAutoAssigning(false)
+    }
+  }
+
   if (loading || loadingRaci) {
     return (
       <Card>
@@ -185,7 +249,31 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
         )}
 
         <div className="mb-4 p-3 bg-muted/50 rounded-lg">
-          <p className="text-sm font-medium mb-2">Giải thích vai trò:</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Giải thích vai trò:</p>
+            {projectId && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAutoAssign}
+                disabled={isAutoAssigning}
+                className="gap-2"
+              >
+                {isAutoAssigning ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Đang phân công...
+                  </>
+                ) : (
+                  <>
+                    <Bot className="h-4 w-4" />
+                    Tự động phân công
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
             {Object.entries(roleDescriptions).map(([role, desc]) => (
               <div key={role} className="flex items-center gap-2">
@@ -232,14 +320,33 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
           <div className="mt-4 p-3 bg-muted/30 rounded-lg">
             <p className="text-sm font-medium mb-2">Phân công hiện tại:</p>
             <div className="space-y-1">
-              {raci.map(assignment => (
-                <div key={assignment.user_id} className="flex items-center gap-2 text-sm">
-                  <Badge variant="outline" className="w-8 justify-center">
-                    {assignment.role}
-                  </Badge>
-                  <span>{getUserName(assignment.user_id)}</span>
-                </div>
-              ))}
+              {raci.map(assignment => {
+                const isAutoAssigned = autoAssignedUsers.has(assignment.user_id) && assignment.role === 'R'
+                return (
+                  <div key={assignment.user_id} className="flex items-center gap-2 text-sm">
+                    <Badge variant="outline" className="w-8 justify-center">
+                      {assignment.role}
+                    </Badge>
+                    {isAutoAssigned ? (
+                      <AssignmentExplanationTooltip
+                        taskId={task.id.toString()}
+                        userId={assignment.user_id}
+                        isAutoAssigned={true}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{getUserName(assignment.user_id)}</span>
+                          <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                            <Bot className="h-3 w-3 mr-1" />
+                            Auto
+                          </Badge>
+                        </div>
+                      </AssignmentExplanationTooltip>
+                    ) : (
+                      <span>{getUserName(assignment.user_id)}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

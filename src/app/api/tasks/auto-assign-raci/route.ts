@@ -3,16 +3,12 @@ import { NextResponse } from 'next/server'
 import { buildExperienceMatrix } from '@/algorithm/experience-matrix'
 import { constrainedHungarianAssignment, type Task, type User } from '@/algorithm/hungarian-assignment'
 
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(req: Request) {
   const supabase = await createClient()
-  const { id: projectId } = await params
 
   try {
     const body = await req.json()
-    const { task_ids, max_concurrent_tasks = 2 } = body
+    const { task_ids, project_id, max_concurrent_tasks = 2 } = body
 
     if (!task_ids || !Array.isArray(task_ids) || task_ids.length === 0) {
       return NextResponse.json(
@@ -20,6 +16,18 @@ export async function POST(
         { status: 400 }
       )
     }
+
+    if (!project_id) {
+      return NextResponse.json(
+        { error: 'Cần cung cấp project_id' },
+        { status: 400 }
+      )
+    }
+
+    console.log('=== AUTO ASSIGN RACI DEBUG ===')
+    console.log('Task IDs:', task_ids)
+    console.log('Project ID:', project_id)
+    console.log('Max concurrent tasks:', max_concurrent_tasks)
 
     // === BƯỚC 1: LẤY THÔNG TIN CÁC TASKS CẦN PHÂN CÔNG ===
     const { data: tasksData, error: tasksError } = await supabase
@@ -32,7 +40,10 @@ export async function POST(
         task_skills(skill_id)
       `)
       .in('id', task_ids)
-      .eq('project_id', projectId)
+      .eq('project_id', project_id)
+
+    console.log('Tasks data:', tasksData)
+    console.log('Tasks error:', tasksError)
 
     if (tasksError || !tasksData || tasksData.length === 0) {
       return NextResponse.json(
@@ -75,12 +86,15 @@ export async function POST(
       taskSkillsMap.set(task.id, requiredSkills)
     }
 
+    console.log('Task skills map:', Object.fromEntries(taskSkillsMap))
+    console.log('All skills:', Array.from(allSkills))
+
     // === BƯỚC 3: LẤY DANH SÁCH USERS TRONG DỰ ÁN ===
     // Lấy tất cả users trong cùng org_unit với project creator
     const { data: project } = await supabase
       .from('projects')
       .select('created_by, users!created_by(org_unit)')
-      .eq('id', projectId)
+      .eq('id', project_id)
       .single()
 
     if (!project) {
@@ -109,6 +123,8 @@ export async function POST(
       `)
       .eq('org_unit', orgUnit)
 
+    console.log('Project members:', projectMembers)
+
     if (!projectMembers || projectMembers.length === 0) {
       return NextResponse.json({
         error: 'Không có thành viên nào trong đơn vị của dự án',
@@ -118,7 +134,7 @@ export async function POST(
 
     const userIds = projectMembers.map((pm: any) => pm.id).filter(Boolean)
 
-    // === BƯỚC 4: TÍNH WORKLOAD HIỆN TẠI CỦA TỪNG USER ===
+    // === BƯỚC 4: TÍNH WORKLOAD HIỆN TẠI CỦA TỪNG USER (TẤT CẢ DỰ ÁN) ===
     const { data: currentWorkloads } = await supabase
       .from('task_raci')
       .select(`
@@ -126,23 +142,42 @@ export async function POST(
         tasks!inner(
           id,
           status,
-          project_id
+          project_id,
+          projects!inner(
+            id,
+            name,
+            status
+          )
         )
       `)
       .eq('role', 'R')
       .in('tasks.status', ['todo', 'in_progress', 'review', 'blocked'])
       .in('user_id', userIds)
+      .in('tasks.projects.status', ['active', 'planning']) // Chỉ tính dự án đang hoạt động
 
-    // Đếm workload cho mỗi user
+    console.log('Current workloads (all projects):', currentWorkloads)
+
+    // Đếm workload cho mỗi user từ tất cả dự án
     const userWorkloadMap = new Map<string, number>()
+    const userProjectsMap = new Map<string, Set<string>>() // Track projects per user
+    
     currentWorkloads?.forEach(item => {
       if (item.user_id) {
-        userWorkloadMap.set(
-          item.user_id,
-          (userWorkloadMap.get(item.user_id) || 0) + 1
-        )
+        const currentCount = userWorkloadMap.get(item.user_id) || 0
+        userWorkloadMap.set(item.user_id, currentCount + 1)
+        
+        // Track projects
+        if (!userProjectsMap.has(item.user_id)) {
+          userProjectsMap.set(item.user_id, new Set())
+        }
+        userProjectsMap.get(item.user_id)?.add((item.tasks as any).project_id)
       }
     })
+
+    console.log('User workload map (all projects):', Object.fromEntries(userWorkloadMap))
+    console.log('User projects count:', Object.fromEntries(
+      Array.from(userProjectsMap.entries()).map(([userId, projects]) => [userId, projects.size])
+    ))
 
     // === BƯỚC 5: TẠO DANH SÁCH USERS CHO THUẬT TOÁN ===
     const availableUsers: User[] = projectMembers.map((pm: any) => {
@@ -154,30 +189,30 @@ export async function POST(
       }
     })
 
+    console.log('Available users:', availableUsers)
+
     // === BƯỚC 6: XÂY DỰNG EXPERIENCE MATRIX ===
     const experienceMatrix = await buildExperienceMatrix(
       userIds,
       Array.from(allSkills),
     )
 
-    // Debug: Kiểm tra experience matrix
     console.log('Experience Matrix:', experienceMatrix)
-    console.log('All Skills:', Array.from(allSkills))
-    console.log('User IDs:', userIds)
 
     // === BƯỚC 7: TẠO DANH SÁCH TASKS CHO THUẬT TOÁN ===
     const algorithmTasks: Task[] = tasksData.map(task => ({
       id: task.id,
       name: task.name,
       required_skills: taskSkillsMap.get(task.id) || [],
-      priority: 1, // Có thể tính từ task properties
-      estimated_hours: 8 // Có thể lấy từ task duration
+      priority: 1,
+      estimated_hours: 8
     }))
 
-    // === BƯỚC 8: SỬ DỤNG HUNGARIAN ASSIGNMENT ===
     console.log('Algorithm Tasks:', algorithmTasks)
-    console.log('Available Users:', availableUsers)
-    console.log('Available Users (filtered by workload):', availableUsers.filter(u => u.current_workload < max_concurrent_tasks))
+
+    // === BƯỚC 8: SỬ DỤNG HUNGARIAN ASSIGNMENT ===
+    const filteredUsers = availableUsers.filter(u => u.current_workload < max_concurrent_tasks)
+    console.log('Filtered users (by workload):', filteredUsers)
     
     const assignments = constrainedHungarianAssignment(
       algorithmTasks,
@@ -194,6 +229,8 @@ export async function POST(
 
     for (const assignment of assignments) {
       try {
+        console.log(`Assigning task ${assignment.task_id} to user ${assignment.user_id}`)
+        
         // Xóa RACI cũ của task (nếu có)
         await supabase
           .from('task_raci')
@@ -210,6 +247,7 @@ export async function POST(
           })
 
         if (insertError) {
+          console.error('Insert error:', insertError)
           errors.push({
             task_id: assignment.task_id,
             error: insertError.message
@@ -228,6 +266,7 @@ export async function POST(
           })
         }
       } catch (error: any) {
+        console.error('Assignment error:', error)
         errors.push({
           task_id: assignment.task_id,
           error: error.message
@@ -244,6 +283,10 @@ export async function POST(
         reason: 'Không tìm thấy người phù hợp hoặc tất cả đều đã bận'
       }))
 
+    console.log('Final results:', results)
+    console.log('Unassigned tasks:', unassignedTasks)
+    console.log('Errors:', errors)
+
     return NextResponse.json({
       success: true,
       message: `Đã phân công ${results.length}/${tasksData.length} công việc`,
@@ -253,8 +296,10 @@ export async function POST(
       debug: {
         total_tasks: tasksData.length,
         total_users: availableUsers.length,
-        available_users: availableUsers.filter(u => u.current_workload < max_concurrent_tasks).length,
-        algorithm_used: 'experience_matrix + constrained_hungarian'
+        available_users: filteredUsers.length,
+        algorithm_used: 'experience_matrix + constrained_hungarian',
+        experience_matrix_size: Object.keys(experienceMatrix).length,
+        skills_count: allSkills.size
       }
     })
 
@@ -263,53 +308,6 @@ export async function POST(
     return NextResponse.json({
       error: error.message,
       assignments: []
-    }, { status: 500 })
-  }
-}
-
-// GET endpoint để xem preview phân công mà không lưu vào DB
-export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
-  const supabase = await createClient()
-  const { id: projectId } = params
-  const { searchParams } = new URL(req.url)
-  const taskIds = searchParams.get('task_ids')?.split(',') || []
-
-  if (taskIds.length === 0) {
-    return NextResponse.json(
-      { error: 'Cần cung cấp task_ids trong query params' },
-      { status: 400 }
-    )
-  }
-
-  try {
-    // Sử dụng logic tương tự như POST nhưng không lưu vào DB
-    const { data: tasksData } = await supabase
-      .from('tasks')
-      .select('id, name, template_id, task_skills(skill_id)')
-      .in('id', taskIds)
-      .eq('project_id', projectId)
-
-    if (!tasksData || tasksData.length === 0) {
-      return NextResponse.json({
-        preview: [],
-        message: 'Không tìm thấy tasks'
-      })
-    }
-
-    // Logic tương tự như POST...
-    // (Có thể extract thành helper function để tái sử dụng)
-
-    return NextResponse.json({
-      preview: [], // Kết quả preview
-      message: 'Đây là preview, chưa lưu vào database'
-    })
-
-  } catch (error: any) {
-    return NextResponse.json({
-      error: error.message
     }, { status: 500 })
   }
 }

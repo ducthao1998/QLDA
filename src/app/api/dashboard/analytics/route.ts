@@ -65,7 +65,7 @@ async function getOverviewMetrics(supabase: any, from: string, to: string, orgUn
 
     const { data: projects } = await projectsQuery
 
-    const activeProjects = projects?.filter((p) => ["active", "in_progress"].includes(p.status)).length || 0
+    const activeProjects = projects?.filter((p:any) => ["active", "in_progress"].includes(p.status)).length || 0
 
     // Total tasks with proper join
     let tasksQuery = supabase
@@ -88,10 +88,10 @@ async function getOverviewMetrics(supabase: any, from: string, to: string, orgUn
 
     const { data: tasks } = await tasksQuery
 
-    const completedTasks = tasks?.filter((t) => ["done", "completed"].includes(t.status)).length || 0
+    const completedTasks = tasks?.filter((t:any) => ["done", "completed"].includes(t.status)).length || 0
 
     const overdueTasks =
-      tasks?.filter((t) => !["done", "completed"].includes(t.status) && t.end_date && new Date(t.end_date) < new Date())
+      tasks?.filter((t:any) => !["done", "completed"].includes(t.status) && t.end_date && new Date(t.end_date) < new Date())
         .length || 0
 
     // Users count
@@ -187,31 +187,31 @@ async function getTaskStatistics(supabase: any, from: string, to: string, orgUni
     }))
 
     // By phase
-    const { data: tasksByPhase } = await supabase
-      .from("tasks")
-      .select(`
-        phase_id,
-        status,
-        project_phases(name)
-      `)
-      .not("phase_id", "is", null)
+    // const { data: tasksByPhase } = await supabase
+    //   .from("tasks")
+    //   .select(`
+    //     phase_id,
+    //     status,
+    //     project_phases(name)
+    //   `)
+    //   .not("phase_id", "is", null)
 
-    const phaseStats = new Map()
-    tasksByPhase?.forEach((task: any) => {
-      const phaseName = task.project_phases?.name || "Unknown Phase"
-      if (!phaseStats.has(phaseName)) {
-        phaseStats.set(phaseName, { total: 0, completed: 0 })
-      }
-      const stats = phaseStats.get(phaseName)
-      stats.total++
-      if (["done", "completed"].includes(task.status)) stats.completed++
-    })
+    // const phaseStats = new Map()
+    // tasksByPhase?.forEach((task: any) => {
+    //   const phaseName = task.project_phases?.name || "Unknown Phase"
+    //   if (!phaseStats.has(phaseName)) {
+    //     phaseStats.set(phaseName, { total: 0, completed: 0 })
+    //   }
+    //   const stats = phaseStats.get(phaseName)
+    //   stats.total++
+    //   if (["done", "completed"].includes(task.status)) stats.completed++
+    // })
 
-    const byPhase = Array.from(phaseStats.entries()).map(([name, stats]: any) => ({
-      phase_name: name,
-      count: stats.total,
-      completion_rate: stats.total > 0 ? (stats.completed / stats.total) * 100 : 0,
-    }))
+    // const byPhase = Array.from(phaseStats.entries()).map(([name, stats]: any) => ({
+    //   phase_name: name,
+    //   count: stats.total,
+    //   completion_rate: stats.total > 0 ? (stats.completed / stats.total) * 100 : 0,
+    // }))
 
     // By classification
     const { data: tasksByClassification } = await supabase.from("tasks").select(`
@@ -240,7 +240,7 @@ async function getTaskStatistics(supabase: any, from: string, to: string, orgUni
     return {
       by_status: byStatus,
       by_template: byTemplate,
-      by_phase: byPhase,
+      // by_phase: byPhase,
       by_classification: byClassification,
     }
   } catch (error) {

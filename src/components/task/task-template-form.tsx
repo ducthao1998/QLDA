@@ -32,12 +32,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { BarChart2Icon, Loader2, Link, AlertTriangle, Info } from 'lucide-react'
 
-const PROJECT_PHASES = [
-  'Khởi tạo & Lập kế hoạch',
-  'Thực thi & Giám sát',
-  'Nghiệm thu & Đóng dự án',
-  'Bảo hành & Hỗ trợ',
-]
+
 
 const PROJECT_CLASSIFICATIONS = [
   { id: 'A', label: 'Nhóm A' },

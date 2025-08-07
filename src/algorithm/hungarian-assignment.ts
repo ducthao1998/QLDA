@@ -117,14 +117,14 @@ function findBestUserForTask(
 }
 
 /**
- * Tính điểm phù hợp giữa user và task
+ * Tính điểm phù hợp giữa user và task với ưu tiên kinh nghiệm lĩnh vực
  */
 function calculateUserTaskScore(
   user: User,
   task: Task,
   experienceMatrix: ExperienceMatrix
 ): number {
-  // 1. Experience Score (40% trọng số)
+  // 1. Field Experience Score (50% trọng số) - Ưu tiên cao nhất cho kinh nghiệm lĩnh vực
   const experienceScores = task.required_skills.map(skillId => 
     getExperienceScore(experienceMatrix, user.id, skillId)
   )
@@ -132,13 +132,28 @@ function calculateUserTaskScore(
     ? experienceScores.reduce((sum, score) => sum + score, 0) / experienceScores.length
     : 0
 
-  // 2. Workload Score (30% trọng số) - ưu tiên người ít việc hơn
-  const maxWorkload = Math.min(2, user.max_concurrent_tasks)
-  const workloadScore = maxWorkload > 0 
-    ? (maxWorkload - user.current_workload) / maxWorkload
-    : 0
+  // Bonus cho người có kinh nghiệm cao trong lĩnh vực
+  const experienceBonus = avgExperience > 0.7 ? 0.2 : avgExperience > 0.5 ? 0.1 : 0
+  const fieldExperienceScore = Math.min(1, avgExperience + experienceBonus)
 
-  // 3. Skill Coverage Score (20% trọng số) - có bao nhiêu skills yêu cầu
+  // 2. Workload Balance Score (35% trọng số) - Cân bằng khối lượng công việc
+  // Tính toán workload dựa trên tất cả dự án, không chỉ dự án hiện tại
+  const maxWorkload = Math.min(3, user.max_concurrent_tasks) // Tăng lên 3 để xử lý nhiều dự án
+  const workloadRatio = user.current_workload / maxWorkload
+  
+  // Ưu tiên mạnh cho người có workload thấp
+  let workloadScore = 0
+  if (workloadRatio === 0) {
+    workloadScore = 1.0 // Hoàn toàn rảnh
+  } else if (workloadRatio <= 0.33) {
+    workloadScore = 0.8 // Ít việc
+  } else if (workloadRatio <= 0.66) {
+    workloadScore = 0.5 // Vừa phải
+  } else {
+    workloadScore = 0.2 // Bận
+  }
+
+  // 3. Skill Coverage Score (10% trọng số) - Có đủ kỹ năng yêu cầu
   const skillCoverage = task.required_skills.filter(skillId => 
     getExperienceScore(experienceMatrix, user.id, skillId) > 0
   ).length
@@ -146,18 +161,29 @@ function calculateUserTaskScore(
     ? skillCoverage / task.required_skills.length
     : 1
 
-  // 4. Availability Score (10% trọng số)
-  const availabilityScore = user.current_workload === 0 ? 1 : 0.7
+  // 4. Specialization Score (5% trọng số) - Chuyên môn hóa
+  const hasHighExpertise = experienceScores.some(score => score > 0.8)
+  const specializationScore = hasHighExpertise ? 1 : 0.5
 
-  // Tính tổng điểm có trọng số
-  const totalScore = (
-    avgExperience * 0.4 +
-    workloadScore * 0.3 +
-    skillCoverageScore * 0.2 +
-    availabilityScore * 0.1
+  // Tính tổng điểm có trọng số (ưu tiên kinh nghiệm và workload)
+  let totalScore = (
+    fieldExperienceScore * 0.5 +
+    workloadScore * 0.35 +
+    skillCoverageScore * 0.1 +
+    specializationScore * 0.05
   )
 
-  return totalScore
+  // FALLBACK: Nếu không có experience data, ưu tiên workload
+  if (avgExperience === 0 && skillCoverageScore === 0) {
+    totalScore = workloadScore * 0.8 + (user.current_workload === 0 ? 0.2 : 0.1)
+    
+    // Đảm bảo có điểm tối thiểu
+    if (totalScore === 0) {
+      totalScore = 0.05
+    }
+  }
+
+  return Math.min(1, totalScore) // Đảm bảo không vượt quá 1
 }
 
 /**

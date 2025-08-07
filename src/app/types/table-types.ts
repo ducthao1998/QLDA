@@ -61,7 +61,7 @@ export interface Project {
     position: string
     org_unit: string
   }
-  user_statistics: {
+  user_statistics?: {
     by_user: Array<{
       user_id: string
       full_name: string
@@ -90,7 +90,7 @@ export interface Project {
       completion_rate: number
     }>
   }
-  time_statistics: {
+  time_statistics?: {
     monthly_trends: Array<{
       month: string
       completed_tasks: number
@@ -112,7 +112,7 @@ export interface Project {
       on_time_rate: number
     }>
   }
-  advanced_analytics: {
+  advanced_analytics?: {
     bottlenecks: Array<{
       type: string
       description: string
@@ -309,10 +309,125 @@ export interface DashboardData {
     by_status: Array<{ status: string; count: number; percentage: number }>
     by_template: Array<{ template_name: string; count: number; avg_duration: number }>
     by_classification: Array<{ classification: string; count: number; avg_progress: number }>
-  }}
-
+  }
+  user_statistics: {
+    by_user: Array<{
+      user_id: string
+      full_name: string
+      position: string
+      org_unit: string
+      total_tasks: number
+      completed_tasks: number
+      in_progress_tasks: number
+      overdue_tasks: number
+      completion_rate: number
+      avg_task_duration: number
+      workload_score: number
+    }>
+    skills_utilization: Array<{
+      skill_name: string
+      skill_field: string
+      users_count: number
+      tasks_count: number
+      utilization_rate: number
+    }>
+    workload_distribution: Array<{
+      org_unit: string
+      total_users: number
+      total_tasks: number
+      avg_workload: number
+      completion_rate: number
+    }>
+  }
+  time_statistics: {
+    monthly_trends: Array<{
+      month: string
+      completed_tasks: number
+      created_tasks: number
+      overdue_tasks: number
+      completion_rate: number
+    }>
+    weekly_productivity: Array<{
+      week: string
+      productivity_score: number
+      tasks_completed: number
+      avg_completion_time: number
+    }>
+    deadline_performance: Array<{
+      period: string
+      on_time: number
+      late: number
+      early: number
+      on_time_rate: number
+    }>
+  }
+  advanced_analytics: {
+    bottlenecks: Array<{
+      type: string
+      description: string
+      impact_score: number
+      affected_tasks: number
+      recommendations: string[]
+    }>
+    predictions: {
+      project_completion_forecast: Array<{
+        project_name: string
+        predicted_completion: string
+        confidence: number
+        risk_factors: string[]
+      }>
+      resource_needs: Array<{
+        skill_name: string
+        current_capacity: number
+        predicted_demand: number
+        gap: number
+      }>
+    }
+    kpis: {
+      efficiency_score: number        // Hiệu suất thực hiện
+      quality_score: number          // Chất lượng công việc  
+      resource_utilization: number   // Sử dụng nguồn lực
+      compliance_score: number       // Tuân thủ quy trình (thay customer_satisfaction)
+      process_optimization: number   // Tối ưu hóa quy trình (thay innovation_index)
+    }
+  }
+}
   export interface TaskTemplateDependency {
     id: number;                      // serial PK (auto)
     template_id: number;             // FK -> task_templates.id (Công việc này)
     depends_on_template_id: number;  // FK -> task_templates.id (...phụ thuộc vào công việc mẫu này)
   }
+
+// ==========================================================
+// SCHEDULE OPTIMIZATION TYPES
+// ==========================================================
+
+// Schedule runs - Lưu trữ các lần chạy tối ưu hóa
+export interface ScheduleRun {
+  id: string
+  project_id: string
+  algorithm_used: string
+  created_at: string
+  parameters: Json
+}
+
+// Schedule details - Lưu trữ lịch trình được tối ưu hóa
+export interface ScheduleDetail {
+  id: string
+  schedule_run_id: string
+  task_id: string
+  assigned_user: string
+  start_ts: string      // Calculated start time
+  finish_ts: string     // Calculated finish time
+  created_at: string
+  updated_at: string
+}
+
+// User skills - Kỹ năng của người dùng
+export interface UserSkill {
+  user_id: string
+  skill_id: number
+  level: number         // 1-5 skill level
+  created_at: string
+  updated_at: string
+}

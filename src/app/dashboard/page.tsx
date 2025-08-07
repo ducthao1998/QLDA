@@ -24,21 +24,7 @@ import {
   AreaChart,
   Area,
 } from "recharts"
-import {
-  TrendingUp,
-  Users,
-  CheckCircle,
-  Clock,
-  AlertTriangle,
-  Target,
-  Calendar,
-  BarChart3,
-  Activity,
-  Award,
-  Zap,
-  Download,
-  RefreshCw,
-} from "lucide-react"
+import { TrendingUp, Users, CheckCircle, Clock, AlertTriangle, Target, Calendar, BarChart3, Activity, Award, RefreshCw, FileText, Building } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { format, subDays, startOfMonth } from "date-fns"
 import { vi } from "date-fns/locale"
@@ -57,7 +43,6 @@ interface DashboardData {
   task_statistics: {
     by_status: Array<{ status: string; count: number; percentage: number }>
     by_template: Array<{ template_name: string; count: number; avg_duration: number }>
-    by_phase: Array<{ phase_name: string; count: number; completion_rate: number }>
     by_classification: Array<{ classification: string; count: number; avg_progress: number }>
   }
   user_statistics: {
@@ -137,8 +122,8 @@ interface DashboardData {
       efficiency_score: number
       quality_score: number
       resource_utilization: number
-      customer_satisfaction: number
-      innovation_index: number
+      compliance_score: number
+      process_optimization: number
     }
   }
 }
@@ -149,7 +134,6 @@ const STATUS_LABELS: Record<string, string> = {
   todo: "Chưa bắt đầu",
   in_progress: "Đang thực hiện",
   review: "Đang xem xét",
-  completed: "Hoàn thành",
   done: "Hoàn thành",
   blocked: "Bị chặn",
   archived: "Lưu trữ",
@@ -178,12 +162,10 @@ export default function DashboardPage() {
         period: selectedPeriod,
         org_unit: selectedOrgUnit,
       })
-
       const response = await fetch(`/api/dashboard/analytics?${params}`)
       if (!response.ok) {
         throw new Error("Failed to fetch dashboard data")
       }
-
       const result = await response.json()
       setData(result)
     } catch (error) {
@@ -251,10 +233,9 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard Phân Tích</h1>
-          <p className="text-muted-foreground">Thống kê toàn diện về dự án, công việc và hiệu suất làm việc</p>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard Quản Lý Dự Án</h1>
+          <p className="text-muted-foreground">Thống kê toàn diện về dự án, công việc và hiệu suất thực hiện</p>
         </div>
-
         <div className="flex items-center gap-4">
           <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
             <SelectTrigger className="w-32">
@@ -268,26 +249,23 @@ export default function DashboardPage() {
               <SelectItem value="month">Tháng này</SelectItem>
             </SelectContent>
           </Select>
-
           <Select value={selectedOrgUnit} onValueChange={setSelectedOrgUnit}>
             <SelectTrigger className="w-40">
               <SelectValue placeholder="Đơn vị" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tất cả đơn vị</SelectItem>
+              <SelectItem value="C12">C12</SelectItem>
               <SelectItem value="Phòng CNTT">Phòng CNTT</SelectItem>
-              <SelectItem value="Phòng Nhân sự">Phòng Nhân sự</SelectItem>
-              <SelectItem value="Phòng Tài chính">Phòng Tài chính</SelectItem>
+              <SelectItem value="Phòng Kế hoạch">Phòng Kế hoạch</SelectItem>
             </SelectContent>
           </Select>
-
           <Button variant="outline" size="sm" onClick={fetchDashboardData}>
             <RefreshCw className="h-4 w-4 mr-2" />
             Làm mới
           </Button>
-
           <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
+            <FileText className="h-4 w-4 mr-2" />
             Xuất báo cáo
           </Button>
         </div>
@@ -302,45 +280,42 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{data.overview.total_projects}</div>
-            <p className="text-xs text-muted-foreground">{data.overview.active_projects} đang hoạt động</p>
+            <p className="text-xs text-muted-foreground">{data.overview.active_projects} đang triển khai</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Tỷ lệ hoàn thành</CardTitle>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.overview.completion_rate.toFixed(1)}%</div>
+            <div className="text-2xl font-bold">{data.overview.completion_rate?.toFixed(1)}%</div>
             <Progress value={data.overview.completion_rate} className="mt-2" />
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Đúng hạn</CardTitle>
+            <CardTitle className="text-sm font-medium">Đúng tiến độ</CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.overview.on_time_rate.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">{data.overview.overdue_tasks} công việc quá hạn</p>
+            <div className="text-2xl font-bold">{data.overview.on_time_rate?.toFixed(1)}%</div>
+            <p className="text-xs text-muted-foreground">{data.overview.overdue_tasks} công việc trễ tiến độ</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Hiệu suất tổng thể</CardTitle>
+            <CardTitle className="text-sm font-medium">Hiệu suất thực hiện</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{data.advanced_analytics.kpis.efficiency_score.toFixed(1)}</div>
+            <div className="text-2xl font-bold">{data.advanced_analytics.kpis.efficiency_score?.toFixed(1)}</div>
             <div className="flex items-center gap-2 mt-2">
               <Badge
                 variant={data.advanced_analytics.kpis.efficiency_score > 80 ? "default" : "secondary"}
                 className="text-xs"
               >
-                {data.advanced_analytics.kpis.efficiency_score > 80 ? "Xuất sắc" : "Tốt"}
+                {data.advanced_analytics.kpis.efficiency_score > 80 ? "Tốt" : "Cần cải thiện"}
               </Badge>
             </div>
           </CardContent>
@@ -364,11 +339,11 @@ export default function DashboardPage() {
           </TabsTrigger>
           <TabsTrigger value="time" className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
-            Thời gian
+            Tiến độ
           </TabsTrigger>
           <TabsTrigger value="advanced" className="flex items-center gap-2">
-            <Zap className="h-4 w-4" />
-            Nâng cao
+            <Activity className="h-4 w-4" />
+            Phân tích
           </TabsTrigger>
         </TabsList>
 
@@ -390,7 +365,7 @@ export default function DashboardPage() {
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      label={({ name, percentage }) => `${name}: ${percentage.toFixed(1)}%`}
+                      label={({ name, percentage }) => `${name}: ${percentage?.toFixed(1)}%`}
                       outerRadius={80}
                       fill="#8884d8"
                       dataKey="count"
@@ -404,7 +379,6 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle>Xu hướng hoàn thành theo tháng</CardTitle>
@@ -437,61 +411,59 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Top 5 KPIs</CardTitle>
+                <CardTitle>Chỉ số hiệu suất chính</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Hiệu suất</span>
+                  <span className="text-sm">Hiệu suất thực hiện</span>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.efficiency_score} className="w-20" />
                     <span className="text-sm font-medium">
-                      {data.advanced_analytics.kpis.efficiency_score.toFixed(1)}%
+                      {data.advanced_analytics.kpis.efficiency_score?.toFixed(1)}%
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Chất lượng</span>
+                  <span className="text-sm">Chất lượng công việc</span>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.quality_score} className="w-20" />
                     <span className="text-sm font-medium">
-                      {data.advanced_analytics.kpis.quality_score.toFixed(1)}%
+                      {data.advanced_analytics.kpis.quality_score?.toFixed(1)}%
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Sử dụng tài nguyên</span>
+                  <span className="text-sm">Sử dụng nguồn lực</span>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.resource_utilization} className="w-20" />
                     <span className="text-sm font-medium">
-                      {data.advanced_analytics.kpis.resource_utilization.toFixed(1)}%
+                      {data.advanced_analytics.kpis.resource_utilization?.toFixed(1)}%
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Hài lòng khách hàng</span>
+                  <span className="text-sm">Tuân thủ quy trình</span>
                   <div className="flex items-center gap-2">
-                    <Progress value={data.advanced_analytics.kpis.customer_satisfaction} className="w-20" />
+                    <Progress value={data.advanced_analytics.kpis.compliance_score} className="w-20" />
                     <span className="text-sm font-medium">
-                      {data.advanced_analytics.kpis.customer_satisfaction.toFixed(1)}%
+                      {data.advanced_analytics.kpis.compliance_score?.toFixed(1)}%
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Chỉ số đổi mới</span>
+                  <span className="text-sm">Tối ưu hóa quy trình</span>
                   <div className="flex items-center gap-2">
-                    <Progress value={data.advanced_analytics.kpis.innovation_index} className="w-20" />
+                    <Progress value={data.advanced_analytics.kpis.process_optimization} className="w-20" />
                     <span className="text-sm font-medium">
-                      {data.advanced_analytics.kpis.innovation_index.toFixed(1)}%
+                      {data.advanced_analytics.kpis.process_optimization?.toFixed(1)}%
                     </span>
                   </div>
                 </div>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle>Cảnh báo & Khuyến nghị</CardTitle>
@@ -513,12 +485,11 @@ export default function DashboardPage() {
                 ) : (
                   <div className="text-center py-4">
                     <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">Không có cảnh báo nào</p>
+                    <p className="text-sm text-muted-foreground">Không có cảnh báo</p>
                   </div>
                 )}
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
                 <CardTitle>Dự báo hoàn thành dự án</CardTitle>
@@ -530,7 +501,7 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium">{forecast.project_name}</span>
                         <Badge variant={forecast.confidence > 80 ? "default" : "secondary"}>
-                          {forecast.confidence.toFixed(0)}% tin cậy
+                          {forecast.confidence?.toFixed(0)}% tin cậy
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
@@ -577,25 +548,33 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
-                <CardTitle>Tiến độ theo giai đoạn</CardTitle>
+                <CardTitle>Phân loại dự án</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={data.task_statistics.by_phase}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="phase_name" />
-                    <YAxis />
+                  <PieChart>
+                    <Pie
+                      data={data.task_statistics.by_classification}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ classification, count }) => `Nhóm ${classification}: ${count}`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="count"
+                    >
+                      {data.task_statistics.by_classification.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
                     <Tooltip />
-                    <Bar dataKey="completion_rate" fill="#82ca9d" name="Tỷ lệ hoàn thành (%)" />
-                  </BarChart>
+                  </PieChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
           </div>
-
           <Card>
             <CardHeader>
               <CardTitle>Chi tiết theo phân loại dự án</CardTitle>
@@ -614,7 +593,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-2xl font-bold">{item.avg_progress.toFixed(1)}%</p>
+                      <p className="text-2xl font-bold">{item.avg_progress?.toFixed(1)}%</p>
                       <p className="text-sm text-muted-foreground">Tiến độ trung bình</p>
                     </div>
                   </div>
@@ -629,7 +608,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Phân bố khối lượng công việc</CardTitle>
+                <CardTitle>Phân bố khối lượng công việc theo đơn vị</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
@@ -643,10 +622,9 @@ export default function DashboardPage() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
-                <CardTitle>Sử dụng kỹ năng</CardTitle>
+                <CardTitle>Sử dụng kỹ năng chuyên môn</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
@@ -661,10 +639,9 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
-
           <Card>
             <CardHeader>
-              <CardTitle>Bảng xếp hạng hiệu suất</CardTitle>
+              <CardTitle>Bảng xếp hạng hiệu suất cán bộ</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
@@ -684,7 +661,6 @@ export default function DashboardPage() {
                           </p>
                         </div>
                       </div>
-
                       <div className="text-right space-y-1">
                         <div className="flex items-center gap-4">
                           <div className="text-center">
@@ -696,27 +672,17 @@ export default function DashboardPage() {
                             <p className="text-xs text-muted-foreground">Hoàn thành</p>
                           </div>
                           <div className="text-center">
-                            <p className="text-lg font-bold text-green-600">{user.completion_rate.toFixed(1)}%</p>
+                            <p className="text-lg font-bold text-green-600">{user.completion_rate?.toFixed(1)}%</p>
                             <p className="text-xs text-muted-foreground">Tỷ lệ</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Progress value={user.completion_rate} className="w-20" />
-                          <Badge
-                            variant={
-                              user.workload_score > 80
-                                ? "destructive"
-                                : user.workload_score > 60
-                                  ? "secondary"
-                                  : "default"
-                            }
+                          <Progress value={user.completion_rate} className="w-24" />
+                          <Badge 
+                            variant={user.workload_score > 80 ? "destructive" : user.workload_score > 60 ? "secondary" : "default"}
                             className="text-xs"
                           >
-                            {user.workload_score > 80
-                              ? "Quá tải"
-                              : user.workload_score > 60
-                                ? "Bình thường"
-                                : "Nhàn rỗi"}
+                            {user.workload_score > 80 ? "Cao" : user.workload_score > 60 ? "Vừa" : "Thấp"}
                           </Badge>
                         </div>
                       </div>
@@ -732,7 +698,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle>Xu hướng năng suất theo tuần</CardTitle>
+                <CardTitle>Hiệu suất theo tuần</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
@@ -741,21 +707,20 @@ export default function DashboardPage() {
                     <XAxis dataKey="week" />
                     <YAxis />
                     <Tooltip />
-                    <Line
-                      type="monotone"
-                      dataKey="productivity_score"
-                      stroke="#8884d8"
+                    <Line 
+                      type="monotone" 
+                      dataKey="productivity_score" 
+                      stroke="#8884d8" 
                       strokeWidth={2}
-                      name="Điểm năng suất"
+                      name="Điểm hiệu suất"
                     />
                   </LineChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
-                <CardTitle>Hiệu suất đáp ứng deadline</CardTitle>
+                <CardTitle>Hiệu suất đúng hạn</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
@@ -764,51 +729,39 @@ export default function DashboardPage() {
                     <XAxis dataKey="period" />
                     <YAxis />
                     <Tooltip />
-                    <Bar dataKey="on_time" stackId="a" fill="#10b981" name="Đúng hạn" />
-                    <Bar dataKey="late" stackId="a" fill="#ef4444" name="Trễ hạn" />
-                    <Bar dataKey="early" stackId="a" fill="#3b82f6" name="Sớm hạn" />
+                    <Bar dataKey="on_time" fill="#00C49F" name="Đúng hạn" />
+                    <Bar dataKey="late" fill="#FF8042" name="Trễ hạn" />
+                    <Bar dataKey="early" fill="#0088FE" name="Sớm hạn" />
                   </BarChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
           </div>
-
           <Card>
             <CardHeader>
-              <CardTitle>Phân tích chi tiết theo thời gian</CardTitle>
+              <CardTitle>Thống kê thời gian hoàn thành</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {data.time_statistics.monthly_trends.slice(-3).map((trend, index) => (
-                  <div key={index} className="space-y-4 p-4 border rounded-lg">
-                    <div className="text-center">
-                      <h4 className="font-semibold text-lg">{trend.month}</h4>
-                      <p className="text-sm text-muted-foreground">Tháng</p>
-                    </div>
-
-                    <div className="space-y-3">
+                {data.time_statistics.deadline_performance.map((item, index) => (
+                  <div key={index} className="text-center p-4 border rounded-lg">
+                    <h4 className="font-semibold mb-2">{item.period}</h4>
+                    <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-sm">Hoàn thành:</span>
-                        <span className="font-medium">{trend.completed_tasks}</span>
+                        <span className="text-sm">Đúng hạn:</span>
+                        <span className="font-medium text-green-600">{item.on_time}</span>
                       </div>
-
                       <div className="flex justify-between">
-                        <span className="text-sm">Tạo mới:</span>
-                        <span className="font-medium">{trend.created_tasks}</span>
+                        <span className="text-sm">Trễ hạn:</span>
+                        <span className="font-medium text-red-600">{item.late}</span>
                       </div>
-
                       <div className="flex justify-between">
-                        <span className="text-sm">Quá hạn:</span>
-                        <span className="font-medium text-red-600">{trend.overdue_tasks}</span>
+                        <span className="text-sm">Sớm hạn:</span>
+                        <span className="font-medium text-blue-600">{item.early}</span>
                       </div>
-
                       <div className="pt-2 border-t">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm">Tỷ lệ hoàn thành:</span>
-                          <Badge variant={trend.completion_rate > 80 ? "default" : "secondary"}>
-                            {trend.completion_rate.toFixed(1)}%
-                          </Badge>
-                        </div>
+                        <span className="text-lg font-bold">{item.on_time_rate?.toFixed(1)}%</span>
+                        <p className="text-xs text-muted-foreground">Tỷ lệ đúng hạn</p>
                       </div>
                     </div>
                   </div>
@@ -823,39 +776,30 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                  Phân tích điểm nghẽn
-                </CardTitle>
+                <CardTitle>Phân tích điểm nghẽn</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 {data.advanced_analytics.bottlenecks.length > 0 ? (
                   data.advanced_analytics.bottlenecks.map((bottleneck, index) => (
                     <div key={index} className="p-4 border rounded-lg space-y-3">
                       <div className="flex items-center justify-between">
-                        <h4 className="font-medium">{bottleneck.type}</h4>
-                        <Badge
-                          variant={
-                            bottleneck.impact_score > 80
-                              ? "destructive"
-                              : bottleneck.impact_score > 50
-                                ? "secondary"
-                                : "outline"
-                          }
-                        >
-                          Mức độ: {bottleneck.impact_score.toFixed(0)}/100
+                        <h4 className="font-semibold">{bottleneck.type}</h4>
+                        <Badge variant="destructive">
+                          Mức độ: {bottleneck.impact_score}/10
                         </Badge>
                       </div>
-
                       <p className="text-sm text-muted-foreground">{bottleneck.description}</p>
-
-                      <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                        <span className="text-sm">Ảnh hưởng {bottleneck.affected_tasks} công việc</span>
+                      </div>
+                      <div className="space-y-1">
                         <p className="text-sm font-medium">Khuyến nghị:</p>
                         <ul className="text-sm text-muted-foreground space-y-1">
                           {bottleneck.recommendations.map((rec, recIndex) => (
                             <li key={recIndex} className="flex items-start gap-2">
                               <span className="text-primary">•</span>
-                              {rec}
+                              <span>{rec}</span>
                             </li>
                           ))}
                         </ul>
@@ -865,107 +809,84 @@ export default function DashboardPage() {
                 ) : (
                   <div className="text-center py-8">
                     <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold">Không có điểm nghẽn</h3>
+                    <p className="text-lg font-semibold">Không có điểm nghẽn</p>
                     <p className="text-muted-foreground">Hệ thống đang hoạt động tốt</p>
                   </div>
                 )}
               </CardContent>
             </Card>
-
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Award className="h-5 w-5 text-blue-600" />
-                  Dự báo nhu cầu tài nguyên
-                </CardTitle>
+                <CardTitle>Dự báo nhu cầu nguồn lực</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {data.advanced_analytics.predictions.resource_needs.length > 0 ? (
-                  data.advanced_analytics.predictions.resource_needs.map((need, index) => (
-                    <div key={index} className="p-4 border rounded-lg space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="font-medium">{need.skill_name}</h4>
-                        <Badge variant={need.gap > 0 ? "destructive" : "default"}>
-                          {need.gap > 0 ? `Thiếu ${need.gap}` : "Đủ"}
-                        </Badge>
+                {data.advanced_analytics.predictions.resource_needs.map((resource, index) => (
+                  <div key={index} className="p-4 border rounded-lg space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-semibold">{resource.skill_name}</h4>
+                      <Badge variant={resource.gap > 0 ? "destructive" : "default"}>
+                        {resource.gap > 0 ? `Thiếu ${resource.gap}` : "Đủ"}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Hiện tại:</p>
+                        <p className="font-medium">{resource.current_capacity}</p>
                       </div>
-
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div className="text-center">
-                          <p className="font-medium">{need.current_capacity}</p>
-                          <p className="text-muted-foreground">Hiện tại</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="font-medium">{need.predicted_demand}</p>
-                          <p className="text-muted-foreground">Dự báo</p>
-                        </div>
-                        <div className="text-center">
-                          <p className={`font-medium ${need.gap > 0 ? "text-red-600" : "text-green-600"}`}>
-                            {need.gap > 0 ? `+${need.gap}` : need.gap}
-                          </p>
-                          <p className="text-muted-foreground">Chênh lệch</p>
-                        </div>
+                      <div>
+                        <p className="text-muted-foreground">Dự báo cần:</p>
+                        <p className="font-medium">{resource.predicted_demand}</p>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8">
-                    <Target className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold">Tài nguyên đầy đủ</h3>
-                    <p className="text-muted-foreground">Không cần bổ sung thêm</p>
+                    <Progress 
+                      value={(resource.current_capacity / resource.predicted_demand) * 100} 
+                      className="mt-2"
+                    />
                   </div>
-                )}
+                ))}
               </CardContent>
             </Card>
           </div>
-
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-green-600" />
-                Bảng điều khiển KPI tổng hợp
-              </CardTitle>
+              <CardTitle>Tổng quan chỉ số KPI</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-                <div className="text-center space-y-2">
-                  <div className="text-3xl font-bold text-blue-600">
-                    {data.advanced_analytics.kpis.efficiency_score.toFixed(1)}
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-3xl font-bold text-blue-600 mb-2">
+                    {data.advanced_analytics.kpis.efficiency_score?.toFixed(1)}
                   </div>
                   <p className="text-sm font-medium">Hiệu suất</p>
-                  <Progress value={data.advanced_analytics.kpis.efficiency_score} />
+                  <Progress value={data.advanced_analytics.kpis.efficiency_score} className="mt-2" />
                 </div>
-
-                <div className="text-center space-y-2">
-                  <div className="text-3xl font-bold text-green-600">
-                    {data.advanced_analytics.kpis.quality_score.toFixed(1)}
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-3xl font-bold text-green-600 mb-2">
+                    {data.advanced_analytics.kpis.quality_score?.toFixed(1)}
                   </div>
                   <p className="text-sm font-medium">Chất lượng</p>
-                  <Progress value={data.advanced_analytics.kpis.quality_score} />
+                  <Progress value={data.advanced_analytics.kpis.quality_score} className="mt-2" />
                 </div>
-
-                <div className="text-center space-y-2">
-                  <div className="text-3xl font-bold text-purple-600">
-                    {data.advanced_analytics.kpis.resource_utilization.toFixed(1)}
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-3xl font-bold text-purple-600 mb-2">
+                    {data.advanced_analytics.kpis.resource_utilization?.toFixed(1)}
                   </div>
-                  <p className="text-sm font-medium">Tài nguyên</p>
-                  <Progress value={data.advanced_analytics.kpis.resource_utilization} />
+                  <p className="text-sm font-medium">Nguồn lực</p>
+                  <Progress value={data.advanced_analytics.kpis.resource_utilization} className="mt-2" />
                 </div>
-
-                <div className="text-center space-y-2">
-                  <div className="text-3xl font-bold text-orange-600">
-                    {data.advanced_analytics.kpis.customer_satisfaction.toFixed(1)}
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-3xl font-bold text-orange-600 mb-2">
+                    {data.advanced_analytics.kpis.compliance_score?.toFixed(1)}
                   </div>
-                  <p className="text-sm font-medium">Hài lòng KH</p>
-                  <Progress value={data.advanced_analytics.kpis.customer_satisfaction} />
+                  <p className="text-sm font-medium">Tuân thủ</p>
+                  <Progress value={data.advanced_analytics.kpis.compliance_score} className="mt-2" />
                 </div>
-
-                <div className="text-center space-y-2">
-                  <div className="text-3xl font-bold text-red-600">
-                    {data.advanced_analytics.kpis.innovation_index.toFixed(1)}
+                <div className="text-center p-4 border rounded-lg">
+                  <div className="text-3xl font-bold text-red-600 mb-2">
+                    {data.advanced_analytics.kpis.process_optimization?.toFixed(1)}
                   </div>
-                  <p className="text-sm font-medium">Đổi mới</p>
-                  <Progress value={data.advanced_analytics.kpis.innovation_index} />
+                  <p className="text-sm font-medium">Tối ưu hóa</p>
+                  <Progress value={data.advanced_analytics.kpis.process_optimization} className="mt-2" />
                 </div>
               </div>
             </CardContent>

@@ -14,6 +14,7 @@ export async function GET(req: Request) {
   } = await supabase.auth.getUser()
 
   if (authError || !authUser) {
+    console.error('Auth error:', authError, authUser);
     return NextResponse.json({ error: 'Chưa đăng nhập' }, { status: 401 })
   }
 
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
     .single()
 
   if (userError || !currentUser) {
+    console.error('User fetch error:', userError, currentUser);
     return NextResponse.json(
       { error: 'Không thể lấy thông tin người dùng' },
       { status: 500 },
@@ -40,7 +42,7 @@ export async function GET(req: Request) {
     .from('projects')
     .select(
       `
-      id, name, description, start_date, end_date, status, classification, project_field, created_by,
+      id, name, description, start_date, status, classification, project_field, created_by,
       users!created_by (full_name, org_unit, position)
     `,
       { count: 'exact' },
@@ -50,6 +52,7 @@ export async function GET(req: Request) {
     .range(offset, offset + limit - 1)
 
   if (error) {
+    console.error('Projects fetch error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

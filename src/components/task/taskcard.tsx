@@ -50,16 +50,7 @@ export function TaskCard({ task, projectId, onStatusChange }: TaskCardProps) {
               </div>
             </div>
           )}
-          
-          {task.start_date && task.end_date && (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Calendar className="mr-2 h-4 w-4" />
-              <span>
-                {format(new Date(task.start_date), "dd/MM/yyyy", { locale: vi })} - 
-                {format(new Date(task.end_date), "dd/MM/yyyy", { locale: vi })}
-              </span>
-            </div>
-          )}
+         
 
           {task.users && (
             <div className="flex items-center text-sm text-muted-foreground">
