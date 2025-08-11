@@ -2,7 +2,7 @@ import { Task, Project, User, TaskDependency, UserSkill, TaskSkill, ScheduleRun,
 
 // Optimization Types
 export interface OptimizationConfig {
-  algorithm: 'genetic' | 'cpm' | 'resource_leveling';
+  algorithm: 'multi_project_cpm';
   objective: {
     type: 'time' | 'resource' | 'cost' | 'multi';
     weights?: {
