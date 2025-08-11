@@ -140,12 +140,28 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       
       // Basic start date calculation
       const projectStart = new Date(project.start_date)
-      const startDate = progress?.planned_start || progress?.actual_start || projectStart.toISOString()
+      let startDate: string
+      
+      if (progress?.planned_start) {
+        startDate = progress.planned_start
+      } else if (progress?.actual_start) {
+        startDate = progress.actual_start
+      } else {
+        startDate = projectStart.toISOString()
+      }
       
       // Basic end date calculation
       const start = new Date(startDate)
       start.setDate(start.getDate() + (task.duration_days || 1) - 1)
-      const endDate = progress?.planned_finish || progress?.actual_finish || start.toISOString()
+      let endDate: string
+      
+      if (progress?.planned_finish) {
+        endDate = progress.planned_finish
+      } else if (progress?.actual_finish) {
+        endDate = progress.actual_finish
+      } else {
+        endDate = start.toISOString()
+      }
 
       return {
         id: task.id.toString(),
