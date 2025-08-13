@@ -80,6 +80,9 @@ export async function PUT(request: Request, { params }: { params: { id: string; 
     if (body.note !== undefined) updateData.note = body.note
     if (body.status) updateData.status = body.status
     if (body.assigned_to !== undefined) updateData.assigned_to = body.assigned_to
+    if (body.duration_days !== undefined) updateData.duration_days = body.duration_days
+    if (body.description !== undefined) updateData.description = body.description
+    if (body.due_date !== undefined) updateData.due_date = body.due_date
     // Update task with only changed fields
     const { data, error } = await supabase
       .from("tasks")

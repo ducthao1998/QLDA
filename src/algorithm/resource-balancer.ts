@@ -44,6 +44,10 @@ interface Task {
   export function calculateResourceUtilization(input: OptimizationInput): number {
     const { users, scheduleDetails } = input;
     
+    if (!users.length || !scheduleDetails.length) {
+      return 0.5; // Default value if no data
+    }
+    
     // 1. Calculate resource utilization for each user
     const userUtilizations = new Map<string, ResourceUtilization>();
     
@@ -65,7 +69,7 @@ interface Task {
 
       const startDate = new Date(detail.start_ts);
       const endDate = new Date(detail.finish_ts);
-      const hours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+      const hours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24) * 8; // Convert to hours (8 hours per day)
 
       userUtil.tasks.push({
         taskId: detail.task_id,
@@ -80,7 +84,7 @@ interface Task {
     // 3. Calculate available hours for each user
     const projectStart = new Date(Math.min(...scheduleDetails.map(d => new Date(d.start_ts).getTime())));
     const projectEnd = new Date(Math.max(...scheduleDetails.map(d => new Date(d.finish_ts).getTime())));
-    const projectDuration = (projectEnd.getTime() - projectStart.getTime()) / (1000 * 60 * 60);
+    const projectDuration = (projectEnd.getTime() - projectStart.getTime()) / (1000 * 60 * 60 * 24); // Convert to days
 
     userUtilizations.forEach(userUtil => {
       // Assume 8 working hours per day, 5 days per week
@@ -88,18 +92,24 @@ interface Task {
       const workingDaysPerWeek = 5;
       
       // Calculate total working days in project
-      const totalDays = Math.ceil(projectDuration / 24);
-      const totalWorkingDays = Math.floor(totalDays * (workingDaysPerWeek / 7));
+      const totalWorkingDays = Math.floor(projectDuration * (workingDaysPerWeek / 7));
       
       userUtil.availableHours = totalWorkingDays * workingHoursPerDay;
-      userUtil.utilization = userUtil.totalHours / userUtil.availableHours;
+      userUtil.utilization = userUtil.availableHours > 0 ? userUtil.totalHours / userUtil.availableHours : 0;
     });
 
-    // 4. Calculate overall resource utilization
-    const totalUtilization = Array.from(userUtilizations.values())
-      .reduce((sum, userUtil) => sum + userUtil.utilization, 0);
+    // 4. Calculate overall resource utilization (only for assigned users)
+    const assignedUsers = Array.from(userUtilizations.values()).filter(userUtil => userUtil.totalHours > 0);
     
-    return totalUtilization / userUtilizations.size;
+    if (assignedUsers.length === 0) {
+      return 0.3; // Default utilization when no users assigned (30%)
+    }
+    
+    const totalUtilization = assignedUsers.reduce((sum, userUtil) => sum + userUtil.utilization, 0);
+    const averageUtilization = totalUtilization / assignedUsers.length;
+    
+    // Ensure the result is a valid number between 0 and 1
+    return Math.max(0, Math.min(1, averageUtilization || 0.3));
   }
   
   export function balanceResources(input: OptimizationInput): OptimizationInput {
