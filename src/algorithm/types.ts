@@ -32,6 +32,43 @@ export interface OptimizationResult {
   explanation: OptimizationExplanation;
   schedule_changes: ScheduleChange[];
   critical_path: string[];
+  critical_path_details?: {
+    criticalPath: string[];
+    totalDuration: number;
+    criticalPathDuration: number;
+    explanation: string;
+    taskDetails: Array<{
+      taskId: string;
+      taskName: string;
+      duration: number;
+      slack: number;
+      isCritical: boolean;
+      reason: string;
+    }>;
+  };
+  // Thêm thông tin chi tiết
+  duration_analysis: {
+    total_task_duration: number;
+    original_parallel_duration: number;
+    optimized_parallel_duration: number;
+    duration_reduction: number;
+    parallel_tasks_count: number;
+  };
+  resource_analysis: {
+    total_users: number;
+    assigned_users: number;
+    average_workload: number;
+    max_workload: number;
+    min_workload: number;
+    workload_distribution: UserWorkload[];
+  };
+  optimization_details: {
+    tasks_parallelized: number;
+    tasks_rescheduled: number;
+    tasks_reassigned: number;
+    critical_path_optimized: boolean;
+    bottlenecks_identified: string[];
+  };
 }
 
 export interface OptimizationExplanation {
@@ -81,4 +118,12 @@ export interface OptimizationInput {
   taskSkills: TaskSkill[];
   scheduleRun: ScheduleRun;
   scheduleDetails: ScheduleDetail[];
+} 
+
+export interface UserWorkload {
+  user_id: string;
+  user_name: string;
+  total_hours: number;
+  task_count: number;
+  utilization_percentage: number;
 } 

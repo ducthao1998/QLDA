@@ -22,56 +22,82 @@ export class ScheduleOptimizer {
   }
 
   public async optimize(): Promise<OptimizationResult> {
-    // 1. Calculate initial metrics
+    console.log('🚀 Bắt đầu tối ưu hóa Multi-Project CPM...');
+    
+    // 1. Tính toán metrics ban đầu
     const originalMakespan = this.calculateMakespan();
     const originalResourceUtilization = calculateResourceUtilization(this.input);
+    
+    console.log(`📊 Metrics ban đầu: Makespan=${originalMakespan} ngày, Resource=${(originalResourceUtilization * 100).toFixed(1)}%`);
 
-    // 2. Run Multi-Project CPM optimization
+    // 2. Chạy thuật toán tối ưu hóa Multi-Project CPM
     const optimizedSchedule = await this.runMultiProjectCPM();
 
-    // 3. Calculate final metrics
+    // 3. Tính toán metrics sau tối ưu hóa
     const optimizedMakespan = this.calculateMakespan(optimizedSchedule);
     const optimizedResourceUtilization = calculateResourceUtilization({
       ...this.input,
       scheduleDetails: optimizedSchedule
     });
 
-    // 4. Calculate critical path
-    const criticalPath = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    console.log(`✅ Metrics sau tối ưu: Makespan=${optimizedMakespan} ngày, Resource=${(optimizedResourceUtilization * 100).toFixed(1)}%`);
 
-    // 5. Generate schedule changes
+    // 4. Tính toán critical path
+    const criticalPathResult = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const criticalPath = criticalPathResult.criticalPath;
+
+    // 5. Tạo báo cáo thay đổi lịch trình
     const scheduleChanges = this.generateScheduleChanges(optimizedSchedule);
+
+    // 6. Phân tích tài nguyên
+    const resourceAnalysis = this.calculateResourceAnalysis(optimizedSchedule);
+
+    // 7. Chi tiết tối ưu hóa
+    const optimizationDetails = this.calculateOptimizationDetails(optimizedSchedule, criticalPath);
+
+    // 8. Phân tích thời gian
+    const durationAnalysis = this.calculateDurationAnalysis();
+
+    // 9. Tính toán cải thiện - So sánh makespan thực tế
+    const improvementPercentage = originalMakespan > 0 ? 
+      Math.max(0, ((originalMakespan - optimizedMakespan) / originalMakespan) * 100) : 0;
+    
+    const resourceImprovement = optimizedResourceUtilization > originalResourceUtilization ? 
+      ((optimizedResourceUtilization - originalResourceUtilization) / Math.max(originalResourceUtilization, 0.01)) * 100 : 0;
+
+    console.log(`🎯 Cải thiện: Thời gian=${improvementPercentage.toFixed(1)}%, Tài nguyên=+${resourceImprovement.toFixed(1)}%`);
 
     return {
       algorithm_used: this.config.algorithm,
       original_makespan: originalMakespan,
       optimized_makespan: optimizedMakespan,
-      improvement_percentage: ((originalMakespan - optimizedMakespan) / originalMakespan) * 100,
+      improvement_percentage: improvementPercentage,
       resource_utilization_before: originalResourceUtilization,
       resource_utilization_after: optimizedResourceUtilization,
-      workload_balance: 0.85, // Default value for Multi-Project CPM
+      workload_balance: resourceAnalysis.assigned_users > 0 ? (resourceAnalysis.max_workload - resourceAnalysis.min_workload) / resourceAnalysis.average_workload : 0,
       explanation: {
-        strategy: `Tối ưu hóa dựa trên Multi-Project Critical Path Method, tập trung vào ${this.config.objective.type}`,
+        strategy: 'Multi-Project CPM Optimization',
         key_improvements: [
-          `Giảm thời gian hoàn thành từ ${originalMakespan.toFixed(1)} xuống ${optimizedMakespan.toFixed(1)} giờ (giảm ${((originalMakespan - optimizedMakespan) / originalMakespan * 100).toFixed(1)}%)`,
-          `Tăng hiệu suất sử dụng tài nguyên từ ${(originalResourceUtilization * 100).toFixed(1)}% lên ${(optimizedResourceUtilization * 100).toFixed(1)}%`,
-          `Tối ưu hóa đường găng với ${criticalPath.length} công việc quan trọng`
+          `Giảm thời gian từ ${originalMakespan.toFixed(1)} xuống ${optimizedMakespan.toFixed(1)} ngày (${improvementPercentage.toFixed(1)}%)`,
+          `Tăng hiệu suất tài nguyên từ ${(originalResourceUtilization * 100).toFixed(1)}% lên ${(optimizedResourceUtilization * 100).toFixed(1)}%`
         ],
         trade_offs: [
-          "Ưu tiên các công việc trên đường găng",
-          "Điều chỉnh thời gian bắt đầu để tối ưu hóa nguồn lực",
-          "Phân bổ lại nhân sự dựa trên kỹ năng"
+          'Ưu tiên tối ưu hóa thời gian dựa trên đường găng',
+          'Cân bằng tải công việc giữa các thành viên'
         ],
         constraints_considered: [
-          "Phụ thuộc giữa các công việc",
-          "Kỹ năng và khả năng của nhân viên",
-          "Thời gian có sẵn của nhân viên",
-          "Đường găng của dự án"
+          'Tôn trọng dependencies giữa các tasks',
+          'Đảm bảo kỹ năng phù hợp với công việc',
+          'Tối ưu hóa sử dụng tài nguyên'
         ],
-        why_optimal: `Giải pháp Multi-Project CPM tối ưu vì đạt được sự cân bằng tốt giữa thời gian hoàn thành và hiệu suất sử dụng tài nguyên. Đường găng được tối ưu hóa, giúp giảm thiểu rủi ro chậm tiến độ.`
+        why_optimal: `Thuật toán Multi-Project CPM được chọn vì nó tối ưu hóa đồng thời thời gian và tài nguyên, giảm ${improvementPercentage.toFixed(1)}% thời gian thực hiện dự án và tăng ${resourceImprovement.toFixed(1)}% hiệu suất sử dụng tài nguyên.`
       },
       schedule_changes: scheduleChanges,
-      critical_path: criticalPath
+      critical_path: criticalPath,
+      critical_path_details: criticalPathResult,
+      duration_analysis: durationAnalysis,
+      resource_analysis: resourceAnalysis,
+      optimization_details: optimizationDetails
     };
   }
 
@@ -84,60 +110,117 @@ export class ScheduleOptimizer {
     const projectStart = Math.min(...startDates);
     const projectEnd = Math.max(...endDates);
 
-    return (projectEnd - projectStart) / (1000 * 60 * 60); // Convert to hours
+    // Convert to days instead of hours
+    return Math.ceil((projectEnd - projectStart) / (1000 * 60 * 60 * 24));
   }
 
   private async runMultiProjectCPM(): Promise<ScheduleDetail[]> {
     // Use multi-project critical path method to optimize schedule
-    const criticalPath = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const criticalPathResult = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const criticalPath = criticalPathResult.criticalPath;
     
-    // Create optimized schedule based on critical path and multi-project constraints
-    const optimizedSchedule = this.input.scheduleDetails.map(detail => {
-      const task = this.input.tasks.find(t => String(t.id) === String(detail.task_id));
-      if (!task) return detail;
-
-      const isCritical = criticalPath.includes(String(task.id));
+    // Build dependency graph for better optimization
+    const dependencyGraph = new Map<string, string[]>();
+    const reverseDependencyGraph = new Map<string, string[]>();
+    
+    // Initialize graphs
+    this.input.tasks.forEach(task => {
+      dependencyGraph.set(String(task.id), []);
+      reverseDependencyGraph.set(String(task.id), []);
+    });
+    
+    // Build dependency relationships
+    this.input.dependencies.forEach(dep => {
+      const taskId = String(dep.task_id);
+      const dependsOnId = String(dep.depends_on_id);
       
-      // Calculate optimized timing based on critical path
-      const projectStart = new Date(this.input.project.start_date);
+      if (!dependencyGraph.has(taskId)) dependencyGraph.set(taskId, []);
+      if (!dependencyGraph.has(dependsOnId)) dependencyGraph.set(dependsOnId, []);
+      
+      dependencyGraph.get(taskId)!.push(dependsOnId);
+      reverseDependencyGraph.get(dependsOnId)!.push(taskId);
+    });
+    
+    // Create optimized schedule with earliest start time strategy
+    const optimizedSchedule: ScheduleDetail[] = [];
+    const projectStart = new Date(this.input.project.start_date);
+    const taskEndTimes = new Map<string, Date>();
+    
+    // Sort tasks by critical path first, then by dependencies
+    const sortedTasks = this.input.tasks
+      .map(task => ({
+        ...task,
+        isCritical: criticalPath.includes(String(task.id)),
+        dependencyCount: dependencyGraph.get(String(task.id))?.length || 0
+      }))
+      .sort((a, b) => {
+        // Critical path tasks first
+        if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1;
+        // Then by dependency count (fewer dependencies first)
+        if (a.dependencyCount !== b.dependencyCount) return a.dependencyCount - b.dependencyCount;
+        // Then by duration (longer tasks first)
+        return (b.duration_days || 1) - (a.duration_days || 1);
+      });
+    
+    // Schedule tasks with earliest start time strategy
+    sortedTasks.forEach(task => {
+      const taskId = String(task.id);
       const taskDuration = task.duration_days || 1;
       
-      let optimizedStart: Date;
-      let optimizedEnd: Date;
-
-      if (isCritical) {
-        // Critical path tasks start immediately after dependencies
-        const dependencies = this.input.dependencies.filter(d => d.task_id === String(task.id));
-        if (dependencies.length > 0) {
-          // Find the latest end time of dependencies
-          const depEndTimes = dependencies.map(dep => {
-            const depTask = this.input.tasks.find(t => String(t.id) === dep.depends_on_id);
-            if (depTask) {
-              const depDetail = this.input.scheduleDetails.find(sd => sd.task_id === dep.depends_on_id);
-              return depDetail ? new Date(depDetail.finish_ts) : projectStart;
-            }
-            return projectStart;
-          });
-          optimizedStart = new Date(Math.max(...depEndTimes.map(d => d.getTime())));
-        } else {
-          optimizedStart = new Date(projectStart);
-        }
-      } else {
-        // Non-critical tasks can be scheduled with some flexibility
-        optimizedStart = new Date(projectStart);
-        optimizedStart.setDate(projectStart.getDate() + Math.floor(Math.random() * 5)); // Add some flexibility
+      // Find earliest possible start time based on dependencies
+      let earliestStart = new Date(projectStart);
+      
+      const dependencies = dependencyGraph.get(taskId) || [];
+      if (dependencies.length > 0) {
+        // Find the latest end time of all dependencies
+        const depEndTimes = dependencies.map(depId => {
+          return taskEndTimes.get(depId) || projectStart;
+        });
+        const latestDepEnd = new Date(Math.max(...depEndTimes.map(d => d.getTime())));
+        earliestStart = new Date(latestDepEnd);
+        earliestStart.setDate(earliestStart.getDate() + 1); // Start next day after dependency
       }
-
-      optimizedEnd = new Date(optimizedStart);
-      optimizedEnd.setDate(optimizedStart.getDate() + taskDuration);
-
-      return {
-        ...detail,
-        start_ts: optimizedStart.toISOString(),
-        finish_ts: optimizedEnd.toISOString()
-      };
+      
+      // For critical path tasks, try to start even earlier if possible
+      if (criticalPath.includes(taskId)) {
+        // Critical tasks should start as early as possible
+        const criticalDeps = dependencies.filter(depId => 
+          criticalPath.includes(depId)
+        );
+        
+        if (criticalDeps.length > 0) {
+          const criticalDepEndTimes = criticalDeps.map(depId => {
+            return taskEndTimes.get(depId) || projectStart;
+          });
+          const latestCriticalDepEnd = new Date(Math.max(...criticalDepEndTimes.map(d => d.getTime())));
+          if (latestCriticalDepEnd > earliestStart) {
+            earliestStart = new Date(latestCriticalDepEnd);
+            earliestStart.setDate(earliestStart.getDate() + 1);
+          }
+        }
+      }
+      
+      const endTime = new Date(earliestStart);
+      endTime.setDate(earliestStart.getDate() + taskDuration - 1);
+      
+      // Store task end time for future reference
+      taskEndTimes.set(taskId, new Date(endTime));
+      
+      // Find original schedule detail
+      const originalDetail = this.input.scheduleDetails.find(sd => sd.task_id === taskId);
+      
+      optimizedSchedule.push({
+        id: originalDetail?.id || crypto.randomUUID(),
+        schedule_run_id: originalDetail?.schedule_run_id || '',
+        task_id: taskId,
+        assigned_user: originalDetail?.assigned_user || '',
+        start_ts: earliestStart.toISOString(),
+        finish_ts: endTime.toISOString(),
+        created_at: originalDetail?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
     });
-
+    
     return optimizedSchedule;
   }
 
@@ -189,6 +272,118 @@ export class ScheduleOptimizer {
       return `Điều chỉnh thời gian ${timeDiff.toFixed(1)} ngày để tối ưu hóa lịch trình`;
     }
     return "Giữ nguyên lịch trình gốc";
+  }
+
+  private calculateDurationAnalysis() {
+    const totalTaskDuration = this.input.tasks.reduce((sum, task) => sum + (task.duration_days || 1), 0);
+    
+    // Calculate original parallel duration (sequential execution)
+    const originalParallelDuration = totalTaskDuration;
+    
+    // Calculate optimized parallel duration based on critical path
+    const criticalPathResult = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const criticalPathDuration = criticalPathResult.criticalPathDuration;
+    
+    // Count parallel tasks (tasks that can run simultaneously)
+    const parallelTasksCount = this.input.tasks.filter(task => {
+      const dependencies = this.input.dependencies.filter(d => d.task_id === String(task.id));
+      return dependencies.length === 0;
+    }).length;
+    
+    return {
+      total_task_duration: totalTaskDuration,
+      original_parallel_duration: originalParallelDuration,
+      optimized_parallel_duration: criticalPathDuration,
+      duration_reduction: originalParallelDuration - criticalPathDuration,
+      parallel_tasks_count: parallelTasksCount
+    };
+  }
+
+  private calculateResourceAnalysis(optimizedSchedule: ScheduleDetail[]) {
+    const userWorkloads = new Map<string, { hours: number; tasks: number }>();
+    
+    // Initialize user workloads
+    this.input.users.forEach(user => {
+      userWorkloads.set(user.id, { hours: 0, tasks: 0 });
+    });
+    
+    // Calculate workload for each user
+    optimizedSchedule.forEach(detail => {
+      if (detail.assigned_user) {
+        const workload = userWorkloads.get(detail.assigned_user);
+        if (workload) {
+          const startDate = new Date(detail.start_ts);
+          const endDate = new Date(detail.finish_ts);
+          const hours = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24) * 8; // 8 hours per day
+          workload.hours += hours;
+          workload.tasks += 1;
+        }
+      }
+    });
+    
+    const workloads = Array.from(userWorkloads.entries()).map(([userId, workload]) => {
+      const user = this.input.users.find(u => u.id === userId);
+      return {
+        user_id: userId,
+        user_name: user?.full_name || 'Unknown',
+        total_hours: workload.hours,
+        task_count: workload.tasks,
+        utilization_percentage: Math.min(100, (workload.hours / (30 * 8)) * 100) // Assume 30 days, 8 hours per day
+      };
+    });
+    
+    const assignedUsers = workloads.filter(w => w.task_count > 0).length;
+    const totalHours = workloads.reduce((sum, w) => sum + w.total_hours, 0);
+    const averageWorkload = assignedUsers > 0 ? totalHours / assignedUsers : 0;
+    const maxWorkload = Math.max(...workloads.map(w => w.total_hours));
+    const minWorkload = Math.min(...workloads.map(w => w.total_hours));
+    
+    return {
+      total_users: this.input.users.length,
+      assigned_users: assignedUsers,
+      average_workload: averageWorkload,
+      max_workload: maxWorkload,
+      min_workload: minWorkload,
+      workload_distribution: workloads
+    };
+  }
+
+  private calculateOptimizationDetails(optimizedSchedule: ScheduleDetail[], criticalPath: string[]) {
+    const originalSchedule = this.input.scheduleDetails;
+    
+    // Count rescheduled tasks
+    const tasksRescheduled = optimizedSchedule.filter(optDetail => {
+      const originalDetail = originalSchedule.find(orig => orig.task_id === optDetail.task_id);
+      if (!originalDetail) return false;
+      return optDetail.start_ts !== originalDetail.start_ts;
+    }).length;
+    
+    // Count reassigned tasks
+    const tasksReassigned = optimizedSchedule.filter(optDetail => {
+      const originalDetail = originalSchedule.find(orig => orig.task_id === optDetail.task_id);
+      if (!originalDetail) return false;
+      return optDetail.assigned_user !== originalDetail.assigned_user;
+    }).length;
+    
+    // Count parallelized tasks
+    const tasksParallelized = optimizedSchedule.filter(detail => {
+      const dependencies = this.input.dependencies.filter(d => d.task_id === detail.task_id);
+      return dependencies.length === 0;
+    }).length;
+    
+    // Identify bottlenecks
+    const bottlenecks = criticalPath.map(taskId => {
+      const task = this.input.tasks.find(t => String(t.id) === taskId);
+      return task?.name || `Task ${taskId}`;
+    });
+    
+    return {
+      tasks_parallelized: tasksParallelized,
+      tasks_rescheduled: tasksRescheduled,
+      tasks_reassigned: tasksReassigned,
+      critical_path_optimized: criticalPath.length > 0,
+      bottlenecks_identified: bottlenecks
+    };
   }
 }
 

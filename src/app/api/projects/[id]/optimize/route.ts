@@ -143,15 +143,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     // Create schedule details from current task assignments
     const scheduleDetails = tasks?.map(task => {
-      // Calculate dates based on duration_days
-      const startDate = new Date()
+      // Use project start date instead of current date
+      const projectStartDate = new Date(project.start_date || new Date())
+      const startDate = new Date(projectStartDate)
       const endDate = new Date(startDate)
-      endDate.setDate(startDate.getDate() + (task.duration_days || 1))
+      endDate.setDate(startDate.getDate() + (task.duration_days || 1) - 1) // -1 because duration includes start day
 
       return {
         schedule_run_id: scheduleRun.id,
         task_id: task.id.toString(),
-        assigned_user: "", // Will be assigned by optimization
+        assigned_user: task.assigned_to || "", // Use existing assignment if available
         start_ts: startDate.toISOString(),
         finish_ts: endDate.toISOString(),
         resource_allocation: 1.0

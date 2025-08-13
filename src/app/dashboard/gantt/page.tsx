@@ -137,7 +137,11 @@ export default function GanttPage() {
 
         <TabsContent value="gantt" className="mt-6">
           {selectedProject ? (
-            <GanttChart projectId={selectedProject} onOptimize={handleOptimizationResults} />
+            <GanttChart 
+              projectId={selectedProject} 
+              onOptimize={handleOptimizationResults}
+              showOptimizationResults={false}
+            />
           ) : (
             <Card>
               <CardContent className="py-16">
@@ -167,14 +171,15 @@ export default function GanttPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold">{optimizationResults.optimized_makespan} ngày</div>
+                      <div className="text-2xl font-bold text-green-600">{optimizationResults.optimized_makespan} ngày</div>
                       <div className="flex items-center text-xs text-muted-foreground">
                         <span>Từ {optimizationResults.original_makespan} ngày</span>
                         <ArrowRightIcon className="h-3 w-3 mx-1" />
                         <span className="text-green-600 font-medium">
-                          -{optimizationResults.improvement_percentage.toFixed(1)}%
+                          -{(optimizationResults.improvement_percentage || 0).toFixed(1)}%
                         </span>
                       </div>
+                      <Progress value={100 - (optimizationResults.improvement_percentage || 0)} className="h-2" />
                     </div>
                   </CardContent>
                 </Card>
@@ -186,10 +191,13 @@ export default function GanttPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold">
-                        {(optimizationResults.resource_utilization_after * 100).toFixed(1)}%
+                      <div className="text-2xl font-bold text-blue-600">
+                        {((optimizationResults.resource_utilization_after || optimizationResults.resource_utilization || 0) * 100).toFixed(1)}%
                       </div>
-                      <Progress value={optimizationResults.resource_utilization_after * 100} className="h-2" />
+                      <Progress value={(optimizationResults.resource_utilization_after || optimizationResults.resource_utilization || 0) * 100} className="h-2" />
+                      <div className="text-xs text-muted-foreground">
+                        Từ {((optimizationResults.resource_utilization_before || 0) * 100).toFixed(1)}%
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -201,23 +209,29 @@ export default function GanttPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold">
-                        {(optimizationResults.workload_balance * 100).toFixed(1)}%
+                      <div className="text-2xl font-bold text-purple-600">
+                        {Math.max(0, (optimizationResults.workload_balance || 0) * 100).toFixed(1)}%
                       </div>
-                      <Progress value={optimizationResults.workload_balance * 100} className="h-2" />
+                      <Progress value={Math.max(0, (optimizationResults.workload_balance || 0) * 100)} className="h-2" />
+                      <div className="text-xs text-muted-foreground">Độ cân bằng workload</div>
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Thay đổi lịch trình</CardTitle>
+                    <CardTitle className="text-sm font-medium">Tasks được tối ưu</CardTitle>
                     <TrendingUpIcon className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold">{optimizationResults.schedule_changes?.length || 0}</div>
-                      <div className="text-xs text-muted-foreground">công việc được tối ưu</div>
+                      <div className="text-2xl font-bold text-orange-600">
+                        {optimizationResults.optimization_details?.tasks_rescheduled || optimizationResults.schedule_changes?.length || 0}
+                      </div>
+                      <div className="text-xs text-muted-foreground">tasks được điều chỉnh lịch trình</div>
+                      <div className="text-xs text-green-600">
+                        {optimizationResults.optimization_details?.tasks_parallelized || 0} tasks song song
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

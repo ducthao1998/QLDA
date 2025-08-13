@@ -11,15 +11,29 @@ interface TaskNode {
   dependencies: string[];
 }
 
-export function calculateCriticalPath(tasks: Task[], dependencies: TaskDependency[]): string[] {
+export interface CriticalPathResult {
+  criticalPath: string[];
+  totalDuration: number;
+  criticalPathDuration: number;
+  explanation: string;
+  taskDetails: Array<{
+    taskId: string;
+    taskName: string;
+    duration: number;
+    slack: number;
+    isCritical: boolean;
+    reason: string;
+  }>;
+}
+
+export function calculateCriticalPath(tasks: Task[], dependencies: TaskDependency[]): CriticalPathResult {
   // 1. Build task graph
   const taskGraph = new Map<string, TaskNode>();
   
   // Initialize nodes
   tasks.forEach(task => {
-    const startDate = new Date(task.start_date).getTime();
-    const endDate = new Date(task.end_date).getTime();
-    const duration = (endDate - startDate) / (1000 * 60 * 60); // Convert to hours
+    // Use duration_days instead of start_date/end_date
+    const duration = (task.duration_days || 1) * 24; // Convert days to hours
 
     taskGraph.set(String(task.id), {
       id: String(task.id),
@@ -110,7 +124,7 @@ export function calculateCriticalPath(tasks: Task[], dependencies: TaskDependenc
   // Process all tasks in reverse order
   tasks.slice().reverse().forEach(task => backwardPass(String(task.id)));
 
-  // 4. Identify critical path
+  // 4. Identify critical path and calculate details
   const criticalPath: string[] = [];
   let currentTask = Array.from(taskGraph.values()).find(task => task.slack === 0);
   
@@ -126,5 +140,53 @@ export function calculateCriticalPath(tasks: Task[], dependencies: TaskDependenc
     currentTask = nextTask;
   }
 
-  return criticalPath;
+  // Calculate durations
+  const totalDuration = Math.max(...Array.from(taskGraph.values()).map(task => task.earliestFinish)) / 24; // Convert back to days
+  const criticalPathDuration = criticalPath.reduce((sum, taskId) => {
+    const task = taskGraph.get(taskId);
+    return sum + (task ? task.duration / 24 : 0); // Convert back to days
+  }, 0);
+
+  // Generate task details with explanations
+  const taskDetails = tasks.map(task => {
+    const taskNode = taskGraph.get(String(task.id));
+    const isCritical = criticalPath.includes(String(task.id));
+    
+    let reason = "";
+    if (isCritical) {
+      if (taskNode?.slack === 0) {
+        reason = "Không có thời gian dự trữ (slack = 0) - bất kỳ sự chậm trễ nào sẽ làm chậm toàn bộ dự án";
+      } else {
+        reason = "Thuộc đường găng - thời gian thực hiện quyết định thời gian hoàn thành dự án";
+      }
+    } else {
+      if (taskNode?.slack && taskNode.slack > 0) {
+        reason = `Có ${Math.round(taskNode.slack / 24)} ngày dự trữ - có thể trì hoãn mà không ảnh hưởng dự án`;
+      } else {
+        reason = "Có thể thực hiện song song với các công việc khác";
+      }
+    }
+
+    return {
+      taskId: String(task.id),
+      taskName: task.name,
+      duration: taskNode ? taskNode.duration / 24 : 0, // Convert to days
+      slack: taskNode ? taskNode.slack / 24 : 0, // Convert to days
+      isCritical,
+      reason
+    };
+  });
+
+  // Generate explanation
+  const explanation = `Đường găng bao gồm ${criticalPath.length} công việc với tổng thời gian ${criticalPathDuration.toFixed(1)} ngày. ` +
+    `Đây là chuỗi công việc dài nhất quyết định thời gian hoàn thành dự án (${totalDuration.toFixed(1)} ngày). ` +
+    `Các công việc này không có thời gian dự trữ và bất kỳ sự chậm trễ nào sẽ làm chậm toàn bộ dự án.`;
+
+  return {
+    criticalPath,
+    totalDuration,
+    criticalPathDuration,
+    explanation,
+    taskDetails
+  };
 }
