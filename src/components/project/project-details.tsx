@@ -202,99 +202,207 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
   const creatorInfo = project.users
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
-          <p className="text-muted-foreground mt-2">{project.description}</p>
-        </div>
-        {userPermissions.canEditProject && (
-          <Button asChild>
-            <Link href={`/dashboard/projects/${projectId}/edit`}>
-              <FileEditIcon className="mr-2 h-4 w-4" />
-              Chỉnh sửa
-            </Link>
-          </Button>
-        )}
-      </div>
-
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="overview">Tổng quan</TabsTrigger>
-          {userPermissions.canViewTasks && <TabsTrigger value="tasks">Công việc</TabsTrigger>}
-          {userPermissions.canViewTeam && <TabsTrigger value="team">Đội ngũ</TabsTrigger>}
-        </TabsList>
-
-        <TabsContent value="overview" className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Trạng thái</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Badge className={statusInfo.color}>
+    <div className="space-y-8">
+      {/* Hero Section */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 p-8 text-white">
+        <div className="absolute inset-0 bg-black/10"></div>
+        <div className="relative z-10">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-12 w-12 bg-white/20 rounded-lg flex items-center justify-center">
+                  <FolderKanban className="h-6 w-6" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold tracking-tight">{project.name}</h1>
+                  <p className="text-blue-100 mt-1">{project.description}</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <UsersIcon className="h-4 w-4" />
+                  <span>{creatorInfo?.full_name || "Không xác định"}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CalendarIcon className="h-4 w-4" />
+                  <span>
+                    Bắt đầu: {project.start_date ? format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi }) : "Chưa xác định"}
+                  </span>
+                </div>
+                <Badge 
+                  variant="secondary" 
+                  className="bg-white/20 text-white border-white/30 hover:bg-white/30"
+                >
                   <span className="flex items-center gap-1.5">
                     {statusInfo.icon}
                     {statusInfo.label}
                   </span>
                 </Badge>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Ngày bắt đầu</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center text-sm text-muted-foreground">
-                  <CalendarIcon className="h-4 w-4 mr-2" />
-                  <span>
-                    {project.start_date ? format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi }) : "Chưa xác định"}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium">Người tạo</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center text-sm">
-                  <UsersIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                  <span>{creatorInfo?.full_name || "Không xác định"}</span>
-                </div>
-                <p className="text-xs text-muted-foreground ml-6">
-                  {creatorInfo?.position && creatorInfo?.org_unit
-                    ? `${creatorInfo.position}, ${creatorInfo.org_unit}`
-                    : creatorInfo?.position || creatorInfo?.org_unit || ""}
+              </div>
+            </div>
+            
+            {userPermissions.canEditProject && (
+              <Button variant="secondary" asChild className="bg-white/20 hover:bg-white/30 text-white border-white/30">
+                <Link href={`/dashboard/projects/${projectId}/edit`}>
+                  <FileEditIcon className="mr-2 h-4 w-4" />
+                  Chỉnh sửa
+                </Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-600">Trạng thái</p>
+                <p className="text-xl font-bold text-green-900">{statusInfo.label}</p>
+              </div>
+              <div className="h-10 w-10 bg-green-500 rounded-lg flex items-center justify-center">
+                {statusInfo.icon}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-600">Ngày bắt đầu</p>
+                <p className="text-xl font-bold text-blue-900">
+                  {project.start_date ? format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi }) : "Chưa xác định"}
                 </p>
+              </div>
+              <div className="h-10 w-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                <CalendarIcon className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-purple-600">Người tạo</p>
+                <p className="text-xl font-bold text-purple-900">{creatorInfo?.full_name || "Không xác định"}</p>
+              </div>
+              <div className="h-10 w-10 bg-purple-500 rounded-lg flex items-center justify-center">
+                <UsersIcon className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-600">Phân loại</p>
+                <p className="text-xl font-bold text-amber-900">
+                  {project.classification ? `Nhóm ${project.classification}` : "Chưa xác định"}
+                </p>
+              </div>
+              <div className="h-10 w-10 bg-amber-500 rounded-lg flex items-center justify-center">
+                <InfoIcon className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="overview" className="flex items-center gap-2">
+            <InfoIcon className="h-4 w-4" />
+            Tổng quan
+          </TabsTrigger>
+          {userPermissions.canViewTasks && (
+            <TabsTrigger value="tasks" className="flex items-center gap-2">
+              <ClipboardListIcon className="h-4 w-4" />
+              Công việc
+            </TabsTrigger>
+          )}
+          {userPermissions.canViewTeam && (
+            <TabsTrigger value="team" className="flex items-center gap-2">
+              <UsersIcon className="h-4 w-4" />
+              Đội ngũ
+            </TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FolderKanban className="h-5 w-5" />
+                  Thông tin dự án
+                </CardTitle>
+                <CardDescription>Chi tiết về dự án và phân loại</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">Địa điểm thực hiện</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{project.project_field || "Chưa xác định"}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <InfoIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">Phân loại</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">
+                      {project.classification ? `Nhóm ${project.classification}` : "Chưa xác định"}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <InfoIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">Tổng mức đầu tư</span>
+                    </div>
+                    <span className="text-sm text-muted-foreground">{(project as any).total_investment || "Chưa xác định"}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <UsersIcon className="h-5 w-5" />
+                  Thông tin người tạo
+                </CardTitle>
+                <CardDescription>Chi tiết về người tạo dự án</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-4 p-4 bg-blue-50 rounded-lg">
+                  <div className="h-12 w-12 bg-blue-500 rounded-full flex items-center justify-center">
+                    <UsersIcon className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">{creatorInfo?.full_name || "Không xác định"}</p>
+                    <p className="text-sm text-gray-600">
+                      {creatorInfo?.position && creatorInfo?.org_unit
+                        ? `${creatorInfo.position}, ${creatorInfo.org_unit}`
+                        : creatorInfo?.position || creatorInfo?.org_unit || "Chưa có thông tin"}
+                    </p>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
-          <Card>
-            <CardHeader>
-              <CardTitle>Thông tin chi tiết</CardTitle>
-              <CardDescription>Các thông tin phân loại của dự án.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center text-sm">
-                <FolderKanban className="h-4 w-4 mr-2 text-muted-foreground" />
-                <strong>Địa điểm thực hiện:</strong>
-                <span className="ml-2">{project.project_field || "Chưa xác định"}</span>
-              </div>
-              <div className="flex items-center text-sm">
-                <InfoIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                <strong>Phân loại:</strong>
-                <span className="ml-2">
-                  {project.classification ? `Nhóm ${project.classification}` : "Chưa xác định"}
-                </span>
-              </div>
-              <div className="flex items-center text-sm">
-                <InfoIcon className="h-4 w-4 mr-2 text-muted-foreground" />
-                <strong>Tổng mức đầu tư:</strong>
-                <span className="ml-2">{(project as any).total_investment || "Chưa xác định"}</span>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
 
