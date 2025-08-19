@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import {
   BarChart3Icon,
@@ -17,13 +16,7 @@ import {
   ClockIcon,
   TargetIcon,
   AlertCircleIcon,
-  CheckCircleIcon,
   ArrowRightIcon,
-  BrainIcon,
-  NetworkIcon,
-  ScaleIcon,
-  SparklesIcon,
-  CalendarIcon,
 } from "lucide-react"
 
 interface Project {
@@ -39,18 +32,18 @@ export default function GanttPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Tải danh sách dự án
     async function fetchProjects() {
       try {
-        const response = await fetch("/api/projects?limit=100")
-        if (!response.ok) throw new Error("Không thể tải danh sách dự án")
-
+        const response = await fetch('/api/projects')
+        if (!response.ok) {
+          throw new Error(`Failed to fetch projects: ${response.status}`)
+        }
+        
         const data = await response.json()
-        const projectsData = data.data || data.projects || []
-        setProjects(projectsData)
-
-        if (projectsData.length > 0) {
-          setSelectedProject(projectsData[0].id)
+        setProjects(data.projects || [])
+        
+        if (data.projects && data.projects.length > 0) {
+          setSelectedProject(data.projects[0].id)
         }
       } catch (error) {
         console.error("Error fetching projects:", error)
@@ -122,27 +115,84 @@ export default function GanttPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="gantt" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="gantt" className="flex items-center gap-2">
-            <BarChart3Icon className="h-4 w-4" />
-            Biểu đồ Gantt
-          </TabsTrigger>
-          <TabsTrigger value="optimization" disabled={!optimizationResults} className="flex items-center gap-2">
-            <TrendingUpIcon className="h-4 w-4" />
-            Kết quả tối ưu hóa
-            {optimizationResults && <Badge variant="secondary">Mới</Badge>}
-          </TabsTrigger>
-        </TabsList>
+             <Tabs defaultValue="gantt" className="space-y-4">
+         <TabsList className="grid w-full grid-cols-2">
+           <TabsTrigger value="gantt" className="flex items-center gap-2">
+             <BarChart3Icon className="h-4 w-4" />
+             Biểu đồ Gantt
+           </TabsTrigger>
+           <TabsTrigger value="optimization" disabled={!optimizationResults} className="flex items-center gap-2">
+             <TrendingUpIcon className="h-4 w-4" />
+             Kết quả tối ưu hóa
+             {optimizationResults && <Badge variant="secondary">Mới</Badge>}
+           </TabsTrigger>
+         </TabsList>
 
-        <TabsContent value="gantt" className="mt-6">
-          {selectedProject ? (
-            <GanttChart 
-              projectId={selectedProject} 
-              onOptimize={handleOptimizationResults}
-              showOptimizationResults={false}
-            />
-          ) : (
+                 <TabsContent value="gantt" className="mt-6">
+           {selectedProject ? (
+             <>
+               {/* Color Legend and Explanation */}
+               <Card className="mb-6">
+                 <CardHeader>
+                   <CardTitle className="text-lg font-semibold text-gray-900">Chú thích màu sắc và trạng thái task</CardTitle>
+                 </CardHeader>
+                 <CardContent>
+                   <div className="space-y-6">
+                     {/* Color Legend */}
+                     <div>
+                       <h4 className="font-medium text-gray-900 mb-3">Màu sắc task:</h4>
+                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                         <div className="flex items-center gap-2">
+                           <div className="w-4 h-4 rounded bg-blue-500"></div>
+                           <span className="text-sm">Đang thực hiện</span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                           <div className="w-4 h-4 rounded bg-green-500"></div>
+                           <span className="text-sm">Hoàn thành</span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                           <div className="w-4 h-4 rounded bg-red-500"></div>
+                           <span className="text-sm">Critical Path</span>
+                         </div>
+                         <div className="flex items-center gap-2">
+                           <div className="w-4 h-4 rounded bg-yellow-500"></div>
+                           <span className="text-sm">Bị trễ</span>
+                         </div>
+                       </div>
+                     </div>
+
+                     {/* Explanation */}
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                       <div>
+                         <h4 className="font-medium text-gray-900 mb-2">Tại sao task bị trễ (màu vàng)?</h4>
+                         <ul className="list-disc list-inside space-y-1 text-sm text-gray-600">
+                           <li>Task phụ thuộc chưa hoàn thành</li>
+                           <li>Thiếu tài nguyên hoặc kỹ năng</li>
+                           <li>Thời gian ước tính sai</li>
+                           <li>Rủi ro không lường trước</li>
+                           <li>Dependency chain bị trễ</li>
+                         </ul>
+                       </div>
+                       
+                       <div>
+                         <h4 className="font-medium text-gray-900 mb-2">Critical Path (màu đỏ) là gì?</h4>
+                         <p className="text-sm text-gray-600">
+                           Critical Path là chuỗi task dài nhất từ đầu đến cuối dự án. Nếu bất kỳ task nào trong chuỗi này bị trễ, 
+                           toàn bộ dự án sẽ bị trễ. Các task này cần được ưu tiên cao nhất.
+                         </p>
+                       </div>
+                     </div>
+                   </div>
+                 </CardContent>
+               </Card>
+
+               <GanttChart
+                 projectId={selectedProject}
+                 onOptimize={handleOptimizationResults}
+                 showOptimizationResults={false}
+               />
+             </>
+           ) : (
             <Card>
               <CardContent className="py-16">
                 <div className="text-center text-muted-foreground">
@@ -171,7 +221,9 @@ export default function GanttPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold text-green-600">{optimizationResults.optimized_makespan} ngày</div>
+                      <div className="text-2xl font-bold text-green-600">
+                        {optimizationResults.optimized_makespan} ngày
+                      </div>
                       <div className="flex items-center text-xs text-muted-foreground">
                         <span>Từ {optimizationResults.original_makespan} ngày</span>
                         <ArrowRightIcon className="h-3 w-3 mx-1" />
@@ -192,183 +244,76 @@ export default function GanttPage() {
                   <CardContent>
                     <div className="space-y-1">
                       <div className="text-2xl font-bold text-blue-600">
-                        {((optimizationResults.resource_utilization_after || optimizationResults.resource_utilization || 0) * 100).toFixed(1)}%
+                        {((optimizationResults.resource_utilization || 0) * 100).toFixed(1)}%
                       </div>
-                      <Progress value={(optimizationResults.resource_utilization_after || optimizationResults.resource_utilization || 0) * 100} className="h-2" />
-                      <div className="text-xs text-muted-foreground">
-                        Từ {((optimizationResults.resource_utilization_before || 0) * 100).toFixed(1)}%
-                      </div>
+                      <Progress value={(optimizationResults.resource_utilization || 0) * 100} className="h-2" />
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Cân bằng khối lượng</CardTitle>
+                    <CardTitle className="text-sm font-medium">Đường găng</CardTitle>
                     <TargetIcon className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold text-purple-600">
-                        {Math.max(0, (optimizationResults.workload_balance || 0) * 100).toFixed(1)}%
+                      <div className="text-2xl font-bold text-red-600">
+                        {optimizationResults.critical_path?.length || 0}
                       </div>
-                      <Progress value={Math.max(0, (optimizationResults.workload_balance || 0) * 100)} className="h-2" />
-                      <div className="text-xs text-muted-foreground">Độ cân bằng workload</div>
+                      <div className="text-xs text-muted-foreground">công việc quan trọng</div>
                     </div>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Tasks được tối ưu</CardTitle>
+                    <CardTitle className="text-sm font-medium">Thuật toán</CardTitle>
                     <TrendingUpIcon className="h-4 w-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-1">
-                      <div className="text-2xl font-bold text-orange-600">
-                        {optimizationResults.optimization_details?.tasks_rescheduled || optimizationResults.schedule_changes?.length || 0}
-                      </div>
-                      <div className="text-xs text-muted-foreground">tasks được điều chỉnh lịch trình</div>
-                      <div className="text-xs text-green-600">
-                        {optimizationResults.optimization_details?.tasks_parallelized || 0} tasks song song
-                      </div>
+                      <div className="text-sm font-bold text-purple-600">{optimizationResults.algorithm_used}</div>
+                      <div className="text-xs text-muted-foreground">được sử dụng</div>
                     </div>
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Detailed Results */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TargetIcon className="h-5 w-5" />
-                      Đường găng (Critical Path)
-                    </CardTitle>
-                    <CardDescription>Chuỗi công việc quan trọng nhất quyết định thời gian dự án</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {optimizationResults.critical_path?.length > 0 ? (
-                        <div className="space-y-2">
-                          {optimizationResults.critical_path.map((taskId: string, index: number) => (
-                            <div key={taskId} className="flex items-center gap-2 p-2 bg-red-50 rounded-md border">
-                              <Badge variant="destructive" className="text-xs">
-                                {index + 1}
-                              </Badge>
-                              <span className="text-sm font-medium">Công việc #{taskId}</span>
-                              {index < optimizationResults.critical_path.length - 1 && (
-                                <ArrowRightIcon className="h-4 w-4 text-muted-foreground ml-auto" />
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-4 text-muted-foreground">
-                          <AlertCircleIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">Chưa xác định được đường găng</p>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <CheckCircleIcon className="h-5 w-5" />
-                      Phân tích & Đề xuất
-                    </CardTitle>
-                    <CardDescription>Đánh giá hiệu quả và gợi ý cải thiện</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">Thuật toán sử dụng:</h4>
-                        <Badge variant="outline">{optimizationResults.algorithm_used}</Badge>
-                      </div>
-
-                      <Separator />
-
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">Cải tiến chính:</h4>
-                        <ul className="text-sm space-y-1">
-                          {optimizationResults.explanation?.key_improvements?.map(
-                            (improvement: string, index: number) => (
-                              <li key={index} className="flex items-start gap-2">
-                                <CheckCircleIcon className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                                <span>{improvement}</span>
-                              </li>
-                            ),
-                          ) || <li className="text-muted-foreground">Không có cải tiến đáng kể</li>}
-                        </ul>
-                      </div>
-
-                      <Separator />
-
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">Đề xuất cải thiện:</h4>
-                        <ul className="text-sm space-y-1">
-                          <li className="flex items-start gap-2">
-                            <TargetIcon className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <span>Tập trung nguồn lực vào các công việc trên đường găng</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <UsersIcon className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <span>Cân bằng lại khối lượng công việc giữa các thành viên</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <ClockIcon className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                            <span>Theo dõi chặt chẽ các công việc có độ trễ thấp</span>
-                          </li>
-                        </ul>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Schedule Changes */}
-              {optimizationResults.schedule_changes?.length > 0 && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Chi tiết thay đổi lịch trình</CardTitle>
-                    <CardDescription>Danh sách các công việc được điều chỉnh trong quá trình tối ưu</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {optimizationResults.schedule_changes.map((change: any, index: number) => (
-                        <div key={index} className="border rounded-lg p-4 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <h4 className="font-medium">{change.task_name}</h4>
-                            <Badge
-                              variant={
-                                change.change_type === "rescheduled"
-                                  ? "default"
-                                  : change.change_type === "reassigned"
-                                    ? "secondary"
-                                    : "outline"
-                              }
-                            >
-                              {change.change_type === "rescheduled" && "Dời lịch"}
-                              {change.change_type === "reassigned" && "Phân công lại"}
-                              {change.change_type === "both" && "Dời lịch & Phân công"}
+              {/* Critical Path */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TargetIcon className="h-5 w-5" />
+                    Đường găng (Critical Path)
+                  </CardTitle>
+                  <CardDescription>Chuỗi công việc quan trọng nhất quyết định thời gian dự án</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {optimizationResults.critical_path?.length > 0 ? (
+                      <div className="space-y-2">
+                        {optimizationResults.critical_path.map((taskId: string, index: number) => (
+                          <div key={taskId} className="flex items-center gap-2 p-2 bg-red-50 rounded-md border">
+                            <Badge variant="destructive" className="text-xs">
+                              {index + 1}
                             </Badge>
+                            <span className="text-sm font-medium">Công việc #{taskId}</span>
+                            {index < optimizationResults.critical_path.length - 1 && (
+                              <ArrowRightIcon className="h-4 w-4 text-muted-foreground ml-auto" />
+                            )}
                           </div>
-                          <div className="text-sm text-muted-foreground">
-                            <p>
-                              <strong>Lý do:</strong> {change.reason}
-                            </p>
-                            <p>
-                              <strong>Tác động:</strong> {change.impact}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 text-muted-foreground">
+                        <AlertCircleIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">Chưa xác định được đường găng</p>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Export Actions */}
               <Card>

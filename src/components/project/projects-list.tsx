@@ -7,7 +7,7 @@ import { vi } from "date-fns/locale"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MoreHorizontalIcon, FileEditIcon, TrashIcon, EyeIcon, ListTodoIcon, UsersIcon } from "lucide-react"
+import { MoreHorizontalIcon, FileEditIcon, TrashIcon, EyeIcon, ListTodoIcon, UsersIcon, FolderKanban, BarChart4Icon, CheckCircleIcon, ClipboardListIcon, PlusIcon } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -165,54 +166,122 @@ function ProjectsListContent() {
 
   return (
     <>
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Mã</TableHead>
-              <TableHead>Tên</TableHead>
-              <TableHead>Trạng thái</TableHead>
-              <TableHead>Thời gian bắt đầu</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {projects.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center py-6 text-muted-foreground">
-                  Chưa có dự án nào. {userPermissions.canCreate && "Hãy tạo dự án mới."}
-                </TableCell>
-              </TableRow>
-            ) : (
-              projects.map((project) => {
-                const status = statusMap[project.status] || { label: project.status, variant: "secondary" }
-                return (
-                  <TableRow key={project.id}>
-                    <TableCell>{project.id}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Link href={`/dashboard/projects/${project.id}`} className="font-medium hover:underline">
-                          {project.name}
-                        </Link>
+      <div className="space-y-4">
+        {/* Header with stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-blue-600">Tổng dự án</p>
+                  <p className="text-2xl font-bold text-blue-900">{projects.length}</p>
+                </div>
+                <div className="h-8 w-8 bg-blue-500 rounded-lg flex items-center justify-center">
+                  <FolderKanban className="h-4 w-4 text-white" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-green-600">Đang thực hiện</p>
+                  <p className="text-2xl font-bold text-green-900">
+                    {projects.filter(p => p.status === 'in_progress').length}
+                  </p>
+                </div>
+                <div className="h-8 w-8 bg-green-500 rounded-lg flex items-center justify-center">
+                  <BarChart4Icon className="h-4 w-4 text-white" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-emerald-600">Hoàn thành</p>
+                  <p className="text-2xl font-bold text-emerald-900">
+                    {projects.filter(p => p.status === 'completed').length}
+                  </p>
+                </div>
+                <div className="h-8 w-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+                  <CheckCircleIcon className="h-4 w-4 text-white" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card className="bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-amber-600">Lập kế hoạch</p>
+                  <p className="text-2xl font-bold text-amber-900">
+                    {projects.filter(p => p.status === 'planning').length}
+                  </p>
+                </div>
+                <div className="h-8 w-8 bg-amber-500 rounded-lg flex items-center justify-center">
+                  <ClipboardListIcon className="h-4 w-4 text-white" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Projects Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {projects.length === 0 ? (
+            <div className="col-span-full">
+              <Card className="border-dashed border-2 border-gray-300">
+                <CardContent className="p-12 text-center">
+                  <FolderKanban className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">Chưa có dự án nào</h3>
+                  <p className="text-gray-500 mb-4">
+                    {userPermissions.canCreate ? "Bắt đầu tạo dự án đầu tiên của bạn" : "Liên hệ admin để tạo dự án"}
+                  </p>
+                  {userPermissions.canCreate && (
+                    <Button asChild>
+                      <Link href="/dashboard/projects/new">
+                        <PlusIcon className="mr-2 h-4 w-4" />
+                        Tạo dự án mới
+                      </Link>
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            projects.map((project) => {
+              const status = statusMap[project.status] || { label: project.status, variant: "secondary" }
+              const statusColors = {
+                planning: "bg-amber-100 text-amber-800 border-amber-200",
+                in_progress: "bg-green-100 text-green-800 border-green-200",
+                on_hold: "bg-orange-100 text-orange-800 border-orange-200",
+                completed: "bg-emerald-100 text-emerald-800 border-emerald-200",
+                cancelled: "bg-red-100 text-red-800 border-red-200"
+              }
+              
+              return (
+                <Card key={project.id} className="group hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-lg font-semibold group-hover:text-blue-600 transition-colors">
+                          <Link href={`/dashboard/projects/${project.id}`} className="hover:underline">
+                            {project.name}
+                          </Link>
+                        </CardTitle>
+                        <CardDescription className="mt-1 line-clamp-2">
+                          {project.description || "Không có mô tả"}
+                        </CardDescription>
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={status.variant}>{status.label}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })}
-                          {/* -{" "} {format(new Date(project.end_date), "dd/MM/yyyy", { locale: vi })} */}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
                       <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="h-8 w-8 p-0">
-                            <span className="sr-only">Mở menu</span>
+                          <Button variant="ghost" className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity">
                             <MoreHorizontalIcon className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -246,13 +315,41 @@ function ProjectsListContent() {
                           )}
                         </DropdownMenuContent>
                       </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
+                    </div>
+                  </CardHeader>
+                  
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Badge 
+                        variant="outline" 
+                        className={`${statusColors[project.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800 border-gray-200'}`}
+                      >
+                        {status.label}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        ID: {project.id}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <ClockIcon className="h-4 w-4" />
+                      <span>
+                        Bắt đầu: {format(new Date(project.start_date), "dd/MM/yyyy", { locale: vi })}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <UsersIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">
+                        {project.users?.full_name || "Chưa phân công"}
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
+          )}
+        </div>
       </div>
 
       <AlertDialog open={!!projectToDelete} onOpenChange={(open) => !open && setProjectToDelete(null)}>

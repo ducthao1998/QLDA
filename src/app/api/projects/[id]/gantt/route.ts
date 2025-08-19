@@ -175,6 +175,73 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }) || []
 
+    // Helper function to calculate task dates with dependency constraints
+    const calculateTaskDatesWithDependencies = (allTasks: any[], allDependencies: any[], projectStart: Date) => {
+      const taskMap = new Map<string, any>()
+      const dependencyMap = new Map<string, string[]>()
+      const taskEndDates = new Map<string, Date>()
+
+      // Initialize maps
+      allTasks.forEach((task) => {
+        taskMap.set(task.id, { ...task })
+        const deps = allDependencies.filter((dep) => dep.task_id === task.id).map((dep) => dep.depends_on_id)
+        dependencyMap.set(task.id, deps)
+      })
+
+      // Sort tasks by dependency level (topological sort)
+      const sortedTasks = [...allTasks].sort((a, b) => {
+        const aDeps = dependencyMap.get(a.id) || []
+        const bDeps = dependencyMap.get(b.id) || []
+        return aDeps.length - bDeps.length
+      })
+
+      // Process tasks in dependency order
+      sortedTasks.forEach((task) => {
+        const deps = dependencyMap.get(task.id) || []
+        let startDate = new Date(projectStart)
+
+        if (deps.length > 0) {
+          // Find the latest end date among all dependencies
+          let latestEndDate = new Date(projectStart)
+          let hasValidDependency = false
+          
+          deps.forEach((depId) => {
+            const depEndDate = taskEndDates.get(depId)
+            if (depEndDate) {
+              hasValidDependency = true
+              if (depEndDate > latestEndDate) {
+                latestEndDate = new Date(depEndDate)
+              }
+            }
+          })
+          
+          if (hasValidDependency) {
+            // Start the next day after the latest dependency ends
+            latestEndDate.setDate(latestEndDate.getDate() + 1)
+            startDate = latestEndDate
+          }
+        }
+
+        // Calculate end date based on duration
+        const endDate = new Date(startDate)
+        endDate.setDate(startDate.getDate() + (task.duration_days || 1) - 1)
+
+        // Store dates
+        const updatedTask = taskMap.get(task.id)!
+        updatedTask.start_date = startDate.toISOString()
+        updatedTask.end_date = endDate.toISOString()
+        taskMap.set(task.id, updatedTask)
+        
+        taskEndDates.set(task.id, endDate)
+      })
+
+      return Array.from(taskMap.values())
+    }
+
+    // Calculate task dates with dependency constraints
+    const projectStart = new Date(project.start_date)
+    const tasksWithDates = calculateTaskDatesWithDependencies(basicTasks, dependencies || [], projectStart)
+
     // Process tasks with enhanced data and dependency-aware scheduling
     const processedTasks = tasks?.map((task) => {
       // Find responsible user (role = 'R')
@@ -234,20 +301,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       } else if (progress?.actual_start) {
         startDate = progress.actual_start
       } else {
-        // Calculate start date based on project start and task dependencies
-        const projectStart = new Date(project.start_date)
-        
-        if (taskDependencies.length > 0) {
-          // Find the latest end date of dependencies using basicTasks
-          const depTasks = basicTasks.filter(t => taskDependencies.includes(t.id))
-          if (depTasks.length > 0) {
-            const latestDepEnd = Math.max(...depTasks.map(t => new Date(t.end_date || t.start_date).getTime()))
-            const depEndDate = new Date(latestDepEnd)
-            depEndDate.setDate(depEndDate.getDate() + 1) // Start day after dependency ends
-            startDate = depEndDate.toISOString()
-          } else {
-            startDate = projectStart.toISOString()
-          }
+        // Use calculated dates from dependency-aware scheduling
+        const calculatedTask = tasksWithDates.find(t => t.id === task.id.toString())
+        if (calculatedTask) {
+          startDate = calculatedTask.start_date
         } else {
           startDate = projectStart.toISOString()
         }
@@ -258,10 +315,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       } else if (progress?.actual_finish) {
         endDate = progress.actual_finish
       } else {
-        // Calculate end date based on start date and duration
-        const start = new Date(startDate)
-        start.setDate(start.getDate() + (task.duration_days || 1) - 1) // -1 because duration includes start day
-        endDate = start.toISOString()
+        // Use calculated end date from dependency-aware scheduling
+        const calculatedTask = tasksWithDates.find(t => t.id === task.id.toString())
+        if (calculatedTask) {
+          endDate = calculatedTask.end_date
+        } else {
+          // Calculate end date based on start date and duration
+          const start = new Date(startDate)
+          start.setDate(start.getDate() + (task.duration_days || 1) - 1) // -1 because duration includes start day
+          endDate = start.toISOString()
+        }
       }
 
       return {
@@ -314,7 +377,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       overall_progress: processedTasks.length > 0
         ? Math.floor(processedTasks.reduce((sum, t) => sum + t.progress, 0) / processedTasks.length)
         : 0,
-      critical_path_length: criticalPath.length,
+      critical_path_length: criticalPath.criticalPath.length,
       skills_coverage: taskSkills?.length || 0,
       experience_score: calculateProjectExperienceScore(processedTasks, experienceMatrix)
     }

@@ -526,7 +526,7 @@ export default function SchedulePage() {
                                       <p className="font-medium">{task.name}</p>
                                       {task.start_date && task.end_date && (
                                         <p className="text-xs">
-                                          {format(new Date(task.start_date), "dd/MM/yyyy")} -{" "}
+                                          {format(new Date(task.start_date), "dd/MM/yyyy")} - {""}
                                           {format(new Date(task.end_date), "dd/MM/yyyy")}
                                         </p>
                                       )}
@@ -594,3 +594,5 @@ export default function SchedulePage() {
     </div>
   )
 }
+
+
