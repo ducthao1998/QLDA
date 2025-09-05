@@ -1,6 +1,5 @@
 import { OptimizationInput, OptimizationConfig, OptimizationResult, ScheduleChange } from './types'
 import { calculateCriticalPath } from './critical-path'
-import { calculateResourceUtilization } from './resource-balancer'
 import { ScheduleDetail } from '@/app/types/table-types'
 
 export class ScheduleOptimizer {
@@ -413,4 +412,30 @@ export async function optimizeSchedule(
   );
   
   return optimizer.optimize();
+}
+
+// Local fallback for resource utilization calculation (removed external module)
+function calculateResourceUtilization(input: OptimizationInput & { scheduleDetails: ScheduleDetail[] }): number {
+  const scheduleDetails = input.scheduleDetails || []
+  const users = input.users || []
+
+  if (scheduleDetails.length === 0 || users.length === 0) {
+    return 0
+  }
+
+  const userHours = new Map<string, number>()
+  scheduleDetails.forEach(detail => {
+    if (!detail.assigned_user) return
+    const start = new Date(detail.start_ts)
+    const end = new Date(detail.finish_ts)
+    const days = Math.max(0, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)))
+    const hours = days * 8
+    userHours.set(detail.assigned_user, (userHours.get(detail.assigned_user) || 0) + hours)
+  })
+
+  const totalHours = Array.from(userHours.values()).reduce((sum, h) => sum + h, 0)
+  const capacityPerUserHours = 30 * 8 // assume 30 days window, 8h/day
+  const totalCapacity = users.length * capacityPerUserHours
+  if (totalCapacity <= 0) return 0
+  return Math.min(1, totalHours / totalCapacity)
 }

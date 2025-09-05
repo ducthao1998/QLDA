@@ -282,11 +282,21 @@ export function Sidebar(props: React.ComponentProps<typeof ShadSidebar>) {
   }
 
   return (
-    <ShadSidebar collapsible="icon" variant="floating" {...props}>
+    <ShadSidebar
+      collapsible="icon"
+      variant="floating"
+      className="bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:bg-gray-950/80"
+      {...props}
+    >
       {/* header */}
-      <SidebarHeader className="flex items-center gap-2 px-4 py-3">
-        <ShadLogo className="h-5 w-5 shrink-0 text-slate-900 dark:text-slate-100" />
-        <span className="text-base font-semibold sidebar:hidden">HTQL Dự Án</span>
+      <SidebarHeader className="px-3 pt-3 pb-2">
+        <div className="relative overflow-hidden rounded-lg bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-3 text-white">
+          <div className="absolute inset-0 bg-white/5" />
+          <div className="relative z-10 flex items-center gap-2">
+            <ShadLogo className="h-5 w-5 shrink-0 text-white" />
+            <span className="text-sm font-semibold tracking-wide sidebar:hidden">HTQL Dự Án</span>
+          </div>
+        </div>
       </SidebarHeader>
       <Separator />
 
@@ -296,8 +306,13 @@ export function Sidebar(props: React.ComponentProps<typeof ShadSidebar>) {
           <SidebarMenu>
             {filteredNavItems.map(({ title, href, icon: Icon }) => (
               <SidebarMenuItem key={href}>
-                <SidebarMenuButton asChild isActive={pathname === href} tooltip={title}>
-                  <Link href={href}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === href}
+                  tooltip={title}
+                  className="rounded-lg transition-colors data-[active=true]:bg-gradient-to-r data-[active=true]:from-blue-50 data-[active=true]:to-blue-100 data-[active=true]:text-blue-900 dark:data-[active=true]:from-slate-800 dark:data-[active=true]:to-slate-700 data-[active=true]:border-l-4 data-[active=true]:border-blue-500 hover:bg-muted"
+                >
+                  <Link href={href} className="flex items-center gap-2">
                     <Icon className="h-5 w-5" />
                     <span>{title}</span>
                   </Link>

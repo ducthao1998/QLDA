@@ -30,10 +30,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { CalendarIcon } from 'lucide-react'
+import { CalendarIcon, FolderKanban } from 'lucide-react'
 import { Calendar } from '@/components/ui/calendar'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const formSchema = z.object({
   name: z.string().min(1, 'Tên dự án là bắt buộc'),
@@ -112,162 +113,192 @@ export function ProjectForm({ project }: ProjectFormProps) {
   const { isSubmitting } = form.formState
 
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <FormField
-          control={form.control}
-          name="name"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Tên dự án</FormLabel>
-              <FormControl>
-                <Input placeholder="Nhập tên dự án..." {...field} />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        <FormField
-          control={form.control}
-          name="project_goal"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Mục tiêu dự án</FormLabel>
-              <FormControl>
-                <Textarea
-                  placeholder="Nhập mục tiêu chi tiết cho dự án..."
-                  {...field}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField
-            control={form.control}
-            name="implementation_location"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Địa điểm thực hiện</FormLabel>
-                <FormControl>
-                  <Input placeholder="Ví dụ: Hà Nội, TP.HCM..." {...field} />
-                </FormControl>
-                <FormDescription>
-                  Nhập địa điểm thực hiện dự án.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="total_investment"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Tổng mức đầu tư</FormLabel>
-                <FormControl>
-                  <Input placeholder="Ví dụ: 10 tỷ VND..." {...field} />
-                </FormControl>
-                <FormDescription>
-                  Nhập tổng mức đầu tư của dự án.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 p-6 text-white">
+        <div className="absolute inset-0 bg-black/10" />
+        <div className="relative z-10 flex items-start gap-4">
+          <div className="h-12 w-12 bg-white/20 rounded-lg flex items-center justify-center">
+            <FolderKanban className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+              {project ? 'Chỉnh sửa dự án' : 'Tạo dự án mới'}
+            </h1>
+            <p className="text-blue-100 mt-1">
+              {project ? 'Cập nhật thông tin dự án để luôn chính xác và đầy đủ.' : 'Điền thông tin bên dưới để khởi tạo dự án mới.'}
+            </p>
+          </div>
         </div>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <FormField
-            control={form.control}
-            name="start_date"
-            render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel>Ngày bắt đầu</FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Thông tin dự án</CardTitle>
+          <CardDescription>
+            Vui lòng nhập đầy đủ các trường cần thiết để {project ? 'cập nhật' : 'tạo'} dự án.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tên dự án</FormLabel>
                     <FormControl>
-                      <Button
-                        variant={'outline'}
-                        className={cn(
-                          'w-full pl-3 text-left font-normal',
-                          !field.value && 'text-muted-foreground',
-                        )}
-                      >
-                        {field.value ? (
-                          format(field.value, 'dd/MM/yyyy')
-                        ) : (
-                          <span>Chọn ngày</span>
-                        )}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
+                      <Input placeholder="Nhập tên dự án..." {...field} />
                     </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name="classification"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Phân loại Dự án</FormLabel>
-                <Select
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
+              <FormField
+                control={form.control}
+                name="project_goal"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Mục tiêu dự án</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        placeholder="Nhập mục tiêu chi tiết cho dự án..."
+                        className="min-h-[120px]"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="implementation_location"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Địa điểm thực hiện</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ví dụ: Hà Nội, TP.HCM..." {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Nhập địa điểm thực hiện dự án.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="total_investment"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tổng mức đầu tư</FormLabel>
+                      <FormControl>
+                        <Input placeholder="Ví dụ: 10 tỷ VND..." {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Nhập tổng mức đầu tư của dự án.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <FormField
+                  control={form.control}
+                  name="start_date"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>Ngày bắt đầu</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={'outline'}
+                              className={cn(
+                                'w-full pl-3 text-left font-normal',
+                                !field.value && 'text-muted-foreground',
+                              )}
+                            >
+                              {field.value ? (
+                                format(field.value, 'dd/MM/yyyy')
+                              ) : (
+                                <span>Chọn ngày</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="classification"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Phân loại Dự án</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Chọn phân loại" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="A">Nhóm A</SelectItem>
+                          <SelectItem value="B">Nhóm B</SelectItem>
+                          <SelectItem value="C">Nhóm C</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="flex justify-end gap-4 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.back()}
+                  disabled={isSubmitting}
                 >
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn phân loại" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="A">Nhóm A</SelectItem>
-                    <SelectItem value="B">Nhóm B</SelectItem>
-                    <SelectItem value="C">Nhóm C</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-
-        <div className="flex justify-end space-x-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => router.back()}
-            disabled={isSubmitting}
-          >
-            Hủy
-          </Button>
-          <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting
-              ? project
-                ? 'Đang lưu...'
-                : 'Đang tạo...'
-              : project
-              ? 'Lưu thay đổi'
-              : 'Tạo dự án'}
-          </Button>
-        </div>
-      </form>
-    </Form>
+                  Hủy
+                </Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting
+                    ? project
+                      ? 'Đang lưu...'
+                      : 'Đang tạo...'
+                    : project
+                    ? 'Lưu thay đổi'
+                    : 'Tạo dự án'}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+    </div>
   )
 }
