@@ -690,8 +690,9 @@ async function getAdvancedAnalytics(supabase: any, from: string, to: string, org
       efficiency_score: (completedTasksKPI / totalTasksKPI) * 100,
       quality_score: completedTasksKPI > 0 ? (onTimeTasksKPI / completedTasksKPI) * 100 : 0,
       resource_utilization: Math.min(95, (avgTasksPerUser / 5) * 100),
-      customer_satisfaction: 85, // This would come from external surveys
-      innovation_index: 75, // This would be calculated based on project types and outcomes
+      // Map legacy fields to UI-expected keys for consistency
+      compliance_score: 85,
+      process_optimization: 75,
     }
 
     return {
@@ -714,8 +715,8 @@ async function getAdvancedAnalytics(supabase: any, from: string, to: string, org
         efficiency_score: 0,
         quality_score: 0,
         resource_utilization: 0,
-        customer_satisfaction: 0,
-        innovation_index: 0,
+        compliance_score: 0,
+        process_optimization: 0,
       },
     }
   }
