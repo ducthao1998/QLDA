@@ -35,7 +35,6 @@ interface UserSkillData {
     skill_id: number
     skill_name: string
     completed_tasks_count: number
-    total_experience_days: number | null
     last_activity_date: string | null
   }[]
 }
@@ -310,11 +309,7 @@ function SkillFieldsManagement() {
                               {userSkill ? (
                                 <div className="text-sm">
                                   <p className="font-medium">{userSkill.completed_tasks_count} công việc</p>
-                                  {userSkill.total_experience_days && (
-                                    <p className="text-xs text-muted-foreground">
-                                      {userSkill.total_experience_days} ngày kinh nghiệm
-                                    </p>
-                                  )}
+                                  {/* Removed experience days display */}
                                 </div>
                               ) : (
                                 <span className="text-muted-foreground">-</span>
