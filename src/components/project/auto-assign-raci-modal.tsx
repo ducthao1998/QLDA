@@ -48,6 +48,7 @@ interface UnassignedTask {
   reason: string
 }
 
+
 export function AutoAssignRaciModal({
   open,
   onClose,
@@ -339,7 +340,6 @@ export function AutoAssignRaciModal({
                             </p>
                           </div>
                           <div className="text-right text-xs text-muted-foreground">
-                            <div>Độ tin cậy: {(assignment.confidence_score * 100).toFixed(1)}%</div>
                             <div>Kinh nghiệm: {(assignment.experience_score * 100).toFixed(1)}%</div>
                           </div>
                         </div>
