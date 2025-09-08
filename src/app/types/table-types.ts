@@ -226,7 +226,6 @@ export interface UserSkillMatrixView {
   skill_name: string;
   skill_field: string | null;
   completed_tasks_count: number;
-  total_experience_days: number | null;
   last_activity_date: string | null;
 }
 

@@ -19,7 +19,6 @@ export async function GET() {
         skill_id,
         skill_name,
         completed_tasks_count,
-        total_experience_days,
         last_activity_date
       `)
       .order('full_name')
@@ -46,7 +45,6 @@ export async function GET() {
         skill_id: item.skill_id,
         skill_name: item.skill_name,
         completed_tasks_count: item.completed_tasks_count,
-        total_experience_days: item.total_experience_days,
         last_activity_date: item.last_activity_date
       })
     })

@@ -59,14 +59,12 @@ async function refreshUserSkillMatrixManually(supabase: any) {
             skill_name: skillName,
             skill_field: skillField,
             completed_tasks_count: 0,
-            total_experience_days: 0,
             last_activity_date: null
           })
         }
 
         const entry = skillMatrix.get(key)
         entry.completed_tasks_count += 1
-        entry.total_experience_days += Math.ceil(worklog.spent_hours / 8) // Convert hours to days
         
         const logDate = new Date(worklog.log_date)
         if (!entry.last_activity_date || logDate > new Date(entry.last_activity_date)) {
