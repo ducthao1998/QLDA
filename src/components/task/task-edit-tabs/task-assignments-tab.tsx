@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Info, AlertCircle, Bot, Loader2, HelpCircle } from 'lucide-react'
 import { AssignmentExplanationTooltip } from '../assignment-explanation-tooltip'
+import { TaskAssignmentExplanationDialog } from '../task-assignment-explanation-dialog'
 
 export type RaciAssignment = {
   user_id: string
@@ -41,6 +42,9 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
   const [hasChanges, setHasChanges] = useState(false)
   const [isAutoAssigning, setIsAutoAssigning] = useState(false)
   const [autoAssignedUsers, setAutoAssignedUsers] = useState<Set<string>>(new Set())
+  const [showExplanationDialog, setShowExplanationDialog] = useState(false)
+  const [unavailableUsers, setUnavailableUsers] = useState<any[]>([])
+  const [requiredSkills, setRequiredSkills] = useState<string[]>([])
 
   // Load users on mount
   useEffect(() => {
@@ -184,13 +188,25 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
         
         setHasChanges(true)
         
+        const otherRoles = assignment.other_assignments || []
+        const roleText = otherRoles.length > 0 
+          ? ` (R) + ${otherRoles.map((r: any) => r.role).join(', ')}`
+          : ' (R)'
+        
         toast.success(
-          `Đã tự động phân công cho ${assignment.user_name} (độ tin cậy: ${Math.round(assignment.confidence_score * 100)}%)`
+          `Đã tự động phân công cho ${assignment.user_name}${roleText}`
         )
-      } else if (result.unassigned && result.unassigned.length > 0) {
-        toast.warning(`Không thể tự động phân công: ${result.unassigned[0].reason}`)
       } else {
-        toast.warning('Không tìm thấy người phù hợp để phân công')
+        // No assignments made, show explanation dialog
+        if (result.unavailable_users && result.unavailable_users.length > 0) {
+          setUnavailableUsers(result.unavailable_users)
+          setRequiredSkills(result.required_skills || [])
+          setShowExplanationDialog(true)
+        } else if (result.unassigned && result.unassigned.length > 0) {
+          toast.warning(`Không thể tự động phân công: ${result.unassigned[0].reason}`)
+        } else {
+          toast.warning('Không tìm thấy người phù hợp để phân công')
+        }
       }
       
     } catch (error) {
@@ -351,6 +367,15 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
           </div>
         )}
       </CardContent>
+
+      {/* Explanation Dialog */}
+      <TaskAssignmentExplanationDialog
+        isOpen={showExplanationDialog}
+        onClose={() => setShowExplanationDialog(false)}
+        unavailableUsers={unavailableUsers}
+        requiredSkills={requiredSkills}
+        taskName={task.name}
+      />
     </Card>
   )
 }

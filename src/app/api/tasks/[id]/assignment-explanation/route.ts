@@ -174,33 +174,94 @@ export async function GET(
       specializationScore * 0.05
     )
 
-    // Tạo giải thích
+    // Tạo giải thích có ý nghĩa
     const reasons = []
     
-    if (avgExperience > 0.7) {
-      reasons.push(`🎯 Có kinh nghiệm cao trong lĩnh vực (${Math.round(avgExperience * 100)}%)`)
-    } else if (avgExperience > 0.3) {
-      reasons.push(`📚 Có kinh nghiệm trong lĩnh vực (${Math.round(avgExperience * 100)}%)`)
+    // Lý do chính - tại sao chọn người này
+    if (totalScore > 0.7) {
+      reasons.push(`🎯 Là ứng viên tốt nhất với tổng điểm ${Math.round(totalScore * 100)}%`)
+    } else if (totalScore > 0.5) {
+      reasons.push(`✅ Là lựa chọn phù hợp với tổng điểm ${Math.round(totalScore * 100)}%`)
     } else {
-      reasons.push(`🆕 Chưa có nhiều kinh nghiệm trong lĩnh vực (${Math.round(avgExperience * 100)}%)`)
+      reasons.push(`⚠️ Được chọn do thiếu lựa chọn tốt hơn (${Math.round(totalScore * 100)}%)`)
     }
 
-    reasons.push(`⚖️ Khối lượng công việc: ${workloadLevel} (${currentWorkload} việc đang làm)`)
-    
-    if (projectsCount > 1) {
-      reasons.push(`🏢 Đang tham gia ${projectsCount} dự án khác nhau`)
+    // Điểm mạnh cụ thể
+    if (fieldExperienceScore > 0.6) {
+      reasons.push(`📚 Kinh nghiệm cao trong lĩnh vực (${Math.round(fieldExperienceScore * 100)}%)`)
+    } else if (fieldExperienceScore > 0.3) {
+      reasons.push(`📖 Có kinh nghiệm cơ bản trong lĩnh vực (${Math.round(fieldExperienceScore * 100)}%)`)
     }
 
-    if (skillCoverage === requiredSkills.length) {
-      reasons.push(`✅ Có đủ tất cả kỹ năng yêu cầu (${skillCoverage}/${requiredSkills.length})`)
+    if (workloadScore > 0.7) {
+      reasons.push(`⚖️ Khả năng sẵn sàng cao (${workloadLevel})`)
+    } else if (workloadScore > 0.4) {
+      reasons.push(`⚖️ Có thể đảm nhận thêm (${workloadLevel})`)
+    }
+
+    if (skillCoverage === requiredSkills.length && requiredSkills.length > 0) {
+      reasons.push(`✅ Đáp ứng đầy đủ ${requiredSkills.length} kỹ năng yêu cầu`)
     } else if (skillCoverage > 0) {
-      reasons.push(`⚠️ Có một phần kỹ năng yêu cầu (${skillCoverage}/${requiredSkills.length})`)
-    } else {
-      reasons.push(`❌ Chưa có kỹ năng yêu cầu cụ thể`)
+      reasons.push(`⚠️ Có ${skillCoverage}/${requiredSkills.length} kỹ năng cần thiết`)
     }
 
     if (hasHighExpertise) {
-      reasons.push(`🌟 Có chuyên môn cao trong một số kỹ năng`)
+      reasons.push(`🌟 Có chuyên môn sâu trong một số kỹ năng`)
+    }
+
+    // Thông tin bổ sung hữu ích
+    if (projectsCount > 1) {
+      reasons.push(`🏢 Đa dạng kinh nghiệm từ ${projectsCount} dự án`)
+    }
+
+    // Tạo recommendations cho tất cả RACI roles
+    const raciRecommendations = {
+      R: {
+        score: totalScore,
+        recommendation: totalScore > 0.7 ? 'Rất phù hợp' :
+                       totalScore > 0.5 ? 'Phù hợp' :
+                       totalScore > 0.3 ? 'Có thể phù hợp' : 'Ít phù hợp',
+        explanation: totalScore > 0.7 ? 
+          'Có đủ kinh nghiệm và khả năng để thực hiện công việc một cách độc lập và hiệu quả' :
+          totalScore > 0.5 ?
+          'Có thể thực hiện công việc với sự hỗ trợ và giám sát phù hợp' :
+          totalScore > 0.3 ?
+          'Cần nhiều hỗ trợ và training để hoàn thành công việc' :
+          'Không phù hợp để thực hiện công việc này'
+      },
+      A: {
+        score: Math.min(1, totalScore + 0.1), // Accountable cần kinh nghiệm cao hơn
+        recommendation: (totalScore + 0.1) > 0.7 ? 'Rất phù hợp' :
+                       (totalScore + 0.1) > 0.5 ? 'Phù hợp' :
+                       (totalScore + 0.1) > 0.3 ? 'Có thể phù hợp' : 'Ít phù hợp',
+        explanation: (totalScore + 0.1) > 0.7 ?
+          'Có đủ kinh nghiệm và uy tín để chịu trách nhiệm cuối cùng cho kết quả công việc' :
+          (totalScore + 0.1) > 0.5 ?
+          'Có thể chịu trách nhiệm với sự hỗ trợ từ cấp trên' :
+          'Cần kinh nghiệm nhiều hơn để đảm nhận vai trò chịu trách nhiệm'
+      },
+      C: {
+        score: Math.min(1, fieldExperienceScore + 0.2), // Consulted cần chuyên môn cao
+        recommendation: (fieldExperienceScore + 0.2) > 0.7 ? 'Rất phù hợp' :
+                       (fieldExperienceScore + 0.2) > 0.5 ? 'Phù hợp' :
+                       (fieldExperienceScore + 0.2) > 0.3 ? 'Có thể phù hợp' : 'Ít phù hợp',
+        explanation: (fieldExperienceScore + 0.2) > 0.7 ?
+          'Có chuyên môn sâu để đưa ra lời khuyên và hướng dẫn chính xác' :
+          (fieldExperienceScore + 0.2) > 0.5 ?
+          'Có thể đóng góp ý kiến hữu ích trong lĩnh vực chuyên môn' :
+          'Cần nhiều kinh nghiệm hơn để đưa ra lời khuyên đáng tin cậy'
+      },
+      I: {
+        score: Math.min(1, workloadScore + 0.3), // Informed chỉ cần có thời gian
+        recommendation: (workloadScore + 0.3) > 0.7 ? 'Rất phù hợp' :
+                       (workloadScore + 0.3) > 0.5 ? 'Phù hợp' :
+                       (workloadScore + 0.3) > 0.3 ? 'Có thể phù hợp' : 'Ít phù hợp',
+        explanation: (workloadScore + 0.3) > 0.7 ?
+          'Có đủ thời gian và khả năng để theo dõi và cập nhật tiến độ công việc' :
+          (workloadScore + 0.3) > 0.5 ?
+          'Có thể theo dõi công việc với tần suất phù hợp' :
+          'Có thể quá bận để theo dõi công việc một cách hiệu quả'
+      }
     }
 
     return NextResponse.json({
@@ -228,6 +289,7 @@ export async function GET(
       },
       skills: skillExperiences,
       reasons: reasons,
+      raci_recommendations: raciRecommendations,
       recommendation: totalScore > 0.7 ? 'Rất phù hợp' :
                      totalScore > 0.5 ? 'Phù hợp' :
                      totalScore > 0.3 ? 'Có thể phù hợp' : 'Ít phù hợp'

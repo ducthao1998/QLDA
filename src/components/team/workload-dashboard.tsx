@@ -7,6 +7,9 @@ import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { ChevronDown, ChevronRight, Clock, CheckCircle, AlertCircle, Play, Pause, Archive } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import type { User, Task } from "@/app/types/table-types"
 
@@ -17,6 +20,8 @@ interface UserWorkload {
   utilizationPercent: number
   overloaded: boolean
   tasks: Task[]
+  maxConcurrentTasks: number
+  currentWorkload: number
 }
 
 export function WorkloadDashboard() {

@@ -36,6 +36,12 @@ interface AssignmentExplanation {
     level: string
   }>
   reasons: string[]
+  raci_recommendations: {
+    R: { score: number; recommendation: string; explanation: string }
+    A: { score: number; recommendation: string; explanation: string }
+    C: { score: number; recommendation: string; explanation: string }
+    I: { score: number; recommendation: string; explanation: string }
+  }
   recommendation: string
 }
 
@@ -218,6 +224,35 @@ export function AssignmentExplanationTooltip({
                     <p key={index} className="text-xs text-muted-foreground">
                       {reason}
                     </p>
+                  ))}
+                </div>
+              </div>
+
+              {/* RACI Recommendations */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Target className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-xs font-medium text-foreground">Đề xuất vai trò RACI:</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  {Object.entries(explanation.raci_recommendations).map(([role, rec]) => (
+                    <div key={role} className="p-2 bg-muted/30 rounded text-xs">
+                      <div className="flex items-center justify-between mb-1">
+                        <Badge variant="outline" className="text-xs w-6 h-5 flex items-center justify-center">
+                          {role}
+                        </Badge>
+                        <span className={`text-xs font-medium ${
+                          rec.recommendation === 'Rất phù hợp' ? 'text-green-600' :
+                          rec.recommendation === 'Phù hợp' ? 'text-blue-600' :
+                          rec.recommendation === 'Có thể phù hợp' ? 'text-yellow-600' : 'text-red-600'
+                        }`}>
+                          {rec.recommendation}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-tight">
+                        {rec.explanation}
+                      </p>
+                    </div>
                   ))}
                 </div>
               </div>
