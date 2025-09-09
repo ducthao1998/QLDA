@@ -45,11 +45,19 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
   const [showExplanationDialog, setShowExplanationDialog] = useState(false)
   const [unavailableUsers, setUnavailableUsers] = useState<any[]>([])
   const [requiredSkills, setRequiredSkills] = useState<string[]>([])
+  const [userRaciHistory, setUserRaciHistory] = useState<Map<string, any>>(new Map())
 
   // Load users on mount
   useEffect(() => {
     loadUsers()
   }, [])
+
+  // Load RACI history when users are loaded
+  useEffect(() => {
+    if (allUsers.length > 0) {
+      loadRaciHistory()
+    }
+  }, [allUsers])
 
   // Load RACI data when task changes
   useEffect(() => {
@@ -108,6 +116,25 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
     }
   }
 
+  const loadRaciHistory = async () => {
+    try {
+      const historyMap = new Map()
+      
+      // Get RACI history for each user
+      for (const user of allUsers) {
+        const response = await fetch(`/api/user/${user.id}/raci-history`)
+        if (response.ok) {
+          const data = await response.json()
+          historyMap.set(user.id, data)
+        }
+      }
+      
+      setUserRaciHistory(historyMap)
+    } catch (error) {
+      console.error('Error loading RACI history:', error)
+    }
+  }
+
   const handleRaciChange = (userId: string, role: RaciRole) => {
     setRaci(prevRaci => {
       let newRaci = [...prevRaci]
@@ -147,6 +174,36 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
     return user?.full_name || 'Unknown User'
   }
 
+  // Get role recommendations based on history
+  const getRoleRecommendations = (userId: string) => {
+    const history = userRaciHistory.get(userId)
+    if (!history) return null
+
+    const recommendations = {
+      A: { count: 0, reason: 'Chưa từng đảm nhận vai trò A' },
+      C: { count: 0, reason: 'Chưa từng đảm nhận vai trò C' },
+      I: { count: 0, reason: 'Chưa từng đảm nhận vai trò I' }
+    }
+
+    // Count role history
+    if (history.raci_history) {
+      history.raci_history.forEach((raci: any) => {
+        if (raci.role === 'A') {
+          recommendations.A.count++
+          recommendations.A.reason = `Đã từng đảm nhận ${recommendations.A.count} lần vai trò A`
+        } else if (raci.role === 'C') {
+          recommendations.C.count++
+          recommendations.C.reason = `Đã từng đảm nhận ${recommendations.C.count} lần vai trò C`
+        } else if (raci.role === 'I') {
+          recommendations.I.count++
+          recommendations.I.reason = `Đã từng đảm nhận ${recommendations.I.count} lần vai trò I`
+        }
+      })
+    }
+
+    return recommendations
+  }
+
   const handleAutoAssign = async () => {
     if (!projectId || !task.id) {
       toast.error('Thiếu thông tin dự án hoặc công việc')
@@ -173,39 +230,69 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
       }
 
       const result = await response.json()
+      console.log('Auto assign result:', result)
       
       if (result.success && result.assignments.length > 0) {
         const assignment = result.assignments[0]
         
-        // Cập nhật RACI với kết quả auto assign
-        setRaci([{
-          user_id: assignment.user_id,
-          role: 'R' as RaciRole
-        }])
+        // Tạo danh sách RACI assignments
+        const newRaciAssignments: RaciAssignment[] = [
+          {
+            user_id: assignment.user_id,
+            role: 'R' as RaciRole
+          }
+        ]
         
-        // Track user được auto-assign
-        setAutoAssignedUsers(new Set([assignment.user_id]))
+        // Thêm các role khác từ other_assignments
+        const otherRoles = assignment.other_assignments || []
+        otherRoles.forEach((otherAssignment: any) => {
+          newRaciAssignments.push({
+            user_id: otherAssignment.user_id,
+            role: otherAssignment.role as RaciRole
+          })
+        })
+        
+        // Cập nhật RACI với tất cả assignments
+        setRaci(newRaciAssignments)
+        
+        // Track tất cả users được auto-assign
+        const autoAssignedUserIds = new Set([
+          assignment.user_id,
+          ...otherRoles.map((r: any) => r.user_id)
+        ])
+        setAutoAssignedUsers(autoAssignedUserIds)
         
         setHasChanges(true)
         
-        const otherRoles = assignment.other_assignments || []
         const roleText = otherRoles.length > 0 
           ? ` (R) + ${otherRoles.map((r: any) => r.role).join(', ')}`
           : ' (R)'
         
+        // Hiển thị thông tin chi tiết về assignment
+        const confidencePercent = Math.round(assignment.confidence_score * 100)
+        const experiencePercent = Math.round(assignment.experience_score * 100)
+        
         toast.success(
-          `Đã tự động phân công cho ${assignment.user_name}${roleText}`
+          `✅ Đã tự động phân công cho ${assignment.user_name}${roleText}\n` +
+          `Độ tin cậy: ${confidencePercent}% | Kinh nghiệm: ${experiencePercent}%`,
+          { duration: 5000 }
         )
       } else {
-        // No assignments made, show explanation dialog
-        if (result.unavailable_users && result.unavailable_users.length > 0) {
-          setUnavailableUsers(result.unavailable_users)
-          setRequiredSkills(result.required_skills || [])
-          setShowExplanationDialog(true)
-        } else if (result.unassigned && result.unassigned.length > 0) {
-          toast.warning(`Không thể tự động phân công: ${result.unassigned[0].reason}`)
+        // No assignments made - check if there are any assignments at all
+        if (!result.assignments || result.assignments.length === 0) {
+          // Truly no assignments, show explanation dialog
+          if (result.unavailable_users && result.unavailable_users.length > 0) {
+            setUnavailableUsers(result.unavailable_users)
+            setRequiredSkills(result.required_skills || [])
+            setShowExplanationDialog(true)
+          } else if (result.unassigned && result.unassigned.length > 0) {
+            toast.warning(`⚠️ Không thể tự động phân công: ${result.unassigned[0].reason}`)
+          } else {
+            toast.warning('⚠️ Không tìm thấy người phù hợp để phân công (độ tin cậy < 35%)')
+          }
         } else {
-          toast.warning('Không tìm thấy người phù hợp để phân công')
+          // There are assignments but success is false? This shouldn't happen
+          toast.error('⚠️ Có lỗi trong quá trình phân công tự động')
         }
       }
       
@@ -247,14 +334,15 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Phân công Trách nhiệm (RACI)</CardTitle>
-        <CardDescription>
-          Chọn vai trò cho từng cán bộ. Một công việc chỉ có một người thực hiện chính (R).
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+    <TooltipProvider>
+      <Card>
+        <CardHeader>
+          <CardTitle>Phân công Trách nhiệm (RACI)</CardTitle>
+          <CardDescription>
+            Chọn vai trò cho từng cán bộ. Một công việc chỉ có một người thực hiện chính (R).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
         {hasChanges && (
           <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-center gap-2">
             <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
@@ -300,69 +388,124 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
           </div>
         </div>
 
-        <div className="space-y-3 max-h-96 overflow-y-auto pr-2 border rounded-lg p-2">
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-2 border rounded-lg p-2">
           {allUsers.map(user => {
             const assignment = raci.find(a => a.user_id === user.id)
+            const isAutoAssigned = autoAssignedUsers.has(user.id) && assignment
+            
             return (
-              <div key={user.id} className="p-3 border rounded-md flex items-center justify-between transition-all hover:bg-muted/50">
-                <div>
-                  <p className="font-medium">{user.full_name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {user.position} • {user.org_unit}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {(['R', 'A', 'C', 'I'] as RaciRole[]).map(role => (
-                    <Button
-                      key={role}
-                      type="button"
-                      variant={assignment?.role === role ? 'default' : 'outline'}
-                      size="sm"
-                      className="w-10"
-                      onClick={() => handleRaciChange(user.id, role)}
-                      title={roleDescriptions[role]}
+              <div key={user.id} className={`p-3 border rounded-md transition-all hover:bg-muted/50 ${
+                assignment ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : ''
+              }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <AssignmentExplanationTooltip
+                      taskId={task.id.toString()}
+                      userId={user.id}
+                      isAutoAssigned={!!isAutoAssigned}
                     >
-                      {role}
-                    </Button>
-                  ))}
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium">{user.full_name}</p>
+                        {isAutoAssigned && (
+                          <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
+                            <Bot className="h-3 w-3 mr-1" />
+                            Auto
+                          </Badge>
+                        )}
+                      </div>
+                    </AssignmentExplanationTooltip>
+                    <p className="text-sm text-muted-foreground">
+                      {user.position} • {user.org_unit}
+                    </p>
+                  </div>
+                  
+                  {/* RACI Buttons - chỉ hiển thị khi chưa có assignment hoặc đang edit */}
+                  <div className="flex items-center gap-1">
+                    {assignment ? (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="default" className="w-8 justify-center">
+                          {assignment.role}
+                        </Badge>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRaciChange(user.id, assignment.role)}
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          Thay đổi
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1">
+                          {(['R', 'A', 'C', 'I'] as RaciRole[]).map(role => (
+                            <Button
+                              key={role}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="w-8 h-8 p-0"
+                              onClick={() => handleRaciChange(user.id, role)}
+                              title={roleDescriptions[role]}
+                            >
+                              {role}
+                            </Button>
+                          ))}
+                        </div>
+                        {/* Role Recommendations */}
+                        {(() => {
+                          const recommendations = getRoleRecommendations(user.id)
+                          if (!recommendations) return null
+                          
+                          return (
+                            <div className="flex gap-1 text-xs">
+                              {(['A', 'C', 'I'] as const).map(role => (
+                                <Tooltip key={role}>
+                                  <TooltipTrigger asChild>
+                                    <Badge 
+                                      variant={recommendations[role].count > 0 ? "secondary" : "outline"}
+                                      className="text-xs cursor-help"
+                                    >
+                                      {role}: {recommendations[role].count}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>{recommendations[role].reason}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ))}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )
           })}
         </div>
 
-        {/* Show current assignments summary */}
+        {/* Quick Actions */}
         {raci.length > 0 && (
-          <div className="mt-4 p-3 bg-muted/30 rounded-lg">
-            <p className="text-sm font-medium mb-2">Phân công hiện tại:</p>
-            <div className="space-y-1">
-              {raci.map(assignment => {
-                const isAutoAssigned = autoAssignedUsers.has(assignment.user_id) && assignment.role === 'R'
-                return (
-                  <div key={assignment.user_id} className="flex items-center gap-2 text-sm">
-                    <Badge variant="outline" className="w-8 justify-center">
-                      {assignment.role}
-                    </Badge>
-                    {isAutoAssigned ? (
-                      <AssignmentExplanationTooltip
-                        taskId={task.id.toString()}
-                        userId={assignment.user_id}
-                        isAutoAssigned={true}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span>{getUserName(assignment.user_id)}</span>
-                          <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-800">
-                            <Bot className="h-3 w-3 mr-1" />
-                            Auto
-                          </Badge>
-                        </div>
-                      </AssignmentExplanationTooltip>
-                    ) : (
-                      <span>{getUserName(assignment.user_id)}</span>
-                    )}
-                  </div>
-                )
-              })}
+          <div className="mt-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                  Đã phân công {raci.length} vai trò
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setRaci([])}
+                className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50"
+              >
+                Xóa tất cả
+              </Button>
             </div>
           </div>
         )}
@@ -376,6 +519,7 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
         requiredSkills={requiredSkills}
         taskName={task.name}
       />
-    </Card>
+      </Card>
+    </TooltipProvider>
   )
 }

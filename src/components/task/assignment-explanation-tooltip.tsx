@@ -106,14 +106,13 @@ export function AssignmentExplanationTooltip({
   }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild onMouseEnter={loadExplanation}>
-          <div className="flex items-center gap-1">
-            {children}
-            <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-primary cursor-help" />
-          </div>
-        </TooltipTrigger>
+    <Tooltip>
+      <TooltipTrigger asChild onMouseEnter={loadExplanation}>
+        <div className="flex items-center gap-1">
+          {children}
+          <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-primary cursor-help" />
+        </div>
+      </TooltipTrigger>
         <TooltipContent side="right" className="max-w-sm p-4 bg-background border border-border">
           {loading ? (
             <div className="space-y-2">
@@ -263,7 +262,6 @@ export function AssignmentExplanationTooltip({
             </p>
           )}
         </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    </Tooltip>
   )
 }
