@@ -48,11 +48,6 @@ import { format, isValid, parseISO } from "date-fns"
 import { vi } from "date-fns/locale"
 
 type Task = BaseTask & {
-  project_phases?: {
-    id: string
-    name: string
-    order_no: number
-  } | null
   responsible_user?: {
     full_name: string | null
     position?: string
@@ -71,7 +66,7 @@ interface TasksListProps {
   onTaskUpdate?: () => void
 }
 
-type SortField = "name" | "status" | "start_date" | "end_date" | "phase" | "assignee"
+type SortField = "name" | "status" | "start_date" | "end_date" | "assignee"
 type SortDirection = "asc" | "desc"
 
 const statusColors: Record<
@@ -90,7 +85,6 @@ const ITEMS_PER_PAGE = 10
 
 export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdate }: TasksListProps) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks || [])
-  const [phases, setPhases] = useState<Array<{ id: string; name: string; order_no: number }>>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>(projectId || "")
   const [isLoading, setIsLoading] = useState(!initialTasks)
@@ -102,12 +96,11 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [phaseFilter, setPhaseFilter] = useState<string>("all")
   const [showIncomplete, setShowIncomplete] = useState(false)
   const [showUnassigned, setShowUnassigned] = useState(false)
 
   // Sorting states
-  const [sortField, setSortField] = useState<SortField>("phase")
+  const [sortField, setSortField] = useState<SortField>("name")
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc")
 
   // Pagination states
@@ -129,7 +122,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
 
   useEffect(() => {
     if (initialTasks && projectId) {
-      loadPhasesForProject(projectId)
       processInitialTasks(initialTasks, projectId)
     }
   }, [initialTasks, projectId])
@@ -148,24 +140,10 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
     }
   }
 
-  async function loadPhasesForProject(projectIdToLoad: string) {
-    try {
-      const phasesRes = await fetch(`/api/projects/${projectIdToLoad}/phases`)
-      if (phasesRes.ok) {
-        const phasesData = await phasesRes.json()
-        setPhases(phasesData.phases || [])
-      }
-    } catch (err) {
-      console.error("Error loading phases:", err)
-    }
-  }
 
   async function processInitialTasks(tasks: Task[], projectIdToLoad: string) {
     setIsLoading(true)
     try {
-      // Load phases first
-      await loadPhasesForProject(projectIdToLoad)
-
       // Process tasks with RACI data
       const tasksWithAssignees = await Promise.all(
         tasks.map(async (task: any) => {
@@ -205,20 +183,14 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
   async function loadTasksAndPhases(projectIdToLoad: string) {
     setIsLoading(true)
     try {
-      // Fetch tasks and phases in parallel
-      const [tasksRes, phasesRes] = await Promise.all([
-        fetch(`/api/projects/${projectIdToLoad}/tasks`),
-        fetch(`/api/projects/${projectIdToLoad}/phases`),
-      ])
+      // Fetch tasks
+      const tasksRes = await fetch(`/api/projects/${projectIdToLoad}/tasks`)
 
-      if (!tasksRes.ok || !phasesRes.ok) {
+      if (!tasksRes.ok) {
         throw new Error("Failed to load data")
       }
 
-      const [tasksData, phasesData] = await Promise.all([tasksRes.json(), phasesRes.json()])
-
-      const phases = phasesData.phases || []
-      setPhases(phases)
+      const tasksData = await tasksRes.json()
 
       // Fetch RACI data for each task to get responsible users
       const tasksWithAssignees = await Promise.all(
@@ -229,25 +201,19 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
               const raciData = await raciRes.json()
               const responsibleUser = raciData.raci?.find((r: any) => r.role === "R")
 
-              // Find the phase for this task
-              const taskPhase = phases.find((p: any) => p.id === task.phase_id)
-
               return {
                 ...task,
-                project_phases: taskPhase || null,
                 responsible_user: responsibleUser?.users || null,
               }
             }
             return {
               ...task,
-              project_phases: phases.find((p: any) => p.id === task.phase_id) || null,
               responsible_user: null,
             }
           } catch (error) {
             console.error(`Error fetching RACI for task ${task.id}:`, error)
             return {
               ...task,
-              project_phases: phases.find((p: any) => p.id === task.phase_id) || null,
               responsible_user: null,
             }
           }
@@ -294,10 +260,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
     return !task.responsible_user?.full_name
   }
 
-  // Get unique phases for filter
-  const uniquePhases = useMemo(() => {
-    return phases.sort((a, b) => a.order_no - b.order_no)
-  }, [phases])
 
   // Filtered and sorted tasks
   const filteredAndSortedTasks = useMemo(() => {
@@ -318,10 +280,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
         return false
       }
 
-      // Phase filter
-      if (phaseFilter !== "all" && task.project_phases?.name !== phaseFilter) {
-        return false
-      }
 
       // Incomplete filter
       // if (showIncomplete && !isTaskIncomplete(task)) {
@@ -358,10 +316,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
         //   aValue = a.end_date ? new Date(a.end_date) : new Date(0)
         //   bValue = b.end_date ? new Date(b.end_date) : new Date(0)
         //   break
-        case "phase":
-          aValue = a.project_phases?.order_no || 999
-          bValue = b.project_phases?.order_no || 999
-          break
         case "assignee":
           aValue = a.responsible_user?.full_name?.toLowerCase() || "zzz"
           bValue = b.responsible_user?.full_name?.toLowerCase() || "zzz"
@@ -376,7 +330,7 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
     })
 
     return filtered
-  }, [tasks, searchTerm, statusFilter, phaseFilter, showIncomplete, showUnassigned, sortField, sortDirection])
+  }, [tasks, searchTerm, statusFilter, showIncomplete, showUnassigned, sortField, sortDirection])
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedTasks.length / ITEMS_PER_PAGE)
@@ -506,19 +460,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
             </SelectContent>
           </Select>
 
-          <Select value={phaseFilter} onValueChange={setPhaseFilter}>
-            <SelectTrigger className="w-[150px]">
-              <SelectValue placeholder="Giai đoạn" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tất cả giai đoạn</SelectItem>
-              {uniquePhases.map((phase) => (
-                <SelectItem key={phase.id} value={phase.name}>
-                  {phase.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
 
           <Button
             variant={showIncomplete ? "default" : "outline"}
@@ -588,17 +529,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                 >
                   Tên công việc
                   {getSortIcon("name")}
-                </Button>
-              </TableHead>
-              <TableHead>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleSort("phase")}
-                  className="h-auto p-0 font-semibold"
-                >
-                  Giai đoạn
-                  {getSortIcon("phase")}
                 </Button>
               </TableHead>
               <TableHead>
@@ -680,15 +610,6 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
                       {overdue && <Calendar className="h-4 w-4 text-red-600" />} */}
                       {unassigned && <Users className="h-4 w-4 text-orange-600" />}
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    {task.project_phases ? (
-                      <Badge variant="outline" className="bg-blue-50 text-blue-700">
-                        {task.project_phases.name}
-                      </Badge>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">Chưa phân giai đoạn</span>
-                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">

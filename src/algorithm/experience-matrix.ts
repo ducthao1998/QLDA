@@ -22,6 +22,16 @@ export interface ExperienceMatrix {
  * Output: Ma trận kinh nghiệm E[user_id][skill_id]
  * Công thức: E(u,s) = (Σ(Q_i × T_i × D_i)) / (Σ T_i) × W_recent
  */
+// Helper function to convert completed tasks count to experience score
+function toScore(completed: number): number {
+  if (completed >= 10) return 0.9
+  if (completed >= 7) return 0.8
+  if (completed >= 5) return 0.7
+  if (completed >= 3) return 0.5
+  if (completed >= 1) return 0.3
+  return 0
+}
+
 export async function buildExperienceMatrix(
   users: string[],
   skills: number[],
@@ -39,84 +49,85 @@ export async function buildExperienceMatrix(
       })
     })
 
-    // Lấy dữ liệu từ user_skill_matrix (kinh nghiệm cơ bản)
+    // 1) Ưu tiên user_skill_matrix (skill_id, completed_tasks_count)
     const { data: skillMatrix } = await supabase
       .from('user_skill_matrix')
-      .select('user_id, skill_id, completed_tasks_count, avg_quality_score')
+      .select('user_id, skill_id, completed_tasks_count')
       .in('user_id', users)
       .in('skill_id', skills)
 
-    // Lấy dữ liệu từ task_progress và worklogs để tính toán chi tiết hơn
-    const { data: taskHistory } = await supabase
-      .from('task_raci')
-      .select(`
-        user_id,
-        tasks!inner(
-          id,
-          name,
-          status,
-          created_at,
-          updated_at,
-          task_skills!inner(
-            skill_id
-          ),
-          task_progress(
-            quality_score,
-            time_spent_hours
-          )
-        )
-      `)
-      .eq('role', 'R')
-      .eq('tasks.status', 'done')
-      .in('user_id', users)
-
-    // Tính toán Experience Matrix
+    // Áp dụng thang điểm chuẩn từ completed_tasks_count
     skillMatrix?.forEach(item => {
       if (item.user_id && item.skill_id !== null) {
         const userId = item.user_id
         const skillId = item.skill_id
+        const completedTasks = item.completed_tasks_count || 0
+        const score = toScore(completedTasks)
+        matrix[userId][skillId] = score
         
-        // Base experience từ user_skill_matrix
-        const baseExperience = (item.completed_tasks_count || 0) * (item.avg_quality_score || 0.5)
-        
-        // Tìm các task history liên quan
-        const userTasks = taskHistory?.filter(th => {
-          if (th.user_id !== userId || !th.tasks) return false
-          const task = th.tasks as any
-          return task.task_skills?.some((ts: any) => ts.skill_id === skillId)
-        }) || []
-
-        let totalWeightedScore = baseExperience
-        let totalTime = 1 // Tránh chia cho 0
-
-        userTasks.forEach(taskRecord => {
-          const task = taskRecord.tasks as any
-          if (!task) return
-
-          const progressArray = task.task_progress as any[]
-          const progress = progressArray?.[0]
-          if (!progress) return
-
-          const qualityScore = progress.quality_score || 0.5
-          const timeSpent = progress.time_spent_hours || 1
-          const difficultyLevel = 1.0 // Có thể tính từ task complexity
-          
-          // Tính recency weight (task gần đây có trọng số cao hơn)
-          const taskDate = new Date(task.updated_at || task.created_at)
-          const daysSince = (Date.now() - taskDate.getTime()) / (1000 * 60 * 60 * 24)
-          const recencyWeight = Math.exp(-daysSince / 365) // Decay theo năm
-
-          // Áp dụng công thức: Q_i × T_i × D_i × W_recent
-          const weightedScore = qualityScore * timeSpent * difficultyLevel * recencyWeight
-          totalWeightedScore += weightedScore
-          totalTime += timeSpent
-        })
-
-        // Tính experience cuối cùng: (Σ(Q_i × T_i × D_i × W_recent)) / (Σ T_i)
-        matrix[userId][skillId] = totalWeightedScore / totalTime
+        // Debug log để kiểm tra
+        if (completedTasks > 0) {
+          console.log(`User ${userId} skill ${skillId}: ${completedTasks} tasks -> score ${score}`)
+        }
       }
     })
 
+    // 2) Fallback từ task_raci các task đã hoàn thành để đếm số lần làm theo skill
+    const missingUsers = users.filter(u => 
+      !matrix[u] || Object.values(matrix[u]).every(score => score === 0)
+    )
+
+    if (missingUsers.length > 0) {
+      const { data: taskHistory } = await supabase
+        .from('task_raci')
+        .select(`
+          user_id,
+          tasks!inner(
+            id,
+            status,
+            task_skills!inner(
+              skill_id,
+              skills!inner(name)
+            )
+          )
+        `)
+        .in('user_id', missingUsers)
+        .eq('role', 'R')
+
+      // Count completed tasks per user per skill
+      const counts: Record<string, Record<number, number>> = {}
+      
+      taskHistory?.forEach((r: any) => {
+        const task = r.tasks
+        if (!task) return
+        
+        const status = String(task.status || '').toLowerCase()
+        const isCompleted = status === 'done' || status === 'completed' || status === 'hoan_thanh'
+        if (!isCompleted) return
+        
+        const userId = r.user_id
+        const taskSkills = task.task_skills || []
+        
+        taskSkills.forEach((ts: any) => {
+          const skillId = ts.skill_id
+          if (!skills.includes(skillId)) return
+          
+          counts[userId] ??= {}
+          counts[userId][skillId] = (counts[userId][skillId] || 0) + 1
+        })
+      })
+
+      // Convert counts to scores using same logic
+      for (const [userId, bySkill] of Object.entries(counts)) {
+        matrix[userId] ??= {}
+        for (const [skillIdStr, count] of Object.entries(bySkill)) {
+          const skillId = Number(skillIdStr)
+          matrix[userId][skillId] = Math.max(matrix[userId][skillId] || 0, toScore(count))
+        }
+      }
+    }
+
+    console.log('Experience Matrix built with scores:', Object.keys(matrix).length, 'users')
     return matrix
 
   } catch (error) {

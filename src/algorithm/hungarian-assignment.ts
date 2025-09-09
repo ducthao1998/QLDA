@@ -22,172 +22,259 @@ export interface Assignment {
   experience_score: number
 }
 
-/**
- * Thuật toán Hungarian Assignment với ràng buộc
- * 
- * Input: Tasks cần phân công, available users, ma trận kinh nghiệm
- * Output: Phân công tối ưu task -> user
- * Ràng buộc: Mỗi người tối đa 2 công việc đồng thời
- */
-export function constrainedHungarianAssignment(
-  tasks: Task[],
-  users: User[],
-  experienceMatrix: ExperienceMatrix,
-  maxConcurrentTasks: number = 2
-): Assignment[] {
-  const assignments: Assignment[] = []
-  
-  // Lọc users có thể nhận thêm task
-  const availableUsers = users.filter(user => 
-    user.current_workload < Math.min(maxConcurrentTasks, user.max_concurrent_tasks)
-  )
+/* ===========================
+ *  Hungarian (min-cost) core
+ *  Input: cost matrix vuông n x n
+ *  Output: match[j] = i  (col j nhận row i)
+ * =========================== */
+function hungarian(cost: number[][]): number[] {
+  const n = cost.length
+  const u = Array(n + 1).fill(0)
+  const v = Array(n + 1).fill(0)
+  const p = Array(n + 1).fill(0)
+  const way = Array(n + 1).fill(0)
 
-  if (availableUsers.length === 0) {
-    return assignments
-  }
-
-  // Sắp xếp tasks theo priority (cao -> thấp)
-  const sortedTasks = [...tasks].sort((a, b) => b.priority - a.priority)
-
-  // Phân công từng task
-  for (const task of sortedTasks) {
-    const bestAssignment = findBestUserForTask(task, availableUsers, experienceMatrix)
-    
-    if (bestAssignment) {
-      assignments.push(bestAssignment)
-      
-      // Cập nhật workload của user được chọn
-      const assignedUser = availableUsers.find(u => u.id === bestAssignment.user_id)
-      if (assignedUser) {
-        assignedUser.current_workload += 1
-        
-        // Loại bỏ user nếu đã đạt max workload
-        if (assignedUser.current_workload >= Math.min(maxConcurrentTasks, assignedUser.max_concurrent_tasks)) {
-          const userIndex = availableUsers.indexOf(assignedUser)
-          if (userIndex > -1) {
-            availableUsers.splice(userIndex, 1)
-          }
-        }
+  for (let i = 1; i <= n; i++) {
+    p[0] = i
+    let j0 = 0
+    const minv = Array(n + 1).fill(Infinity)
+    const used = Array(n + 1).fill(false)
+    do {
+      used[j0] = true
+      const i0 = p[j0]
+      let delta = Infinity
+      let j1 = 0
+      for (let j = 1; j <= n; j++) if (!used[j]) {
+        const cur = cost[i0 - 1][j - 1] - u[i0] - v[j]
+        if (cur < minv[j]) { minv[j] = cur; way[j] = j0 }
+        if (minv[j] < delta) { delta = minv[j]; j1 = j }
       }
-    }
+      for (let j = 0; j <= n; j++) {
+        if (used[j]) { u[p[j]] += delta; v[j] -= delta }
+        else { minv[j] -= delta }
+      }
+      j0 = j1
+    } while (p[j0] !== 0)
+    do {
+      const j1 = way[j0]
+      p[j0] = p[j1]
+      j0 = j1
+    } while (j0 !== 0)
   }
 
-  return assignments
+  const match = Array(n).fill(-1) // col -> row
+  for (let j = 1; j <= n; j++) if (p[j] > 0) match[j - 1] = p[j] - 1
+  return match
 }
 
-/**
- * Tìm user tốt nhất cho một task cụ thể
- */
-function findBestUserForTask(
-  task: Task,
-  availableUsers: User[],
-  experienceMatrix: ExperienceMatrix
-): Assignment | null {
-  if (availableUsers.length === 0) return null
-
-  let bestUser: User | null = null
-  let bestScore = -1
-  let bestExperienceScore = 0
-
-  for (const user of availableUsers) {
-    const score = calculateUserTaskScore(user, task, experienceMatrix)
-    
-    if (score > bestScore) {
-      bestScore = score
-      bestUser = user
-      
-      // Tính experience score trung bình cho các skills yêu cầu
-      const experienceScores = task.required_skills.map(skillId => 
-        getExperienceScore(experienceMatrix, user.id, skillId)
-      )
-      bestExperienceScore = experienceScores.length > 0 
-        ? experienceScores.reduce((sum, score) => sum + score, 0) / experienceScores.length
-        : 0
-    }
-  }
-
-  if (!bestUser) return null
-
-  return {
-    task_id: task.id,
-    user_id: bestUser.id,
-    confidence_score: bestScore,
-    experience_score: bestExperienceScore
-  }
-}
-
-/**
- * Tính điểm phù hợp giữa user và task với ưu tiên kinh nghiệm lĩnh vực
- */
-function calculateUserTaskScore(
+/* ===========================
+ *  Score phù hợp user-task (0..1)
+ *  Ưu tiên kinh nghiệm & cân bằng workload
+ * =========================== */
+export function calculateUserTaskScore(
   user: User,
   task: Task,
   experienceMatrix: ExperienceMatrix
 ): number {
-  // 1. Field Experience Score (50% trọng số) - Ưu tiên cao nhất cho kinh nghiệm lĩnh vực
-  const experienceScores = task.required_skills.map(skillId => 
+  // 1) Field Experience (50%)
+  const experienceScores = task.required_skills.map(skillId =>
     getExperienceScore(experienceMatrix, user.id, skillId)
   )
-  const avgExperience = experienceScores.length > 0 
-    ? experienceScores.reduce((sum, score) => sum + score, 0) / experienceScores.length
+  const avgExperience = experienceScores.length > 0
+    ? experienceScores.reduce((s, v) => s + v, 0) / experienceScores.length
     : 0
 
-  // Bonus cho người có kinh nghiệm cao trong lĩnh vực
   const experienceBonus = avgExperience > 0.7 ? 0.2 : avgExperience > 0.5 ? 0.1 : 0
   const fieldExperienceScore = Math.min(1, avgExperience + experienceBonus)
 
-  // 2. Workload Balance Score (35% trọng số) - Cân bằng khối lượng công việc
-  // Tính toán workload dựa trên tất cả dự án, không chỉ dự án hiện tại
-  const maxWorkload = Math.min(3, user.max_concurrent_tasks) // Tăng lên 3 để xử lý nhiều dự án
+  // 2) Workload Balance (35%)
+  const maxWorkload = Math.max(1, user.max_concurrent_tasks) // bỏ hard-code 3
   const workloadRatio = user.current_workload / maxWorkload
-  
-  // Ưu tiên mạnh cho người có workload thấp
   let workloadScore = 0
-  if (workloadRatio === 0) {
-    workloadScore = 1.0 // Hoàn toàn rảnh
-  } else if (workloadRatio <= 0.33) {
-    workloadScore = 0.8 // Ít việc
-  } else if (workloadRatio <= 0.66) {
-    workloadScore = 0.5 // Vừa phải
-  } else {
-    workloadScore = 0.2 // Bận
-  }
+  if (workloadRatio === 0)      workloadScore = 1.0
+  else if (workloadRatio <= .33) workloadScore = 0.8
+  else if (workloadRatio <= .66) workloadScore = 0.5
+  else                           workloadScore = 0.2
 
-  // 3. Skill Coverage Score (10% trọng số) - Có đủ kỹ năng yêu cầu
-  const skillCoverage = task.required_skills.filter(skillId => 
+  // 3) Skill Coverage (10%)
+  const skillCoverage = task.required_skills.filter(skillId =>
     getExperienceScore(experienceMatrix, user.id, skillId) > 0
   ).length
-  const skillCoverageScore = task.required_skills.length > 0 
+  const skillCoverageScore = task.required_skills.length > 0
     ? skillCoverage / task.required_skills.length
     : 1
 
-  // 4. Specialization Score (5% trọng số) - Chuyên môn hóa
-  const hasHighExpertise = experienceScores.some(score => score > 0.8)
+  // 4) Specialization (5%)
+  const hasHighExpertise = experienceScores.some(s => s > 0.8)
   const specializationScore = hasHighExpertise ? 1 : 0.5
 
-  // Tính tổng điểm có trọng số (ưu tiên kinh nghiệm và workload)
-  let totalScore = (
+  let total = (
     fieldExperienceScore * 0.5 +
     workloadScore * 0.35 +
     skillCoverageScore * 0.1 +
     specializationScore * 0.05
   )
 
-  // FALLBACK: Nếu không có experience data, ưu tiên workload
+  // Fallback: không có dữ liệu kinh nghiệm - vẫn ưu tiên experience hơn workload
   if (avgExperience === 0 && skillCoverageScore === 0) {
-    totalScore = workloadScore * 0.8 + (user.current_workload === 0 ? 0.2 : 0.1)
-    
-    // Đảm bảo có điểm tối thiểu
-    if (totalScore === 0) {
-      totalScore = 0.05
+    // Giảm trọng số workload để không ưu tiên quá mức người rảnh không có kinh nghiệm
+    total = workloadScore * 0.4 + (user.current_workload === 0 ? 0.1 : 0.05)
+    if (total === 0) total = 0.01 // Điểm rất thấp cho người không có kinh nghiệm
+  }
+
+  return Math.min(1, total)
+}
+
+/* ===========================
+ *  Hungarian + Capacity bằng slot
+ *  - Biến mỗi user thành nhiều "slot" theo capacity còn lại
+ *  - Thêm slot giả "UNASSIGNED" để cho phép không gán
+ *  - Tối ưu toàn cục theo tổng điểm
+ * =========================== */
+
+/**
+ * Thuật toán Hungarian Assignment với ràng buộc (tối ưu toàn cục)
+ *
+ * Input: Tasks cần phân công, users (kèm workload hiện tại), ma trận kinh nghiệm
+ * Output: Phân công tối ưu task -> user (có thể "không gán" nếu điểm thấp)
+ * Ràng buộc: Mỗi người tối đa `min(maxConcurrentTasks, user.max_concurrent_tasks)` công việc đồng thời
+ */
+export function constrainedHungarianAssignment(
+  tasks: Task[],
+  users: User[],
+  experienceMatrix: ExperienceMatrix,
+  maxConcurrentTasks: number = 2,
+  options?: {
+    minConfidence?: number   // ngưỡng tự tin tối thiểu để chấp nhận gán
+    unassignedCost?: number  // chi phí gán “không ai” (0..1), càng thấp càng dễ bỏ qua
+    bigPenalty?: number      // phạt lớn để cấm gán
+  }
+): Assignment[] {
+  const minConfidence = options?.minConfidence ?? 0.4
+  const unassignedCost = options?.unassignedCost ?? 0.45
+  const bigPenalty = options?.bigPenalty ?? 1e6
+
+  // 1) Tạo slots theo capacity còn lại của mỗi user
+  type Slot = { userId: string; slotIndex: number; isDummy?: boolean }
+  const slots: Slot[] = []
+  for (const u of users) {
+    const capUser = Math.min(maxConcurrentTasks, u.max_concurrent_tasks)
+    const remaining = Math.max(0, capUser - u.current_workload)
+    for (let k = 0; k < remaining; k++) {
+      slots.push({ userId: u.id, slotIndex: k })
     }
   }
 
-  return Math.min(1, totalScore) // Đảm bảo không vượt quá 1
+  // Nếu không ai còn slot → không có gán
+  const totalRealSlots = slots.length
+  if (totalRealSlots === 0 && tasks.length > 0) {
+    return []
+  }
+
+  // 2) Pad để thành ma trận vuông
+  const n = Math.max(tasks.length, slots.length)
+  // Thêm slot giả (UNASSIGNED) nếu thiếu
+  while (slots.length < n) slots.push({ userId: 'UNASSIGNED', slotIndex: slots.length, isDummy: true })
+
+  // Thêm task giả để vuông (không ảnh hưởng kết quả)
+  const padTasks: Task[] = [...tasks]
+  while (padTasks.length < n) {
+    padTasks.push({
+      id: `DUMMY_TASK_${padTasks.length}`,
+      name: 'DUMMY',
+      required_skills: [],
+      priority: 0,
+      estimated_hours: 0
+    })
+  }
+
+  // 3) Xây ma trận chi phí (Hungarian minimize)
+  const cost: number[][] = Array.from({ length: n }, () => Array(n).fill(0))
+
+  for (let i = 0; i < n; i++) {
+    const task = padTasks[i]
+    const isDummyTask = task.name === 'DUMMY'
+
+    for (let j = 0; j < n; j++) {
+      const slot = slots[j]
+
+      if (isDummyTask) {
+        // DUMMY task: cost 0 cho mọi slot để không ảnh hưởng tối ưu
+        cost[i][j] = 0
+        continue
+      }
+
+      if (slot.isDummy) {
+        // Gán task thật vào slot "không ai"
+        cost[i][j] = unassignedCost
+        continue
+      }
+
+      const user = users.find(u => u.id === slot.userId)!
+      // (Phòng hờ) Nếu capacity đã hết (không nên xảy ra vì đã tạo slot), cấm gán
+      const capUser = Math.min(maxConcurrentTasks, user.max_concurrent_tasks)
+      if (user.current_workload >= capUser) {
+        cost[i][j] = bigPenalty
+        continue
+      }
+
+      // Tính coverage ratio thay vì chặn cứng
+      const totalReq = task.required_skills.length
+      const covered = totalReq === 0 ? 0 : task.required_skills
+        .reduce((acc, sid) => acc + (getExperienceScore(experienceMatrix, user.id, sid) > 0 ? 1 : 0), 0)
+      
+      const coverageRatio = totalReq === 0 ? 1 : covered / totalReq
+
+      // Điểm cơ sở theo hàm calculateUserTaskScore
+      let baseScore = calculateUserTaskScore(user, task, experienceMatrix)
+
+      // Nếu không phủ kỹ năng nào (coverageRatio = 0) thì giảm điểm một chút (phạt mềm),
+      // nhưng không về 0 để thuật toán vẫn có thể đề xuất dựa vào workload:
+      if (totalReq > 0 && coverageRatio === 0) {
+        baseScore = Math.max(0, baseScore - 0.15) // phạt 0.15
+      }
+
+      // Score -> cost
+      cost[i][j] = 1 - Math.max(0, Math.min(1, baseScore))
+    }
+  }
+
+  // 4) Chạy Hungarian để tối ưu toàn cục
+  const matchColToRow = hungarian(cost) // col j -> row i
+
+  // 5) Convert về Assignment + áp ngưỡng minConfidence
+  const results: Assignment[] = []
+  for (let j = 0; j < n; j++) {
+    const row = matchColToRow[j]
+    if (row < 0) continue
+
+    const task = padTasks[row]
+    if (task.name === 'DUMMY') continue // bỏ task giả
+
+    const slot = slots[j]
+    if (slot.isDummy || slot.userId === 'UNASSIGNED') continue // “không gán ai”
+
+    const user = users.find(u => u.id === slot.userId)!
+    const score = 1 - cost[row][j]
+    if (score < minConfidence) continue
+
+    // experience_score trung bình trên required_skills
+    const exps = task.required_skills.map(sid => getExperienceScore(experienceMatrix, user.id, sid))
+    const expAvg = exps.length ? exps.reduce((a, b) => a + b, 0) / exps.length : 0
+
+    results.push({
+      task_id: task.id,
+      user_id: user.id,
+      confidence_score: score,
+      experience_score: expAvg
+    })
+  }
+
+  return results
 }
 
 /**
- * Phân công tối ưu cho một task đơn lẻ
+ * Phân công tối ưu cho một task đơn lẻ (dùng Hungarian với 1 hàng)
  */
 export async function assignSingleTask(
   taskId: string,
@@ -215,7 +302,9 @@ export async function assignSingleTask(
 }
 
 /**
- * Validate assignment constraints
+ * Validate assignment constraints:
+ * - Tính cả workload nền (current_workload) + assignments mới
+ * - Không vượt quá min(maxConcurrentTasks, user.max_concurrent_tasks)
  */
 export function validateAssignments(
   assignments: Assignment[],
@@ -223,23 +312,23 @@ export function validateAssignments(
   maxConcurrentTasks: number = 2
 ): { isValid: boolean; violations: string[] } {
   const violations: string[] = []
-  const userTaskCounts = new Map<string, number>()
+  const userAddCounts = new Map<string, number>()
+  const userById = new Map(users.map(u => [u.id, u]))
 
-  // Đếm số task được assign cho mỗi user
-  assignments.forEach(assignment => {
-    const currentCount = userTaskCounts.get(assignment.user_id) || 0
-    userTaskCounts.set(assignment.user_id, currentCount + 1)
-  })
+  // Đếm số task mới gán cho mỗi user
+  for (const a of assignments) {
+    userAddCounts.set(a.user_id, (userAddCounts.get(a.user_id) || 0) + 1)
+  }
 
-  // Kiểm tra vi phạm
-  userTaskCounts.forEach((taskCount, userId) => {
-    const user = users.find(u => u.id === userId)
-    const maxTasks = user ? Math.min(maxConcurrentTasks, user.max_concurrent_tasks) : maxConcurrentTasks
-    
-    if (taskCount > maxTasks) {
-      violations.push(`User ${userId} được assign ${taskCount} tasks, vượt quá giới hạn ${maxTasks}`)
+  // Kiểm tra trần dựa trên workload nền + số lượng mới
+  for (const [userId, add] of userAddCounts.entries()) {
+    const u = userById.get(userId)
+    const maxTasks = u ? Math.min(maxConcurrentTasks, u.max_concurrent_tasks) : maxConcurrentTasks
+    const base = u?.current_workload ?? 0
+    if (base + add > maxTasks) {
+      violations.push(`User ${userId} sẽ có tổng ${base + add}/${maxTasks} công việc (vượt trần).`)
     }
-  })
+  }
 
   return {
     isValid: violations.length === 0,

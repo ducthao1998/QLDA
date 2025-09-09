@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -43,7 +42,19 @@ interface UnavailableUser {
   }>
   workload_percentage: number
   reason: 'overloaded' | 'no_skills' | 'unavailable'
+  reason_text?: string
   experience_score?: number
+  skill_experience?: Array<{
+    skill_id: number
+    skill_name?: string
+    completed_tasks: number
+  }>
+  role_recommendations?: {
+    R: { completed_tasks: number; reason: string }
+    A: { completed_tasks: number; reason: string }
+    C: { completed_tasks: number; reason: string }
+    I: { completed_tasks: number; reason: string }
+  }
 }
 
 interface TaskAssignmentExplanationDialogProps {
@@ -135,7 +146,7 @@ export function TaskAssignmentExplanationDialog({
 
         <div className="space-y-4 overflow-y-auto flex-1 pr-2">
           {/* Required Skills Info */}
-          {requiredSkills.length > 0 && (
+          {requiredSkills && requiredSkills.length > 0 && (
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription>
@@ -146,84 +157,117 @@ export function TaskAssignmentExplanationDialog({
 
           {/* Unavailable Users */}
           <div className="space-y-3">
-            {unavailableUsers.map((user) => (
-              <Card key={user.user_id} className="border-l-4 border-l-orange-400">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${user.full_name}`} />
-                        <AvatarFallback>
-                          {user.full_name.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <CardTitle className="text-base">{user.full_name}</CardTitle>
-                        <CardDescription className="text-sm">
-                          {user.position && `${user.position} • `}{user.org_unit}
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <Badge variant="outline" className="mb-1">
-                        {user.current_workload}/{user.max_concurrent_tasks} công việc
-                      </Badge>
-                      <div className="text-sm text-muted-foreground">
-                        {getReasonText(user.reason)}
-                      </div>
-                      {user.experience_score && (
-                        <div className="text-xs text-blue-600 mt-1">
-                          Điểm kinh nghiệm: {Math.round(user.experience_score * 100)}%
-                        </div>
-                      )}
-                    </div>
-                  </div>
+            {unavailableUsers && unavailableUsers.length > 0 ? (
+              unavailableUsers
+                // Chỉ hiển thị những người thực sự có liên quan và đáng chú ý
+                .filter(user => {
+                  // Nếu thực sự đang bận (overloaded) - kiểm tra workload thực tế
+                  if (user.reason === 'overloaded' && user.current_workload >= user.max_concurrent_tasks) {
+                    return true
+                  }
                   
-                  {/* Workload Progress */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Mức độ bận rộn</span>
-                      <span className={user.workload_percentage > 80 ? "text-red-600 font-medium" : 
-                                     user.workload_percentage > 60 ? "text-orange-600 font-medium" : ""}>
-                        {user.workload_percentage}%
-                      </span>
+                  // Nếu có skill experience >= 3 (có kinh nghiệm đáng kể nhưng không được chọn)
+                  if (user.skill_experience && 
+                      user.skill_experience.some(exp => exp.completed_tasks >= 3)) {
+                    return true
+                  }
+                  
+                  // Không hiển thị những người không bận và ít kinh nghiệm
+                  return false
+                })
+                .map((user) => (
+                <Card key={user.user_id} className="border-l-4 border-l-orange-400">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-10 w-10">
+                          <AvatarImage src={`https://api.dicebear.com/7.x/initials/svg?seed=${user.full_name || 'User'}`} />
+                          <AvatarFallback>
+                            {user.full_name?.split(' ').map(n => n[0]).join('') || 'U'}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <CardTitle className="text-base">{user.full_name || 'Unknown User'}</CardTitle>
+                          <CardDescription className="text-sm">
+                            {user.position && `${user.position} • `}{user.org_unit}
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <Badge variant="outline" className="mb-1">
+                          {user.current_workload || 0}/{user.max_concurrent_tasks || 2} công việc
+                        </Badge>
+                        <div className="text-sm text-muted-foreground">
+                          {user.reason_text || getReasonText(user.reason)}
+                        </div>
+                        {user.skill_experience && user.skill_experience.length > 0 && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            Đã hoàn thành: {user.skill_experience.reduce((sum, exp) => sum + exp.completed_tasks, 0)} công việc liên quan
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <Progress 
-                      value={user.workload_percentage} 
-                      className={user.workload_percentage > 80 ? "bg-red-100" : ""}
-                    />
-                  </div>
-                </CardHeader>
+                  </CardHeader>
 
-                <CardContent className="pt-0">
-                  {/* Current Tasks */}
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium text-muted-foreground">
-                      Công việc hiện tại ({user.current_tasks.length}):
-                    </h4>
+                  <CardContent className="pt-0">
+                    {/* Current Tasks */}
                     <div className="space-y-2">
-                      {user.current_tasks.map((task) => (
-                        <div key={task.task_id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
-                            {getStatusIcon(task.status)}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{task.task_name}</p>
-                              <p className="text-xs text-muted-foreground truncate">
-                                {task.project_name}
-                                {task.duration_days && ` • ${task.duration_days} ngày`}
-                              </p>
+                      <h4 className="text-sm font-medium text-muted-foreground">
+                        Công việc hiện tại ({user.current_tasks?.length || 0}):
+                      </h4>
+                      <div className="space-y-2">
+                        {user.current_tasks && user.current_tasks.map((task) => (
+                          <div key={task.task_id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              {getStatusIcon(task.status)}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{task.task_name}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  {task.project_name}
+                                  {task.duration_days && ` • ${task.duration_days} ngày`}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              {getStatusBadge(task.status)}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {getStatusBadge(task.status)}
-                          </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+
+                    {/* Skill Experience Information */}
+                    {user.skill_experience && user.skill_experience.length > 0 && (
+                      <div className="space-y-2 mt-4">
+                        <h4 className="text-sm font-medium text-muted-foreground">
+                          Kinh nghiệm với kỹ năng yêu cầu:
+                        </h4>
+                        <div className="space-y-1">
+                          {user.skill_experience.map((exp, index) => (
+                            <div key={index} className="flex items-center justify-between p-2 bg-muted/30 rounded">
+                              <span className="text-sm">{exp.skill_name || `Kỹ năng ${exp.skill_id}`}</span>
+                              <span className={`text-sm font-medium ${
+                                exp.completed_tasks >= 5 ? 'text-green-600' : 
+                                exp.completed_tasks >= 1 ? 'text-yellow-600' : 'text-gray-600'
+                              }`}>
+                                {exp.completed_tasks > 0 ? `${exp.completed_tasks} công việc` : 'Chưa có kinh nghiệm'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            ) : (
+              <Alert>
+                <Info className="h-4 w-4" />
+                <AlertDescription>
+                  Không có thành viên nào có kinh nghiệm với kỹ năng yêu cầu. Có thể cần đào tạo hoặc tuyển thêm người có kỹ năng phù hợp.
+                </AlertDescription>
+              </Alert>
+            )}
           </div>
 
           {/* Suggestions */}
@@ -232,11 +276,11 @@ export function TaskAssignmentExplanationDialog({
             <AlertDescription>
               <strong>Gợi ý:</strong>
               <ul className="mt-2 space-y-1 text-sm">
-                <li>• Tăng giới hạn công việc đồng thời cho một số thành viên</li>
-                <li>• Hoàn thành một số công việc đang chờ để giải phóng người</li>
-                <li>• Thêm kỹ năng cho các thành viên chưa có đủ kỹ năng</li>
-                <li>• Phân công thủ công dựa trên khả năng hiện tại</li>
-                <li>• Xem xét gán người có kinh nghiệm thấp hơn nhưng rảnh rỗi</li>
+                <li>• Tăng giới hạn công việc đồng thời cho những người có kinh nghiệm</li>
+                <li>• Hoàn thành một số công việc đang chờ để giải phóng người có kinh nghiệm</li>
+                <li>• Phân công thủ công cho người có ít kinh nghiệm nhưng rảnh rỗi</li>
+                <li>• Đào tạo thêm kỹ năng cho các thành viên khác</li>
+                <li>• Tuyển thêm người có kỹ năng phù hợp</li>
               </ul>
             </AlertDescription>
           </Alert>
