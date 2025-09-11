@@ -10,7 +10,10 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { RefreshCw, Calendar, CalendarDays, CalendarRange, Download, Eye, EyeOff, AlertCircle } from "lucide-react"
-
+import html2canvas from "html2canvas"
+import jsPDF from "jspdf"
+import * as XLSX from "xlsx"
+import autoTable from "jspdf-autotable"
 // Import DHTMLX Gantt CSS
 import "dhtmlx-gantt/codebase/dhtmlxgantt.css"
 
@@ -234,6 +237,423 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
     return displayTasks
   }
 
+  const buildScheduleRows = () => {
+    const tasks = getDisplayTasks()
+    return tasks.map((t: Task) => ({
+      ID: t.id,
+      "Tên công việc": t.name,
+      "Bắt đầu": t.calculated_start_date ? new Date(t.calculated_start_date).toLocaleDateString('vi-VN') : "",
+      "Kết thúc": t.calculated_end_date ? new Date(t.calculated_end_date).toLocaleDateString('vi-VN') : "",
+      "Số ngày": t.duration_days || 1,
+      "Trạng thái": t.status,
+      "Tiến độ (%)": t.progress ?? 0,
+      "Phụ thuộc": (projectData?.dependencies || [])
+        .filter((d:any)=>d.task_id===t.id)
+        .map((d:any)=>d.depends_on_id)
+        .join(", "),
+      "Critical": t.is_critical_path ? "Yes" : "",
+      "Overdue": t.is_overdue ? "Yes" : "",
+    }))
+  }
+
+  const VN_FONT_URL = "/fonts/NotoSans-Regular.ttf" // đổi nếu bạn dùng font khác
+
+  function arrayBufferToBase64(buffer: ArrayBuffer) {
+    let binary = ""
+    const bytes = new Uint8Array(buffer)
+    const chunkSize = 0x8000
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+    }
+    return btoa(binary)
+  }
+  
+  async function ensureVnFont(pdf: any) {
+    // tránh load lại nếu đã add
+    const list = pdf.getFontList?.() || {}
+    if (list["NotoSans"]) {
+      pdf.setFont("NotoSans", "normal")
+      return
+    }
+    const res = await fetch(VN_FONT_URL)
+    const buf = await res.arrayBuffer()
+    const base64 = arrayBufferToBase64(buf)
+    pdf.addFileToVFS("NotoSans-Regular.ttf", base64)
+    pdf.addFont("NotoSans-Regular.ttf", "NotoSans", "normal")
+    pdf.setFont("NotoSans", "normal")
+  }
+  
+  function daysBetween(a: Date, b: Date) {
+    return Math.max(0, Math.round((+b - +a) / 86400000))
+  }
+  
+  function addMonths(d: Date, n: number) {
+    const x = new Date(d)
+    x.setMonth(x.getMonth() + n)
+    return x
+  }
+  
+  function colorForTask(t: any) {
+    if (t.is_critical_path) return [239, 68, 68]    // đỏ
+    if (t.is_overdue)        return [245, 158, 11]  // vàng cam
+    if (t.status === "done") return [16, 185, 129]  // xanh lá
+    return [59, 130, 246]                           // xanh dương
+  }
+  const handleExportPDF = async () => {
+    try {
+      const tasks = getDisplayTasks()
+      if (!tasks?.length) {
+        toast.error("Không có dữ liệu công việc để xuất PDF")
+        return
+      }
+  
+      const VN_FONT_REG = "/fonts/NotoSans-Regular.ttf"
+      const VN_FONT_BOLD = "/fonts/NotoSans-Bold.ttf"
+  
+      const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+        let binary = ""
+        const bytes = new Uint8Array(buffer)
+        const chunk = 0x8000
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+        }
+        return btoa(binary)
+      }
+  
+      const pdf = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" })
+  
+      // --- Load & register Unicode fonts (Regular + Bold) ---
+      const [bufReg, bufBold] = await Promise.all([fetch(VN_FONT_REG), fetch(VN_FONT_BOLD)])
+        .then(async ([r1, r2]) => [await r1.arrayBuffer(), await r2.arrayBuffer()])
+      pdf.addFileToVFS("NotoSans-Regular.ttf", arrayBufferToBase64(bufReg))
+      pdf.addFileToVFS("NotoSans-Bold.ttf", arrayBufferToBase64(bufBold))
+      pdf.addFont("NotoSans-Regular.ttf", "NotoSans", "normal")
+      pdf.addFont("NotoSans-Bold.ttf", "NotoSans", "bold")
+      pdf.setFont("NotoSans", "normal")
+  
+      // --- Helpers ---
+      const daysBetween = (a: Date, b: Date) => Math.max(0, Math.round((+b - +a) / 86400000))
+      const addMonths = (d: Date, n: number) => { const x = new Date(d); x.setMonth(x.getMonth() + n); return x }
+      const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+      const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n))
+      const colorForTask = (t: any) => (
+        t.is_critical_path ? [239, 68, 68] :
+        t.is_overdue ? [245, 158, 11] :
+        t.status === "done" ? [16, 185, 129] :
+        [59, 130, 246]
+      )
+  
+      // --- Project range ---
+      const projectStart: Date =
+        (projectData?.project?.start_date && new Date(projectData.project.start_date)) ||
+        new Date(Math.min(...tasks.map((t: any) => +new Date(t.calculated_start_date || Date.now()))))
+  
+      const projectEnd: Date =
+        (projectData?.project?.end_date && new Date(projectData.project.end_date)) ||
+        new Date(Math.max(...tasks.map((t: any) => +new Date(t.calculated_end_date || Date.now()))))
+  
+      const pageW = pdf.internal.pageSize.getWidth()
+      const pageH = pdf.internal.pageSize.getHeight()
+      const margin = { l: 40, t: 40, r: 40, b: 40 }
+  
+      // --- Header ---
+      pdf.setFont("NotoSans", "bold"); pdf.setFontSize(16)
+      pdf.text("BÁO CÁO TIẾN ĐỘ DỰ ÁN", margin.l, margin.t)
+      pdf.setFont("NotoSans", "normal"); pdf.setFontSize(10)
+      const prjName = projectData?.project?.name || projectId
+      pdf.text(`Dự án: ${prjName}`, margin.l, margin.t + 18)
+      pdf.text(`Ngày: ${new Date().toLocaleDateString("vi-VN")}`, margin.l, margin.t + 32)
+  
+      if (optimizationResult) {
+        const kpiX = pageW - margin.r - 280
+        const ru = optimizationResult.resource_utilization
+        const ruStr = Number.isFinite(ru) ? `${(ru * 100).toFixed(1)}%` : "-"
+        pdf.setFont("NotoSans", "bold"); pdf.setFontSize(11)
+        pdf.text("Tối ưu hoá", kpiX, margin.t)
+        pdf.setFont("NotoSans", "normal"); pdf.setFontSize(10)
+        pdf.text(`Thuật toán: ${optimizationResult.algorithm_used || "CPM"}`, kpiX, margin.t + 16)
+        pdf.text(`Makespan (gốc): ${optimizationResult.original_makespan} ngày`, kpiX, margin.t + 30)
+        pdf.text(`Makespan (mới): ${optimizationResult.optimized_makespan} ngày`, kpiX, margin.t + 44)
+        pdf.text(`Cải thiện: ${optimizationResult.improvement_percentage.toFixed(1)}%`, kpiX, margin.t + 58)
+        pdf.text(`Hiệu suất NL: ${ruStr}`, kpiX, margin.t + 72)
+      }
+  
+      // --- Mini-Gantt (vector) ---
+      const nameColW = 260
+      const chartX = margin.l + nameColW
+      const chartY = margin.t + 78
+      const chartW = pageW - chartX - margin.r
+      const axisH = 26
+      const rowH = 20
+      const totalDays = Math.max(1, daysBetween(projectStart, projectEnd) + 1)
+      const pxPerDay = chartW / totalDays
+  
+      // Nhãn thời gian: chọn độ phân giải tuỳ chiều dài dự án
+      type Gran = "year" | "quarter" | "month" | "week"
+      const chooseGranularity = (): Gran => {
+        if (totalDays > 900) return "year"
+        if (totalDays > 450) return "quarter"
+        if (totalDays > 120) return "month"
+        return "week"
+      }
+      const gran = chooseGranularity()
+  
+      const buildTicks = () => {
+        const ticks: { x: number; label: string }[] = []
+        pdf.setFont("NotoSans", "normal"); pdf.setFontSize(9)
+  
+        if (gran === "year") {
+          let cur = new Date(projectStart.getFullYear(), 0, 1)
+          while (cur <= projectEnd) {
+            const x = chartX + daysBetween(projectStart, cur) * pxPerDay
+            ticks.push({ x, label: `${cur.getFullYear()}` })
+            cur = new Date(cur.getFullYear() + 1, 0, 1)
+          }
+        } else if (gran === "quarter") {
+          let cur = new Date(projectStart.getFullYear(), Math.floor(projectStart.getMonth() / 3) * 3, 1)
+          while (cur <= projectEnd) {
+            const q = Math.floor(cur.getMonth() / 3) + 1
+            const x = chartX + daysBetween(projectStart, cur) * pxPerDay
+            ticks.push({ x, label: `Q${q} ${cur.getFullYear()}` })
+            cur = addMonths(cur, 3)
+          }
+        } else if (gran === "month") {
+          let cur = new Date(projectStart.getFullYear(), projectStart.getMonth(), 1)
+          while (cur <= projectEnd) {
+            const x = chartX + daysBetween(projectStart, cur) * pxPerDay
+            const label = cur.toLocaleDateString("vi-VN", { month: "short", year: "numeric" }) // vd: "thg 7, 2024"
+            ticks.push({ x, label })
+            cur = addMonths(cur, 1)
+          }
+        } else { // week
+          let cur = new Date(projectStart)
+          // đưa về thứ Hai của tuần đó
+          cur.setDate(cur.getDate() - ((cur.getDay() + 6) % 7))
+          while (cur <= projectEnd) {
+            const x = chartX + daysBetween(projectStart, cur) * pxPerDay
+            const label = `Tuần ${cur.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`
+            ticks.push({ x, label })
+            cur = addDays(cur, 7)
+          }
+        }
+  
+        // Lọc bỏ các nhãn chồng đè dựa theo bề rộng chữ
+        const filtered: typeof ticks = []
+        let lastRight = -Infinity
+        const pad = 8
+        ticks.forEach(t => {
+          const w = pdf.getTextWidth(t.label)
+          if (t.x > lastRight + pad) {
+            filtered.push(t)
+            lastRight = t.x + w
+          }
+        })
+        return filtered
+      }
+  
+      const drawAxisAndGrid = (yTop: number, rowsThisPage: number) => {
+        const ticks = buildTicks()
+  
+        // Trục trên
+        pdf.setDrawColor(180); pdf.setLineWidth(0.8)
+        pdf.line(chartX, yTop, chartX + chartW, yTop)
+  
+        // Nhãn + vạch chính
+        pdf.setFont("NotoSans", "normal"); pdf.setFontSize(9); pdf.setTextColor(60)
+        ticks.forEach(t => {
+          pdf.setDrawColor(220); pdf.setLineWidth(0.5)
+          pdf.line(t.x, yTop, t.x, yTop + rowsThisPage * rowH + 2)
+          pdf.text(t.label, t.x + 2, yTop - 6)
+        })
+  
+        // Lưới nhẹ theo tuần (nếu granularity >= month thì lưới mảnh hơn)
+        const step = gran === "week" ? 7 : 14
+        pdf.setDrawColor(245); pdf.setLineWidth(0.2)
+        for (let d = 0; d <= totalDays; d += step) {
+          const x = chartX + d * pxPerDay
+          pdf.line(x, yTop, x, yTop + rowsThisPage * rowH + 2)
+        }
+      }
+  
+      const maxRowsPerPage = Math.floor((pageH - chartY - margin.b - axisH) / rowH)
+  
+      const drawMiniGanttPage = (slice: any[], pageIndex: number) => {
+        if (pageIndex > 0) pdf.addPage()
+        // Tiêu đề block
+        pdf.setFont("NotoSans", "bold"); pdf.setFontSize(12)
+        pdf.text(pageIndex === 0 ? "Biểu đồ Gantt (tóm tắt)" : "Biểu đồ Gantt (tiếp)", margin.l, chartY - 24)
+  
+        // “Tên công việc”
+        pdf.setFont("NotoSans", "bold"); pdf.setFontSize(10); pdf.setTextColor(30)
+        pdf.text("Tên công việc", margin.l, chartY - 8)
+  
+        // Trục thời gian + grid
+        drawAxisAndGrid(chartY, slice.length)
+  
+        // Hàng task
+        slice.forEach((t, idx) => {
+          const rowTop = chartY + idx * rowH + 4
+  
+          // Tên (cắt gọn gàng)
+          pdf.setFont("NotoSans", "normal"); pdf.setFontSize(9); pdf.setTextColor(60)
+          const name = String(t.name || "")
+          pdf.text(name, margin.l, rowTop + 11, { maxWidth: nameColW - 10 })
+  
+          // Bar
+          const s = new Date(t.calculated_start_date || projectStart)
+          const e = new Date(t.calculated_end_date || s)
+          const startOff = clamp(daysBetween(projectStart, s), 0, totalDays)
+          const endOff = clamp(daysBetween(projectStart, e), 0, totalDays)
+          const x = chartX + startOff * pxPerDay
+          const w = Math.max(2, (endOff - startOff + 1) * pxPerDay)
+  
+          const [r, g, b] = colorForTask(t)
+          // nền bar nhạt
+          pdf.setFillColor(r, g, b); pdf.setDrawColor(255); pdf.setLineWidth(0.3)
+          pdf.rect(x, rowTop, w, rowH - 8, "F")
+          // overlay progress (đậm hơn)
+          const prog = clamp(Number(t.progress ?? 0), 0, 100)
+          if (prog > 0) {
+            // vẽ lớp đậm ở bên trái phản ánh % hoàn thành
+            pdf.setFillColor(0, 0, 0)
+            pdf.setGState?.(pdf.GState({ opacity: 0.15 })) // nếu jsPDF hỗ trợ
+            pdf.rect(x, rowTop, (w * prog) / 100, rowH - 8, "F")
+            pdf.setGState?.(pdf.GState({ opacity: 1 }))
+          }
+          // viền mảnh
+          pdf.setDrawColor(255); pdf.rect(x, rowTop, w, rowH - 8)
+        })
+  
+        // Chú giải
+        const legendY = chartY + slice.length * rowH + 14
+        const legend = [
+          { c: [59, 130, 246],  t: "Đang thực hiện" },
+          { c: [16, 185, 129],  t: "Hoàn thành" },
+          { c: [245, 158, 11],  t: "Trễ hạn" },
+          { c: [239, 68, 68],   t: "Critical path" },
+        ]
+        pdf.setFont("NotoSans", "normal"); pdf.setFontSize(9); pdf.setTextColor(60)
+        let lx = margin.l
+        legend.forEach((lg) => {
+          pdf.setFillColor(lg.c[0], lg.c[1], lg.c[2])
+          pdf.rect(lx, legendY - 8, 12, 12, "F")
+          pdf.text(lg.t, lx + 18, legendY + 2)
+          lx += 130
+        })
+      }
+  
+      for (let i = 0; i < tasks.length; i += maxRowsPerPage) {
+        const slice = tasks.slice(i, i + maxRowsPerPage)
+        drawMiniGanttPage(slice, i === 0 ? 0 : i / maxRowsPerPage)
+      }
+  
+      // --- Schedule Table (tiếng Việt, font chuẩn) ---
+      pdf.addPage()
+      pdf.setFont("NotoSans", "bold"); pdf.setFontSize(13); pdf.setTextColor(20)
+      pdf.text("Bảng lịch công việc (Schedule)", margin.l, margin.t)
+  
+      const scheduleRows = buildScheduleRows()
+      autoTable(pdf, {
+        startY: margin.t + 12,
+        head: [[ "Tên công việc", "Bắt đầu", "Kết thúc", "Số ngày", "Trạng thái", "Tiến độ (%)" ]],
+        body: scheduleRows.map((r: any) => [
+          r["Tên công việc"] ?? "",
+          r["Bắt đầu"] ?? "",
+          r["Kết thúc"] ?? "",
+          r["Số ngày"] ?? "",
+          r["Trạng thái"] ?? "",
+          r["Tiến độ (%)"] ?? "",
+        ]),
+        styles: { font: "NotoSans", fontStyle: "normal", fontSize: 9, cellPadding: 4, valign: "middle" },
+        headStyles: { font: "NotoSans", fontStyle: "bold", fillColor: [33, 150, 243], textColor: 255 },
+        alternateRowStyles: { fillColor: [248, 249, 251] },
+        margin: { left: margin.l, right: margin.r },
+        columnStyles: { 0: { cellWidth: 260 } },
+        didParseCell: (data) => {
+          // căn giữa số/tiến độ
+          if (data.section === "body" && (data.column.index === 3 || data.column.index === 5)) {
+            data.cell.styles.halign = "center"
+          }
+        }
+      })
+  
+      // --- Issues Table (nếu có) ---
+      if (Object.keys(taskAnalysis).length) {
+        pdf.addPage()
+        pdf.setFont("NotoSans", "bold"); pdf.setFontSize(13); pdf.setTextColor(20)
+        pdf.text("Phân tích vấn đề (Issues)", margin.l, margin.t)
+  
+        const issuesData = Object.values(taskAnalysis).map((a: any) => ({
+          task: a.taskName,
+          sev: a.severity,
+          impact: a.impact?.impactDescription || "",
+          topIssues: a.issues?.slice(0, 2).map((i: any) => i.title).join("; "),
+          next: a.nextActions?.slice(0, 2).map((n: any) => `${n.action} (${n.priority})`).join("; "),
+        }))
+  
+        autoTable(pdf, {
+          startY: margin.t + 12,
+          head: [[ "Công việc", "Mức độ", "Ảnh hưởng", "Vấn đề chính", "Hành động tiếp theo" ]],
+          body: issuesData.map((x) => [x.task, x.sev, x.impact, x.topIssues, x.next]),
+          styles: { font: "NotoSans", fontStyle: "normal", fontSize: 9, cellPadding: 4, valign: "top" },
+          headStyles: { font: "NotoSans", fontStyle: "bold", fillColor: [244, 114, 182], textColor: 255 },
+          alternateRowStyles: { fillColor: [252, 252, 252] },
+          margin: { left: margin.l, right: margin.r },
+          columnStyles: {
+            0: { cellWidth: 220 },
+            1: { cellWidth: 70, halign: "center" },
+            2: { cellWidth: 240 },
+            3: { cellWidth: 190 },
+            4: { cellWidth: 220 },
+          },
+        })
+      }
+  
+      // --- Footer page number ---
+      const pageCount = pdf.getNumberOfPages()
+      pdf.setFont("NotoSans", "normal"); pdf.setFontSize(9); pdf.setTextColor(120)
+      for (let i = 1; i <= pageCount; i++) {
+        pdf.setPage(i)
+        pdf.text(`Trang ${i}/${pageCount}`, pageW - margin.r, pageH - 14, { align: "right" })
+      }
+  
+      pdf.save(`Gantt_Report_${prjName}.pdf`)
+      toast.success("Đã xuất PDF (TV & Gantt rõ ràng)")
+    } catch (err) {
+      console.error("Export PDF error:", err)
+      toast.error("Xuất PDF thất bại")
+    }
+  }
+  
+  
+  const handleExportExcel = () => {
+    try {
+      const rows = buildScheduleRows()
+      const wb = XLSX.utils.book_new()
+      const ws1 = XLSX.utils.json_to_sheet(rows)
+      const colWidths = Object.keys(rows[0] || {}).map(k => ({ wch: Math.max(k.length, 14) }))
+      ;(ws1 as any)["!cols"] = colWidths
+      XLSX.utils.book_append_sheet(wb, ws1, "Schedule")
+
+      const issuesRows = Object.values(taskAnalysis).map((a:any)=>({
+        "Task": a.taskName,
+        "Severity": a.severity,
+        "Impact": a.impact.impactDescription,
+        "Issues": a.issues.map((i:any)=>i.title).join("; "),
+        "Next actions": a.nextActions?.slice(0,3).map((n:any)=>`${n.action} (${n.priority})`).join("; ")
+      }))
+      const ws2 = XLSX.utils.json_to_sheet(issuesRows)
+      ;(ws2 as any)["!cols"] = [ {wch:40},{wch:12},{wch:40},{wch:50},{wch:40} ]
+      XLSX.utils.book_append_sheet(wb, ws2, "Issues")
+
+      XLSX.writeFile(wb, `Gantt_Report_${projectData?.project?.name || projectId}.xlsx`)
+      toast.success("Đã xuất Excel")
+    } catch (err) {
+      console.error("Export Excel error:", err)
+      toast.error("Xuất Excel thất bại")
+    }
+  }
+
   // Initialize DHTMLX Gantt
   useEffect(() => {
     if (!ganttContainerRef.current || !projectData?.tasks) return
@@ -386,14 +806,7 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
             },
             body: JSON.stringify({
               algorithm: "multi_project_cpm",
-              objective: {
-                type: "multi",
-                weights: {
-                  time_weight: 0.5,
-                  resource_weight: 0.3,
-                  cost_weight: 0.2,
-                },
-              },
+              objective: { type: "time" },
             }),
           })
 
@@ -850,8 +1263,11 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
               </Tabs>
 
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={handleExport}>
-                  <Download className="h-4 w-4" />
+                <Button variant="outline" size="sm" onClick={handleExportPDF} title="Xuất PDF">
+                  <Download className="h-4 w-4" /><span className="ml-2 hidden md:inline">PDF</span>
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleExportExcel} title="Xuất Excel">
+                  <Download className="h-4 w-4" /><span className="ml-2 hidden md:inline">Excel</span>
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
                   <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />

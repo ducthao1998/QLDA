@@ -1,3 +1,55 @@
+-- Algorithm settings schema for Supabase
+-- Run this in Supabase SQL editor
+
+create table if not exists public.algorithm_settings (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
+  algorithm text not null default 'multi_project_cpm',
+  objective_type text not null default 'time',
+  objective_weights jsonb not null default '{"time_weight":1, "resource_weight":0, "cost_weight":0}',
+  constraints jsonb not null default '{"respect_dependencies":true, "respect_skills":true, "respect_availability":true}',
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now(),
+  primary key (user_id, project_id)
+);
+
+-- Ensure extension for triggers is available
+create extension if not exists pgcrypto;
+
+-- Updated at trigger
+create or replace function public.set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists set_algorithm_settings_updated_at on public.algorithm_settings;
+create trigger set_algorithm_settings_updated_at
+before update on public.algorithm_settings
+for each row execute function public.set_updated_at();
+
+-- RLS policies
+alter table public.algorithm_settings enable row level security;
+
+do $$ begin
+  perform 1 from pg_policies where schemaname = 'public' and tablename = 'algorithm_settings' and policyname = 'Allow user to manage own settings';
+  if not found then
+    create policy "Allow user to manage own settings"
+      on public.algorithm_settings
+      for all
+      using (auth.uid() = user_id)
+      with check (auth.uid() = user_id);
+  end if;
+end $$;
+
+-- Optional: allow reading project-level defaults without user match (comment out if not needed)
+-- create policy "Allow read project defaults"
+--   on public.algorithm_settings
+--   for select
+--   using (project_id is null or auth.uid() = user_id);
+
 -- Script để tạo các bảng còn thiếu cho tối ưu hóa lịch trình
 -- Chạy script này trong Supabase SQL Editor
 

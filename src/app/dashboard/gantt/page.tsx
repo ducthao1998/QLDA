@@ -90,7 +90,8 @@ export default function GanttPage() {
                   <div className="flex flex-col">
                     <span className="font-medium">{project.name}</span>
                     {project.description && (
-                      <span className="text-xs text-muted-foreground">{project.description}</span>
+                      <span className="text-xs text-muted-foreground
+                      text-ellipsis overflow-hidden whitespace-nowrap w-[100px]">{project.description}</span>
                     )}
                   </div>
                 </SelectItem>

@@ -8,7 +8,7 @@ export async function GET(
   const supabase = await createClient()
   
   try {
-    const userId = params.id
+    const userId = (await params).id
 
     // Get user's RACI history
     const { data: raciHistory, error } = await supabase
@@ -18,11 +18,11 @@ export async function GET(
         tasks!inner(
           id,
           name,
-          projects!inner(name)
+          projects!inner(name, created_at)
         )
       `)
       .eq('user_id', userId)
-      .order('created_at', { ascending: false })
+      .order('tasks.created_at', { ascending: false })
       .limit(20) // Get last 20 assignments
 
     if (error) {

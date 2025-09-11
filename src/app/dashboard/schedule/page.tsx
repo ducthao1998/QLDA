@@ -19,7 +19,6 @@ import { ChevronLeftIcon, ChevronRightIcon, CalendarIcon, AlertCircleIcon, Loade
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -30,15 +29,9 @@ interface Task {
   id: number
   name: string
   project_id: string
-  phase_id: string | null
   status: string
   start_date: string | null
   end_date: string | null
-  project_phases?: {
-    id: string
-    name: string
-    order_no: number
-  } | null
   task_raci?: Array<{
     role: string
     users: {
@@ -55,18 +48,10 @@ interface Project {
   description?: string
 }
 
-interface ProjectPhase {
-  id: string
-  name: string
-  order_no: number
-  project_id: string
-}
-
 export default function SchedulePage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProject, setSelectedProject] = useState<string>("")
   const [tasks, setTasks] = useState<Task[]>([])
-  const [phases, setPhases] = useState<ProjectPhase[]>([])
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,10 +69,8 @@ export default function SchedulePage() {
     if (selectedProject) {
       console.log("Selected project changed:", selectedProject)
       loadTasks()
-      loadPhases()
     } else {
       setTasks([])
-      setPhases([])
     }
   }, [selectedProject])
 
@@ -162,32 +145,7 @@ export default function SchedulePage() {
     }
   }
 
-  async function loadPhases() {
-    try {
-      console.log("Loading phases for project:", selectedProject)
-
-      const res = await fetch(`/api/projects/${selectedProject}/phases`)
-      console.log("Phases API response status:", res.status)
-
-      if (!res.ok) {
-        const errorText = await res.text()
-        console.error("Phases API error:", errorText)
-        throw new Error(`Failed to load phases: ${res.status}`)
-      }
-
-      const data = await res.json()
-      console.log("Phases API response data:", data)
-
-      const phasesData = data.data || data.phases || []
-      console.log("Processed phases:", phasesData)
-
-      setPhases(phasesData)
-      setDebugInfo((prev: any) => ({ ...prev, phasesCount: phasesData.length }))
-    } catch (err: any) {
-      console.error("Error loading phases:", err)
-      toast.error("Lỗi", { description: "Không thể tải danh sách giai đoạn" })
-    }
-  }
+  // removed phases loading
 
   // Get days for the current view
   const getDaysInView = () => {
@@ -225,25 +183,7 @@ export default function SchedulePage() {
     setCurrentDate(new Date())
   }
 
-  // Group tasks by phase
-  const tasksByPhase = phases
-    .sort((a, b) => a.order_no - b.order_no)
-    .map((phase) => {
-      const phaseTasks = tasks.filter((task) => task.phase_id === phase.id)
-      return {
-        phase,
-        tasks: phaseTasks,
-      }
-    })
-
-  // Add tasks without phase
-  const tasksWithoutPhase = tasks.filter((task) => !task.phase_id)
-  if (tasksWithoutPhase.length > 0) {
-    tasksByPhase.push({
-      phase: { id: "no-phase", name: "Không có giai đoạn", order_no: 999, project_id: selectedProject },
-      tasks: tasksWithoutPhase,
-    })
-  }
+  // No grouping by phase; tasks will be displayed in a single timeline
 
   // Check if a task is approaching deadline (within 3 days)
   const isApproachingDeadline = (task: Task) => {
@@ -464,96 +404,78 @@ export default function SchedulePage() {
                 })}
               </div>
 
-              {/* Tasks by phase */}
-              <div className="space-y-6">
-                {tasksByPhase.length > 0 ? (
-                  tasksByPhase.map(({ phase, tasks: phaseTasks }) => (
-                    <div key={phase.id} className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-lg">{phase.name}</h3>
-                        <Badge variant="outline">{phaseTasks.length} công việc</Badge>
-                      </div>
-
-                      <div className="relative bg-muted/20 rounded-lg p-4">
-                        {/* Calendar grid lines */}
-                        <div className="grid grid-cols-7 gap-1 absolute inset-4 pointer-events-none opacity-30">
-                          {days.map((day, i) => (
-                            <div key={i} className="border-r border-dashed h-full"></div>
-                          ))}
-                        </div>
-
-                        {/* Tasks */}
-                        <div className="relative min-h-[80px] space-y-2">
-                          {phaseTasks.map((task, index) => {
-                            const taskStyle = getTaskStyle(task)
-                            const isApproaching = isApproachingDeadline(task)
-                            const isLate = isOverdue(task)
-                            const responsibleUser = getResponsibleUser(task)
-
-                            if (taskStyle.display === "none") return null
-
-                            return (
-                              <TooltipProvider key={task.id}>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Link href={`/dashboard/tasks/${task.id}`}>
-                                      <div
-                                        className={`absolute h-8 rounded-md px-2 py-1 text-xs text-white flex items-center overflow-hidden cursor-pointer hover:opacity-90 transition-opacity ${getStatusColor(task.status)} ${
-                                          isApproaching ? "ring-2 ring-amber-400" : ""
-                                        } ${isLate ? "ring-2 ring-red-500" : ""}`}
-                                        style={{
-                                          ...taskStyle,
-                                          top: `${index * 36}px`,
-                                          zIndex: 10,
-                                        }}
-                                      >
-                                        <div className="flex items-center gap-1 w-full">
-                                          {responsibleUser && (
-                                            <Avatar className="h-4 w-4">
-                                              <AvatarFallback className="text-[8px] bg-white/20">
-                                                {responsibleUser.full_name?.[0]}
-                                              </AvatarFallback>
-                                            </Avatar>
-                                          )}
-                                          <span className="truncate font-medium">{task.name}</span>
-                                          {isLate && <AlertCircleIcon className="h-3 w-3 flex-shrink-0" />}
-                                        </div>
-                                      </div>
-                                    </Link>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top">
-                                    <div className="space-y-1 max-w-xs">
-                                      <p className="font-medium">{task.name}</p>
-                                      {task.start_date && task.end_date && (
-                                        <p className="text-xs">
-                                          {format(new Date(task.start_date), "dd/MM/yyyy")} - {""}
-                                          {format(new Date(task.end_date), "dd/MM/yyyy")}
-                                        </p>
-                                      )}
-                                      <p className="text-xs">
-                                        Người thực hiện: {responsibleUser?.full_name || "Chưa gán"}
-                                      </p>
-                                      <p className="text-xs">Trạng thái: {task.status}</p>
-                                      {isLate && <p className="text-xs text-red-400 font-medium">⚠️ Đã quá hạn!</p>}
-                                      {isApproaching && !isLate && (
-                                        <p className="text-xs text-amber-400 font-medium">⏰ Sắp đến hạn!</p>
-                                      )}
-                                    </div>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>Không có giai đoạn nào được định nghĩa cho dự án này</p>
+              {/* Tasks timeline (no phases) */}
+              <div className="space-y-3">
+                <div className="relative bg-muted/20 rounded-lg p-4">
+                  {/* Calendar grid lines */}
+                  <div className="grid grid-cols-7 gap-1 absolute inset-4 pointer-events-none opacity-30">
+                    {days.map((day, i) => (
+                      <div key={i} className="border-r border-dashed h-full"></div>
+                    ))}
                   </div>
-                )}
+
+                  {/* Tasks */}
+                  <div className="relative min-h-[80px] space-y-2">
+                    {tasks.map((task, index) => {
+                      const taskStyle = getTaskStyle(task)
+                      const isApproaching = isApproachingDeadline(task)
+                      const isLate = isOverdue(task)
+                      const responsibleUser = getResponsibleUser(task)
+
+                      if (taskStyle.display === "none") return null
+
+                      return (
+                        <TooltipProvider key={task.id}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Link href={`/dashboard/tasks/${task.id}`}>
+                                <div
+                                  className={`absolute h-8 rounded-md px-2 py-1 text-xs text-white flex items-center overflow-hidden cursor-pointer hover:opacity-90 transition-opacity ${getStatusColor(task.status)} ${
+                                    isApproaching ? "ring-2 ring-amber-400" : ""
+                                  } ${isLate ? "ring-2 ring-red-500" : ""}`}
+                                  style={{
+                                    ...taskStyle,
+                                    top: `${index * 36}px`,
+                                    zIndex: 10,
+                                  }}
+                                >
+                                  <div className="flex items-center gap-1 w-full">
+                                    {responsibleUser && (
+                                      <Avatar className="h-4 w-4">
+                                        <AvatarFallback className="text-[8px] bg-white/20">
+                                          {responsibleUser.full_name?.[0]}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                    )}
+                                    <span className="truncate font-medium">{task.name}</span>
+                                    {isLate && <AlertCircleIcon className="h-3 w-3 flex-shrink-0" />}
+                                  </div>
+                                </div>
+                              </Link>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              <div className="space-y-1 max-w-xs">
+                                <p className="font-medium">{task.name}</p>
+                                {task.start_date && task.end_date && (
+                                  <p className="text-xs">
+                                    {format(new Date(task.start_date), "dd/MM/yyyy")} - {""}
+                                    {format(new Date(task.end_date), "dd/MM/yyyy")}
+                                  </p>
+                                )}
+                                <p className="text-xs">Người thực hiện: {responsibleUser?.full_name || "Chưa gán"}</p>
+                                <p className="text-xs">Trạng thái: {task.status}</p>
+                                {isLate && <p className="text-xs text-red-400 font-medium">⚠️ Đã quá hạn!</p>}
+                                {isApproaching && !isLate && (
+                                  <p className="text-xs text-amber-400 font-medium">⏰ Sắp đến hạn!</p>
+                                )}
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
 
               {/* Legend */}
