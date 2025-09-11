@@ -9,7 +9,7 @@ export async function GET(
   const supabase = await createClient()
 
   try {
-    const taskId = await params.id
+    const taskId = (await params).id
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('user_id')
 

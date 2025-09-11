@@ -1,3 +1,22 @@
+-- Quick create for algorithm settings (minimal)
+create table if not exists public.algorithm_settings (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  project_id uuid references public.projects(id) on delete cascade,
+  algorithm text not null default 'multi_project_cpm',
+  objective_type text not null default 'time',
+  objective_weights jsonb not null default '{"time_weight":1, "resource_weight":0, "cost_weight":0}',
+  constraints jsonb not null default '{"respect_dependencies":true, "respect_skills":true, "respect_availability":true}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, project_id)
+);
+
+alter table public.algorithm_settings enable row level security;
+create policy if not exists "settings_self"
+  on public.algorithm_settings for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
 -- Script đơn giản để tạo bảng schedule_runs và schedule_details
 -- Chạy script này trong Supabase SQL Editor
 

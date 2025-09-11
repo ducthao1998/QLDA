@@ -329,12 +329,12 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
               Công việc
             </TabsTrigger>
           )}
-          {userPermissions.canViewTeam && (
+          {/* {userPermissions.canViewTeam && (
             <TabsTrigger value="team" className="flex items-center gap-2">
               <UsersIcon className="h-4 w-4" />
               Đội ngũ
             </TabsTrigger>
-          )}
+          )} */}
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -411,12 +411,12 @@ function ProjectDetailsContent({ projectId, initialProject, initialPhases, userP
             <ProjectTasks projectId={project.id} />
           </TabsContent>
         )}
-
+{/* 
         {userPermissions.canViewTeam && (
           <TabsContent value="team">
             <ProjectRaci projectId={project.id} />
           </TabsContent>
-        )}
+        )} */}
       </Tabs>
     </div>
   )

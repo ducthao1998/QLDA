@@ -61,6 +61,7 @@ export function AssignmentExplanationTooltip({
   const [explanation, setExplanation] = useState<AssignmentExplanation | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [workloadSummary, setWorkloadSummary] = useState<{active_in_progress: number; completed_with_required_skills: number} | null>(null)
 
   const loadExplanation = async () => {
     if (!isAutoAssigned || explanation) return // Chỉ load khi cần thiết
@@ -77,6 +78,16 @@ export function AssignmentExplanationTooltip({
       
       const data = await response.json()
       setExplanation(data)
+
+      // Load workload summary (counts) using server API
+      try {
+        const wsRes = await fetch(`/api/user/${userId}/workload-summary?task_id=${taskId}`)
+        if (wsRes.ok) {
+          const ws = await wsRes.json()
+          setWorkloadSummary(ws)
+        
+        }
+      } catch {}
     } catch (err: any) {
       console.error('Error loading assignment explanation:', err)
       setError(err.message)
@@ -89,11 +100,10 @@ export function AssignmentExplanationTooltip({
     return <>{children}</>
   }
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600 dark:text-green-400'
-    if (score >= 60) return 'text-blue-600 dark:text-blue-400'
-    if (score >= 40) return 'text-yellow-600 dark:text-yellow-400'
-    return 'text-red-600 dark:text-red-400'
+  const toLevel = (score: number) => {
+    if (score >= 80) return 'Cao'
+    if (score >= 60) return 'Vừa'
+    return 'Thấp'
   }
 
   const getRecommendationColor = (recommendation: string) => {
@@ -113,7 +123,7 @@ export function AssignmentExplanationTooltip({
           <HelpCircle className="h-3 w-3 text-muted-foreground hover:text-primary cursor-help" />
         </div>
       </TooltipTrigger>
-        <TooltipContent side="right" className="max-w-sm p-4 bg-background border border-border">
+        <TooltipContent side="top" align="center" sideOffset={8} avoidCollisions collisionPadding={16} className="max-w-md md:max-w-lg p-4 bg-background border border-border shadow-lg rounded-lg text-left break-words max-h-[60vh] overflow-auto">
           {loading ? (
             <div className="space-y-2">
               <Skeleton className="h-4 w-32" />
@@ -126,6 +136,12 @@ export function AssignmentExplanationTooltip({
             </div>
           ) : explanation ? (
             <div className="space-y-3">
+              {(() => {
+                // unify active workload source
+                const currentActive = (workloadSummary?.active_in_progress ?? explanation.workload?.current_tasks ?? 0)
+                ;(explanation as any).__currentActive = currentActive
+                return null
+              })()}
               {/* Header */}
               <div>
                 <p className="font-semibold text-sm text-foreground">{explanation.user.name}</p>
@@ -138,74 +154,48 @@ export function AssignmentExplanationTooltip({
                 </Badge>
               </div>
 
-              {/* Scores */}
-              <div className="space-y-2">
+              {/* Summary (no percentages) */}
+              <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">Điểm tổng:</span>
-                  <span className={`text-xs font-bold ${getScoreColor(explanation.scores.total_score)}`}>
-                    {explanation.scores.total_score}%
-                  </span>
+                  <span className="text-foreground">Đánh giá tổng quan: <span className="font-medium">{explanation.recommendation}</span></span>
                 </div>
-                
-                <div className="grid grid-cols-2 gap-1 text-xs">
-                  <div className="flex justify-between">
+                <div className="grid grid-cols-2 gap-1">
+                  <div className="flex items-center gap-1">
                     <span className="text-muted-foreground">Kinh nghiệm:</span>
-                    <span className={getScoreColor(explanation.scores.field_experience)}>
-                      {explanation.scores.field_experience}%
-                    </span>
+                    <span className="text-foreground">{/* hidden granular level */}Đã từng thực hiện</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Khối lượng:</span>
-                    <span className={getScoreColor(explanation.scores.workload_balance)}>
-                      {explanation.scores.workload_balance}%
-                    </span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-muted-foreground">Khối lượng hiện tại:</span>
+                    <span className="text-foreground">{(explanation as any).__currentActive > 0 ? 'Đang bận' : 'Đang rảnh'}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Kỹ năng:</span>
-                    <span className={getScoreColor(explanation.scores.skill_coverage)}>
-                      {explanation.scores.skill_coverage}%
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Chuyên môn:</span>
-                    <span className={getScoreColor(explanation.scores.specialization)}>
-                      {explanation.scores.specialization}%
-                    </span>
-                  </div>
+                  {/* Hide other granular metrics */}
                 </div>
               </div>
 
-              {/* Workload */}
+              {/* Current status with counts required */}
               <div className="flex items-center gap-2 text-xs">
                 <Users className="h-3 w-3 text-muted-foreground" />
                 <span className="text-foreground">
-                  {explanation.workload.current_tasks} việc, {explanation.workload.projects_count} dự án
+                  Đang thực hiện: <span className="font-medium">{(explanation as any).__currentActive}</span> việc
+                  {typeof workloadSummary?.completed_with_required_skills === 'number' && (
+                    <> · Hoàn thành (liên quan kỹ năng này): <span className="font-medium">{workloadSummary?.completed_with_required_skills}</span> việc</>
+                  )}
                 </span>
-                <Badge variant="outline" className="text-xs">
-                  {explanation.workload.level}
-                </Badge>
               </div>
 
-              {/* Skills */}
+              {/* Skills done (list of related skills) */}
               {explanation.skills.length > 0 && (
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <Target className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-xs font-medium text-foreground">Kỹ năng yêu cầu:</span>
+                    <span className="text-xs font-medium text-foreground">Những việc đã làm:</span>
                   </div>
                   <div className="space-y-1">
                     {explanation.skills.map((skill) => (
                       <div key={skill.skill_id} className="flex items-center justify-between text-xs">
                         <span className="truncate text-foreground">{skill.skill_name}</span>
-                        <div className="flex items-center gap-1">
-                          <span className={getScoreColor(skill.experience_score * 100)}>
-                            {Math.round(skill.experience_score * 100)}%
-                          </span>
-                          <Badge variant="outline" className="text-xs">
-                            {skill.level}
-                          </Badge>
-                        </div>
+                        <Badge variant="outline" className="text-xs">{skill.level}</Badge>
                       </div>
                     ))}
                   </div>
@@ -227,34 +217,7 @@ export function AssignmentExplanationTooltip({
                 </div>
               </div>
 
-              {/* RACI Recommendations */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Target className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-xs font-medium text-foreground">Đề xuất vai trò RACI:</span>
-                </div>
-                <div className="grid grid-cols-2 gap-1">
-                  {Object.entries(explanation.raci_recommendations).map(([role, rec]) => (
-                    <div key={role} className="p-2 bg-muted/30 rounded text-xs">
-                      <div className="flex items-center justify-between mb-1">
-                        <Badge variant="outline" className="text-xs w-6 h-5 flex items-center justify-center">
-                          {role}
-                        </Badge>
-                        <span className={`text-xs font-medium ${
-                          rec.recommendation === 'Rất phù hợp' ? 'text-green-600' :
-                          rec.recommendation === 'Phù hợp' ? 'text-blue-600' :
-                          rec.recommendation === 'Có thể phù hợp' ? 'text-yellow-600' : 'text-red-600'
-                        }`}>
-                          {rec.recommendation}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-tight">
-                        {rec.explanation}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* Remove reasons and RACI recommendations per requirement */}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
