@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { HelpCircle, TrendingUp, Users, Target, Star } from 'lucide-react'
+import Link from 'next/link'
 
 interface AssignmentExplanation {
   user: {
@@ -62,30 +63,46 @@ export function AssignmentExplanationTooltip({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [workloadSummary, setWorkloadSummary] = useState<{active_in_progress: number; completed_with_required_skills: number} | null>(null)
+  const [raciCounts, setRaciCounts] = useState<{ R: number; A: number } | null>(null)
+  const [recentRA, setRecentRA] = useState<Array<{ role: 'R' | 'A'; task_id: string; task_name: string }>>([])
 
   const loadExplanation = async () => {
-    if (!isAutoAssigned || explanation) return // Chỉ load khi cần thiết
+    if (loading) return
     
     try {
       setLoading(true)
       setError(null)
       
-      const response = await fetch(`/api/tasks/${taskId}/assignment-explanation?user_id=${userId}`)
-      
-      if (!response.ok) {
-        throw new Error('Không thể tải thông tin giải thích')
+      if (isAutoAssigned && !explanation) {
+        const response = await fetch(`/api/tasks/${taskId}/assignment-explanation?user_id=${userId}`)
+        if (!response.ok) throw new Error('Không thể tải thông tin giải thích')
+        const data = await response.json()
+        setExplanation(data)
       }
-      
-      const data = await response.json()
-      setExplanation(data)
 
       // Load workload summary (counts) using server API
+      if (isAutoAssigned) {
+        try {
+          const wsRes = await fetch(`/api/user/${userId}/workload-summary?task_id=${taskId}`)
+          if (wsRes.ok) {
+            const ws = await wsRes.json()
+            setWorkloadSummary(ws)
+          }
+        } catch {}
+      }
+
+      // Load R/A history counts and short list
       try {
-        const wsRes = await fetch(`/api/user/${userId}/workload-summary?task_id=${taskId}`)
-        if (wsRes.ok) {
-          const ws = await wsRes.json()
-          setWorkloadSummary(ws)
-        
+        const hRes = await fetch(`/api/user/${userId}/raci-history`)
+        if (hRes.ok) {
+          const h = await hRes.json()
+          const counts = h?.role_counts || { R: 0, A: 0, C: 0, I: 0 }
+          setRaciCounts({ R: counts.R || 0, A: counts.A || 0 })
+          const hist: Array<{ role: 'R' | 'A'; task_id: string; task_name: string }> = (h?.raci_history || [])
+            .filter((r: any) => r.role === 'R' || r.role === 'A')
+            .slice(0, 2)
+            .map((r: any) => ({ role: r.role, task_id: r.task_id, task_name: r.task_name }))
+          setRecentRA(hist)
         }
       } catch {}
     } catch (err: any) {
@@ -96,9 +113,8 @@ export function AssignmentExplanationTooltip({
     }
   }
 
-  if (!isAutoAssigned) {
-    return <>{children}</>
-  }
+  // Luôn hiển thị tooltip (kể cả không auto-assign),
+  // nội dung sẽ tối giản nếu chưa có explanation
 
   const toLevel = (score: number) => {
     if (score >= 80) return 'Cao'
@@ -160,6 +176,15 @@ export function AssignmentExplanationTooltip({
                   <TrendingUp className="h-3 w-3 text-muted-foreground" />
                   <span className="text-foreground">Đánh giá tổng quan: <span className="font-medium">{explanation.recommendation}</span></span>
                 </div>
+                {/* R/A role counts */}
+                {raciCounts && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">Kinh nghiệm vai trò:</span>
+                    <span className="text-foreground">R: <span className="font-medium">{raciCounts.R}</span></span>
+                    <span className="text-muted-foreground">·</span>
+                    <span className="text-foreground">A: <span className="font-medium">{raciCounts.A}</span></span>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-1">
                   <div className="flex items-center gap-1">
                     <span className="text-muted-foreground">Kinh nghiệm:</span>
@@ -172,6 +197,26 @@ export function AssignmentExplanationTooltip({
                   {/* Hide other granular metrics */}
                 </div>
               </div>
+
+              {/* Recent R/A assignments (concise, with links) */}
+              {recentRA.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-xs font-medium text-foreground">Gần đây:</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {recentRA.map((it, idx) => (
+                      <div key={`${it.role}-${it.task_id}-${idx}`} className="text-xs truncate">
+                        <Badge variant="outline" className="mr-1 text-[10px] px-1 py-0">{it.role}</Badge>
+                        <Link href={`/dashboard/tasks/${it.task_id}/edit`} className="underline text-foreground hover:text-primary truncate align-middle">
+                          {it.task_name || it.task_id}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Current status with counts required */}
               <div className="flex items-center gap-2 text-xs">
@@ -220,9 +265,33 @@ export function AssignmentExplanationTooltip({
               {/* Remove reasons and RACI recommendations per requirement */}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">
-              Hover để xem giải thích...
-            </p>
+            <div className="space-y-2 text-xs">
+              {raciCounts && (
+                <div className="flex items-center gap-2">
+                  <span className="text-foreground font-medium">Kinh nghiệm vai trò</span>
+                  <span className="text-foreground">R: <span className="font-medium">{raciCounts.R}</span></span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="text-foreground">A: <span className="font-medium">{raciCounts.A}</span></span>
+                </div>
+              )}
+              {recentRA.length > 0 ? (
+                <div>
+                  <span className="text-muted-foreground">Gần đây:</span>
+                  <div className="space-y-0.5 mt-1">
+                    {recentRA.map((it, idx) => (
+                      <div key={`${it.role}-${it.task_id}-${idx}`} className="text-xs truncate">
+                        <Badge variant="outline" className="mr-1 text-[10px] px-1 py-0">{it.role}</Badge>
+                        <Link href={`/dashboard/tasks/${it.task_id}/edit`} className="underline text-foreground hover:text-primary truncate align-middle">
+                          {it.task_name || it.task_id}
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">Di chuột để tải kinh nghiệm R/A...</p>
+              )}
+            </div>
           )}
         </TooltipContent>
     </Tooltip>

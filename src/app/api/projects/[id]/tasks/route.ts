@@ -4,11 +4,11 @@ import { NextResponse } from 'next/server'
 // Lấy danh sách công việc cho một dự án
 export async function GET(
   req: Request,
-  { params }: { params: { id: string } },
+  ctx: { params: { id: string } },
 ) {
   try {
     const supabase = await createClient()
-    const projectId = params.id;
+    const { id: projectId } = await ctx.params
 
     const {
       data: { user },
@@ -60,11 +60,11 @@ export async function GET(
 // Tạo tasks từ templates với hỗ trợ dependencies
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } },
+  ctx: { params: { id: string } },
 ) {
   try {
     const supabase = await createClient()
-    const projectId = params.id
+    const { id: projectId } = await ctx.params
     const { template_ids } = (await req.json()) as { template_ids?: number[] }
 
     if (

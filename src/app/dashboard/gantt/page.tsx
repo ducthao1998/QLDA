@@ -317,7 +317,7 @@ export default function GanttPage() {
               </Card>
 
               {/* Export Actions */}
-              <Card>
+              {/* <Card>
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -346,7 +346,7 @@ export default function GanttPage() {
                     </div>
                   </div>
                 </CardContent>
-              </Card>
+              </Card> */}
             </div>
           ) : (
             <Card>

@@ -4,11 +4,11 @@ import { NextResponse } from "next/server"
 /**
  * Lấy danh sách các công việc mà một công việc khác phụ thuộc vào.
  */
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, ctx: { params: { id: string } }) {
   const supabase = await createClient()
 
   try {
-    const { id } = params
+    const { id } = await ctx.params
     
     // SỬA LỖI: Chỉ định rõ ràng mối quan hệ khóa ngoại cần sử dụng.
     // Chúng ta muốn lấy thông tin của công việc được tham chiếu bởi cột `depends_on_id`.
@@ -71,9 +71,9 @@ export async function GET(request: Request, { params }: { params: { id: string }
 /**
  * Đồng bộ hóa (xóa cũ, thêm mới) danh sách phụ thuộc cho một công việc.
  */
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, ctx: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id: taskId } = params // ID của công việc đang được chỉnh sửa
+  const { id: taskId } = await ctx.params // ID của công việc đang được chỉnh sửa
   const body = await request.json()
 
   try {
@@ -157,9 +157,9 @@ export async function POST(request: Request, { params }: { params: { id: string 
 /**
  * Xóa tất cả các phụ thuộc của một công việc.
  */
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, ctx: { params: { id: string } }) {
   const supabase = await createClient()
-  const { id } = params
+  const { id } = await ctx.params
 
   try {
     const { error } = await supabase
