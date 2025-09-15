@@ -118,17 +118,15 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
 
   const loadRaciHistory = async () => {
     try {
-      const historyMap = new Map()
-      
-      // Get RACI history for each user
-      for (const user of allUsers) {
-        const response = await fetch(`/api/user/${user.id}/raci-history`)
-        if (response.ok) {
-          const data = await response.json()
-          historyMap.set(user.id, data)
-        }
+      const userIds = allUsers.map(u => u.id).filter(Boolean)
+      if (userIds.length === 0) return
+      const response = await fetch(`/api/user/raci-history?user_ids=${encodeURIComponent(userIds.join(','))}`)
+      if (!response.ok) return
+      const { histories } = await response.json()
+      const historyMap = new Map<string, any>()
+      for (const uid of Object.keys(histories || {})) {
+        historyMap.set(uid, histories[uid])
       }
-      
       setUserRaciHistory(historyMap)
     } catch (error) {
       console.error('Error loading RACI history:', error)
@@ -137,41 +135,37 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
 
   const handleRaciChange = (userId: string, role: RaciRole) => {
     setRaci(prevRaci => {
-      let newRaci = [...prevRaci]
-      const existingAssignmentIndex = newRaci.findIndex(a => a.user_id === userId)
-
-      // Only one person can be 'R' (Responsible)
       if (role === 'R') {
-        const currentRIndex = newRaci.findIndex(a => a.role === 'R')
-        if (currentRIndex > -1 && newRaci[currentRIndex].user_id !== userId) {
-          // Demote current R to A
-          newRaci[currentRIndex].role = 'A'
-        }
+        const arr = prevRaci.filter(a => a.role !== 'R')
+        const idx = arr.findIndex(a => a.user_id === userId)
+        if (idx > -1) arr[idx] = { user_id: userId, role: 'R' }
+        else arr.push({ user_id: userId, role: 'R' })
+        return arr
       }
-      
-      if (existingAssignmentIndex > -1) {
-        if (newRaci[existingAssignmentIndex].role === role) {
-          // If clicking same role, remove assignment
-          newRaci.splice(existingAssignmentIndex, 1)
-        } else {
-          // Change role
-          newRaci[existingAssignmentIndex].role = role
-        }
-      } else {
-        // Add new assignment
-        newRaci.push({ user_id: userId, role })
+      if (role === 'A') {
+        const arr = prevRaci.filter(a => a.role !== 'A')
+        const idx = arr.findIndex(a => a.user_id === userId)
+        if (idx > -1) arr[idx] = { user_id: userId, role: 'A' }
+        else arr.push({ user_id: userId, role: 'A' })
+        return arr
       }
-      
-      return newRaci
+      // C/I toggle
+      const idx = prevRaci.findIndex(a => a.user_id === userId)
+      if (idx > -1) {
+        if (prevRaci[idx].role === role) return prevRaci.filter((_, i) => i !== idx)
+        const arr = [...prevRaci]
+        arr[idx] = { user_id: userId, role }
+        return arr
+      }
+      return [...prevRaci, { user_id: userId, role }]
     })
-    
     setHasChanges(true)
   }
 
   // Get user name by id
   const getUserName = (userId: string) => {
-    const user = allUsers.find(u => u.id === userId)
-    return user?.full_name || 'Unknown User'
+    const user = allUsers.find(u => u.id === userId) as any
+    return user?.full_name ?? user?.name ?? 'Unknown User'
   }
 
   // Get role recommendations based on history
@@ -232,51 +226,34 @@ export function TaskAssignmentsTab({ task, onRaciChange, initialAssignments = []
       const result = await response.json()
       console.log('Auto assign result:', result)
       
-      if (result.success && result.assignments.length > 0) {
+      if (result.success && result.assignments && result.assignments.length > 0) {
         const assignment = result.assignments[0]
-        
-        // Tạo danh sách RACI assignments
-        const newRaciAssignments: RaciAssignment[] = [
-          {
-            user_id: assignment.user_id,
-            role: 'R' as RaciRole
-          }
-        ]
-        
-        // Thêm các role khác từ other_assignments
-        const otherRoles = assignment.other_assignments || []
-        otherRoles.forEach((otherAssignment: any) => {
-          newRaciAssignments.push({
-            user_id: otherAssignment.user_id,
-            role: otherAssignment.role as RaciRole
-          })
-        })
-        
-        // Cập nhật RACI với tất cả assignments
+
+        const newRaciAssignments: RaciAssignment[] = []
+        if (assignment.R) newRaciAssignments.push({ user_id: assignment.R.user_id, role: 'R' })
+        if (assignment.A) newRaciAssignments.push({ user_id: assignment.A.user_id, role: 'A' })
+        for (const uid of assignment.C || []) newRaciAssignments.push({ user_id: uid, role: 'C' })
+        for (const uid of assignment.I || []) newRaciAssignments.push({ user_id: uid, role: 'I' })
+
         setRaci(newRaciAssignments)
-        
-        // Track tất cả users được auto-assign
-        const autoAssignedUserIds = new Set([
-          assignment.user_id,
-          ...otherRoles.map((r: any) => r.user_id)
+
+        const autoAssignedUserIds = new Set<string>([
+          ...(assignment.R ? [assignment.R.user_id] : []),
+          ...(assignment.A ? [assignment.A.user_id] : []),
+          ...((assignment.C || [])),
+          ...((assignment.I || []))
         ])
         setAutoAssignedUsers(autoAssignedUserIds)
-        
         setHasChanges(true)
-        
-        const roleText = otherRoles.length > 0 
-          ? ` (R) + ${otherRoles.map((r: any) => r.role).join(', ')}`
-          : ' (R)'
-        
-        // Hiển thị thông tin chi tiết về assignment
-        const confidencePercent = Math.round(assignment.confidence_score * 100)
-        const experiencePercent = Math.round(assignment.experience_score * 100)
-        
-        toast.success(
-          `✅ Đã tự động phân công cho ${assignment.user_name}${roleText}\n` +
-          `Độ tin cậy: ${confidencePercent}% | Kinh nghiệm: ${experiencePercent}%`,
-          { duration: 5000 }
-        )
+
+        const rText = assignment.R
+          ? `R: ${getUserName(assignment.R.user_id)} — Độ phù hợp ${Math.round((assignment.R.confidence_score || 0) * 100)}% | Kinh nghiệm ${Math.round((assignment.R.experience_score || 0) * 100)}%`
+          : 'R: (chưa có)'
+        const aText = assignment.A
+          ? `A: ${getUserName(assignment.A.user_id)} — Điểm giám sát ${Math.round((assignment.A.accountable_score || 0) * 100)}%`
+          : 'A: (chưa có)'
+
+        toast.success(`✅ ${rText}\n${aText}`, { duration: 6000 })
       } else {
         // No assignments made - check if there are any assignments at all
         if (!result.assignments || result.assignments.length === 0) {

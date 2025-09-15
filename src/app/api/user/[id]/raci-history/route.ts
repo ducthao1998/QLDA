@@ -18,11 +18,10 @@ export async function GET(
         tasks!inner(
           id,
           name,
-          projects!inner(name, created_at)
+          projects!inner(name)
         )
       `)
       .eq('user_id', userId)
-      .order('tasks.created_at', { ascending: false })
       .limit(20) // Get last 20 assignments
 
     if (error) {
@@ -30,30 +29,32 @@ export async function GET(
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Count role occurrences
-    const roleCounts = {
-      R: 0,
-      A: 0,
-      C: 0,
-      I: 0
+    // Accurate role counts using aggregation (not limited by 20)
+    const roleCounts = { R: 0, A: 0, C: 0, I: 0 }
+    const { data: countsAgg } = await supabase
+      .from('task_raci')
+      .select('role')
+      .eq('user_id', userId)
+
+    if (countsAgg) {
+      for (const row of countsAgg as any[]) {
+        const r = row.role as keyof typeof roleCounts
+        if (roleCounts[r] !== undefined) roleCounts[r]++
+      }
     }
 
-    const processedHistory = raciHistory?.map(raci => {
-      roleCounts[raci.role as keyof typeof roleCounts]++
-      
-      return {
-        role: raci.role,
-        task_name: raci.tasks.name,
-        project_name: raci.tasks.projects.name,
-        task_id: raci.tasks.id
-      }
-    }) || []
+    const processedHistory = raciHistory?.map((raci: any) => ({
+      role: raci.role,
+      task_name: raci.tasks?.name,
+      project_name: raci.tasks?.projects?.name,
+      task_id: raci.tasks?.id
+    })) || []
 
     return NextResponse.json({
       user_id: userId,
       raci_history: processedHistory,
       role_counts: roleCounts,
-      total_assignments: processedHistory.length
+      total_assignments: (roleCounts.R + roleCounts.A + roleCounts.C + roleCounts.I)
     })
 
   } catch (error: any) {

@@ -1,7 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { buildExperienceMatrix } from '@/algorithm/experience-matrix'
-import { constrainedHungarianAssignment, calculateUserTaskScore, type Task, type User } from '@/algorithm/hungarian-assignment'
+import {
+  constrainedHungarianAssignment,
+  calculateUserTaskScore,
+  pickAccountableForTask,
+  pickConsultedInformedRandom,
+  type AlgoTask,
+  type AlgoUser
+} from '@/algorithm/hungarian-assignment'
 
 // Helper function to check if user can take more tasks
 const canTakeMore = (u: any, capParam: number) => {
@@ -85,6 +92,45 @@ async function getUnavailableUsersInfo(
     userSkillsByUser.set(r.user_id, arr)
   })
   
+  // 4) Hoisted fallback aggregation for completed tasks per skill (all users)
+  const fallbackCountsByUser = new Map<string, Record<number, { name: string; count: number }>>()
+  const { data: raciAggAll } = await supabase
+    .from('task_raci')
+    .select(`
+      user_id,
+      tasks!inner(
+        id,
+        status,
+        task_skills!inner(
+          skill_id,
+          skills!inner(name)
+        )
+      )
+    `)
+    .in('user_id', userIds)
+    .eq('role', 'R')
+
+  if (raciAggAll) {
+    (raciAggAll as any[]).forEach((row: any) => {
+      const task = row.tasks
+      if (!task) return
+      const status = String(task.status || '').toLowerCase()
+      const isCompleted = status === 'done' || status === 'completed' || status === 'hoan_thanh'
+      if (!isCompleted) return
+      const tskills = task.task_skills || []
+      tskills.forEach((ts: any) => {
+        const skillId = ts.skill_id
+        const skillName = ts.skills?.name
+        if (requiredSkills.includes(skillId)) {
+          if (!fallbackCountsByUser.has(row.user_id)) fallbackCountsByUser.set(row.user_id, {})
+          const userCounts = fallbackCountsByUser.get(row.user_id)!
+          if (!userCounts[skillId]) userCounts[skillId] = { name: skillName, count: 0 }
+          userCounts[skillId].count += 1
+        }
+      })
+    })
+  }
+  
   for (const user of unavailableUsersList) {
     console.log('Processing user:', user.id, user.name || user.full_name)
     
@@ -102,58 +148,13 @@ async function getUnavailableUsersInfo(
     let userSkillData = { skills: matrixData || [] }
     
     if (!matrixData || matrixData.length === 0) {
-      // Use batch fallback query for all users at once
-      const { data: raciAggAll } = await supabase
-        .from('task_raci')
-        .select(`
-          user_id,
-          tasks!inner(
-            id,
-            status,
-            task_skills!inner(
-              skill_id,
-              skills!inner(name)
-            )
-          )
-        `)
-        .in('user_id', userIds)
-        .eq('role', 'R')
-
-      if (raciAggAll) {
-        const fallbackCountsByUser = new Map<string, Record<number, { name: string; count: number }>>()
-        
-        raciAggAll.forEach((row: any) => {
-          const task = row.tasks
-          if (!task) return
-          const status = String(task.status || '').toLowerCase()
-          const isCompleted = status === 'done' || status === 'completed' || status === 'hoan_thanh'
-          if (!isCompleted) return
-          
-          const tskills = task.task_skills || []
-          tskills.forEach((ts: any) => {
-            const skillId = ts.skill_id
-            const skillName = ts.skills?.name
-            if (requiredSkills.includes(skillId)) {
-              if (!fallbackCountsByUser.has(row.user_id)) {
-                fallbackCountsByUser.set(row.user_id, {})
-              }
-              const userCounts = fallbackCountsByUser.get(row.user_id)!
-              if (!userCounts[skillId]) {
-                userCounts[skillId] = { name: skillName, count: 0 }
-              }
-              userCounts[skillId].count += 1
-            }
-          })
-        })
-
-        const userFallbackCounts = fallbackCountsByUser.get(user.id) || {}
-        userSkillData.skills = Object.entries(userFallbackCounts).map(([skillId, info]) => ({
-          skill_id: Number(skillId),
-          skill_name: info.name,
-          completed_tasks_count: info.count,
-          last_activity_date: null
-        }))
-      }
+      const userFallbackCounts = fallbackCountsByUser.get(user.id) || {}
+      userSkillData.skills = Object.entries(userFallbackCounts).map(([skillId, info]) => ({
+        skill_id: Number(skillId),
+        skill_name: (info as any).name,
+        completed_tasks_count: (info as any).count,
+        last_activity_date: null
+      }))
     }
 
     console.log(`User ${user.id} final skill data:`, userSkillData)
@@ -264,197 +265,22 @@ async function getUnavailableUsersInfo(
   return unavailableUsers
 }
 
-async function assignOtherRaciRoles(
-  supabase: any,
-  taskId: string,
-  responsibleUserId: string,
-  availableUsers: any[],
-  experienceMatrix: any,
-  requiredSkills: number[],
-  maxConcurrentTasks: number
-) {
-  const otherAssignments = []
-  
-  // Lấy danh sách users khác (không phải người đã được gán R)
-  const otherUsers = availableUsers.filter(u => u.id !== responsibleUserId)
-  
-  // Tìm người phù hợp cho role A (Accountable) - thường là manager hoặc senior
-  const accountableUser = findBestUserForRole(otherUsers, experienceMatrix, requiredSkills, 'A')
-  if (accountableUser && canTakeMore(accountableUser, maxConcurrentTasks)) {
-    try {
-      // Xóa role A cũ (nếu có)
-      await supabase
-        .from('task_raci')
-        .delete()
-        .eq('task_id', taskId)
-        .eq('role', 'A')
-        
-      // Gán role A mới
-      await supabase
-        .from('task_raci')
-        .insert({
-          task_id: taskId,
-          user_id: accountableUser.id,
-          role: 'A'
-        })
-      // Tăng tạm workload trong bộ nhớ để tránh vượt trần khi gán tiếp
-      accountableUser.current_workload = (accountableUser.current_workload ?? 0) + 1
-      otherAssignments.push({
-        role: 'A',
-        user_id: accountableUser.id,
-        user_name: accountableUser.name,
-        suitability: accountableUser.role_suitability,
-        score: accountableUser.role_score,
-        reason: 'Có kinh nghiệm và uy tín để chịu trách nhiệm'
-      })
-    } catch (error) {
-      console.error('Error assigning Accountable:', error)
-    }
-  }
-
-  // Tìm người phù hợp cho role C (Consulted) - chuyên gia trong lĩnh vực
-  const consultedUser = findBestUserForRole(otherUsers, experienceMatrix, requiredSkills, 'C')
-  if (consultedUser && consultedUser.id !== accountableUser?.id && canTakeMore(consultedUser, maxConcurrentTasks)) {
-    try {
-      // Xóa role C cũ (nếu có)
-      await supabase
-        .from('task_raci')
-        .delete()
-        .eq('task_id', taskId)
-        .eq('role', 'C')
-        
-      // Gán role C mới
-      await supabase
-        .from('task_raci')
-        .insert({
-          task_id: taskId,
-          user_id: consultedUser.id,
-          role: 'C'
-        })
-      // Tăng tạm workload trong bộ nhớ để tránh vượt trần khi gán tiếp
-      consultedUser.current_workload = (consultedUser.current_workload ?? 0) + 1
-      otherAssignments.push({
-        role: 'C',
-        user_id: consultedUser.id,
-        user_name: consultedUser.name,
-        suitability: consultedUser.role_suitability,
-        score: consultedUser.role_score,
-        reason: 'Có chuyên môn sâu để đưa ra lời khuyên'
-      })
-    } catch (error) {
-      console.error('Error assigning Consulted:', error)
-    }
-  }
-
-  // Tìm người phù hợp cho role I (Informed) - có thể là stakeholder hoặc team lead
-  const informedUser = findBestUserForRole(otherUsers, experienceMatrix, requiredSkills, 'I')
-  if (informedUser && 
-      informedUser.id !== accountableUser?.id && 
-      informedUser.id !== consultedUser?.id &&
-      canTakeMore(informedUser, maxConcurrentTasks)) {
-    try {
-      // Xóa role I cũ (nếu có)
-      await supabase
-        .from('task_raci')
-        .delete()
-        .eq('task_id', taskId)
-        .eq('role', 'I')
-        
-      // Gán role I mới
-      await supabase
-        .from('task_raci')
-        .insert({
-          task_id: taskId,
-          user_id: informedUser.id,
-          role: 'I'
-        })
-      // Tăng tạm workload trong bộ nhớ để tránh vượt trần khi gán tiếp
-      informedUser.current_workload = (informedUser.current_workload ?? 0) + 1
-      otherAssignments.push({
-        role: 'I',
-        user_id: informedUser.id,
-        user_name: informedUser.name,
-        suitability: informedUser.role_suitability,
-        score: informedUser.role_score,
-        reason: 'Cần được thông báo về tiến độ'
-      })
-    } catch (error) {
-      console.error('Error assigning Informed:', error)
-    }
-  }
-
-  return otherAssignments
-}
-
-function findBestUserForRole(
-  users: any[],
-  experienceMatrix: any,
-  requiredSkills: number[],
-  role: 'A' | 'C' | 'I'
-) {
-  if (users.length === 0) return null
-
-  // Tính điểm cho từng user dựa trên role
-  const userScores = users.map(user => {
-    let score = 0
-    let suitability = 'Không phù hợp'
-    
-    if (role === 'A') {
-      // Accountable cần kinh nghiệm cao và ít workload
-      const experienceScore = requiredSkills.length > 0 
-        ? requiredSkills.reduce((sum, skillId) => sum + (experienceMatrix[user.id]?.[skillId] || 0), 0) / requiredSkills.length
-        : 0
-      const workloadScore = user.current_workload < 2 ? 1 : 0.5
-      score = experienceScore * 0.7 + workloadScore * 0.3
-      
-      if (score >= 0.7) suitability = 'Rất phù hợp'
-      else if (score >= 0.5) suitability = 'Phù hợp'
-      else if (score >= 0.3) suitability = 'Ít phù hợp'
-    } else if (role === 'C') {
-      // Consulted cần chuyên môn cao nhất
-      const experienceScore = requiredSkills.length > 0 
-        ? requiredSkills.reduce((sum, skillId) => sum + (experienceMatrix[user.id]?.[skillId] || 0), 0) / requiredSkills.length
-        : 0
-      score = experienceScore
-      
-      if (score >= 0.8) suitability = 'Rất phù hợp'
-      else if (score >= 0.6) suitability = 'Phù hợp'
-      else if (score >= 0.3) suitability = 'Ít phù hợp'
-    } else if (role === 'I') {
-      // Informed chỉ cần có thời gian
-      const workloadScore = user.current_workload < 3 ? 1 : 0.5
-      score = workloadScore
-      
-      if (score >= 0.8) suitability = 'Rất phù hợp'
-      else if (score >= 0.5) suitability = 'Phù hợp'
-      else suitability = 'Ít phù hợp'
-    }
-    
-    return { user, score, suitability }
-  })
-
-  // Sắp xếp theo điểm và trả về user tốt nhất
-  userScores.sort((a, b) => b.score - a.score)
-  const bestUser = userScores[0]
-  
-  // Chỉ trả về nếu điểm > 0.3 (có thể chấp nhận được)
-  if (bestUser.score > 0.3) {
-    return {
-      ...bestUser.user,
-      role_suitability: bestUser.suitability,
-      role_score: bestUser.score
-    }
-  }
-  
-  return null
-}
+// Legacy helpers removed after two-phase R/A + deterministic C/I implementation
 
 export async function POST(req: Request) {
   const supabase = await createClient()
 
   try {
     const body = await req.json()
-    const { task_ids, project_id, max_concurrent_tasks = 2 } = body
+    const {
+      task_ids,
+      project_id,
+      max_concurrent_tasks = 2,
+      allow_same_RA = false,
+      minConfidenceR = 0.35,
+      minAccountableScore = 0.5,
+      minAccountableSkillFit = 0.3
+    } = body
 
     if (!task_ids || !Array.isArray(task_ids) || task_ids.length === 0) {
       return NextResponse.json(
@@ -537,7 +363,7 @@ export async function POST(req: Request) {
 
     // === BƯỚC 3: LẤY DANH SÁCH TẤT CẢ USERS TRONG HỆ THỐNG ===
     // Lấy tất cả users trong hệ thống (không giới hạn org_unit)
-    const { data: allUsers } = await supabase
+    const { data: allUsers, error: usersError } = await supabase
       .from('users')
       .select(`
         id,
@@ -548,6 +374,7 @@ export async function POST(req: Request) {
       `)
       .not('id', 'is', null)
 
+    if (usersError) console.error('Users query error:', usersError)
     console.log('All users:', allUsers)
 
     if (!allUsers || allUsers.length === 0) {
@@ -557,7 +384,7 @@ export async function POST(req: Request) {
       })
     }
 
-    const userIds = allUsers.map((user: any) => user.id).filter(Boolean)
+    const userIds = (allUsers as any[]).map((user: any) => user.id).filter(Boolean)
 
     // === BƯỚC 4: TÍNH WORKLOAD HIỆN TẠI CỦA TỪNG USER (TẤT CẢ DỰ ÁN) ===
     const { data: currentWorkloads } = await supabase
@@ -578,7 +405,6 @@ export async function POST(req: Request) {
       .eq('role', 'R')
       .in('tasks.status', ['todo', 'in_progress', 'review', 'blocked'])
       .in('user_id', userIds)
-      .in('tasks.projects.status', ['active', 'planning']) // Chỉ tính dự án đang hoạt động
 
     console.log('Current workloads (all projects):', currentWorkloads)
 
@@ -586,16 +412,13 @@ export async function POST(req: Request) {
     const userWorkloadMap = new Map<string, number>()
     const userProjectsMap = new Map<string, Set<string>>() // Track projects per user
     
-    currentWorkloads?.forEach(item => {
-      if (item.user_id) {
+    currentWorkloads?.forEach((item: any) => {
+      const projectStatus = item?.tasks?.projects?.status
+      if (item.user_id && (projectStatus === 'active' || projectStatus === 'planning')) {
         const currentCount = userWorkloadMap.get(item.user_id) || 0
         userWorkloadMap.set(item.user_id, currentCount + 1)
-        
-        // Track projects
-        if (!userProjectsMap.has(item.user_id)) {
-          userProjectsMap.set(item.user_id, new Set())
-        }
-        userProjectsMap.get(item.user_id)?.add((item.tasks as any).project_id)
+        if (!userProjectsMap.has(item.user_id)) userProjectsMap.set(item.user_id, new Set())
+        userProjectsMap.get(item.user_id)?.add(item.tasks.project_id)
       }
     })
 
@@ -605,7 +428,7 @@ export async function POST(req: Request) {
     ))
 
     // === BƯỚC 5: TẠO DANH SÁCH USERS CHO THUẬT TOÁN ===
-    const availableUsers: User[] = allUsers.map((user: any) => {
+    const availableUsers: AlgoUser[] = (allUsers as any[]).map((user: any) => {
       return {
         id: user.id,
         name: user.full_name,
@@ -629,7 +452,7 @@ export async function POST(req: Request) {
     if (!isProd) console.log('Experience Matrix size:', Object.keys(experienceMatrix).length)
 
     // === BƯỚC 7: TẠO DANH SÁCH TASKS CHO THUẬT TOÁN ===
-    const algorithmTasks: Task[] = tasksData.map(task => ({
+    const algorithmTasks: AlgoTask[] = tasksData.map(task => ({
       id: task.id,
       name: task.name,
       required_skills: taskSkillsMap.get(task.id) || [],
@@ -671,13 +494,21 @@ export async function POST(req: Request) {
     const filteredUsers = availableUsers.filter(u => u.current_workload < max_concurrent_tasks)
     if (!isProd) console.log('Filtered users (by workload):', filteredUsers.length)
     
+    // Load threshold defaults from ENV if not provided
+    const envMinR = parseFloat(String(process.env.MIN_CONFIDENCE_R || ''))
+    const envMinA = parseFloat(String(process.env.MIN_ACCOUNTABLE_SCORE || ''))
+    const envMinASkill = parseFloat(String(process.env.MIN_ACCOUNTABLE_SKILL_FIT || ''))
+    const effectiveMinR = Number.isFinite(envMinR) ? envMinR : minConfidenceR
+    const effectiveMinA = Number.isFinite(envMinA) ? envMinA : Math.max(0.6, minAccountableScore)
+    const effectiveMinASkill = Number.isFinite(envMinASkill) ? envMinASkill : minAccountableSkillFit
+
     const assignments = constrainedHungarianAssignment(
       algorithmTasks,
       availableUsers,
       experienceMatrix,
       max_concurrent_tasks,
       {
-        minConfidence: 0.35,    // từ 0.4 xuống 0.35 để mềm dẻo hơn
+        minConfidence: effectiveMinR,
         unassignedCost: 0.5,    // cho phép "không gán" khi điểm < 0.5
         bigPenalty: 1e6
       }
@@ -685,108 +516,167 @@ export async function POST(req: Request) {
     
     console.log('Assignments result:', assignments)
 
-    // === BƯỚC 9: LƯU KẾT QUẢ PHÂN CÔNG VÀO DATABASE ===
-    const results = []
-    const errors = []
+    // === BƯỚC 9: PHA 2 - CHỌN A, C, I THEO YÊU CẦU ===
+    const orgMap = new Map<string, string>()
+    const managerMap = new Map<string, string | null>()
+    const posLevelMap = new Map<string, number>()
+    const capacityMap = new Map<string, { current: number; max: number }>()
+    for (const u of (allUsers as any[])) {
+      orgMap.set(u.id, u.org_unit)
+      // Không có manager_id/position_level trong hệ thống hiện tại
+      managerMap.set(u.id, null)
+      posLevelMap.set(u.id, 0)
+      capacityMap.set(u.id, {
+        current: userWorkloadMap.get(u.id) || 0,
+        max: Number.isFinite(u.max_concurrent_tasks) ? u.max_concurrent_tasks : max_concurrent_tasks
+      })
+    }
+
+    // Placeholder for user A performance metrics; can be replaced by a view later
+    const userMetrics = new Map<string, { a_count?: number; a_on_time_rate?: number; a_overdue_count?: number; a_avg_delay?: number }>()
+
+    const results: any[] = []
+    const errors: any[] = []
 
     for (const assignment of assignments) {
       try {
-        console.log(`Assigning task ${assignment.task_id} to user ${assignment.user_id}`)
-        
-        // Xóa RACI cũ của task trước (nếu có)
-        await supabase
-          .from('task_raci')
-          .delete()
-          .eq('task_id', assignment.task_id)
-          .eq('role', 'R')
+        const taskId = assignment.task_id
+        const rUserId = assignment.user_id
+        const task = tasksData.find(t => t.id === taskId)
+        const rUser = (allUsers as any[]).find(u => u.id === rUserId)
 
-        // Gán role R (Responsible) - người thực hiện chính  
-        const { error: insertError } = await supabase
-          .from('task_raci')
-          .insert({
-            task_id: assignment.task_id,
-            user_id: assignment.user_id,
-            role: 'R'
-          })
+        // Pick A
+        const context = {
+          userOrgUnit: orgMap,
+          userManagerId: managerMap,
+          userPositionLevel: posLevelMap,
+          userMetrics,
+          userWorkload: capacityMap,
+          allowSameRA: !!allow_same_RA,
+          minAccountableScore: Number(effectiveMinA),
+          minAccountableSkillFit: Number(effectiveMinASkill)
+        }
 
-        if (insertError) {
-          console.error('Insert error:', insertError)
-          errors.push({
-            task_id: assignment.task_id,
-            error: insertError.message
-          })
-        } else {
-          const task = tasksData.find(t => t.id === assignment.task_id)
-          const user = availableUsers.find(u => u.id === assignment.user_id)
-          
-          // Tìm thêm người cho các role khác nếu có thể
-          const otherRoleAssignments = await assignOtherRaciRoles(
-            supabase,
-            assignment.task_id,
-            assignment.user_id,
-            availableUsers,
+        const candidateIds = (allUsers as any[]).map(u => u.id)
+        let aPick = pickAccountableForTask(
+          {
+            id: String(taskId),
+            name: task?.name || String(taskId),
+            required_skills: taskSkillsMap.get(taskId) || [],
+            priority: 1,
+            estimated_hours: 8
+          },
+          rUserId,
+          candidateIds,
+          experienceMatrix,
+          context
+        )
+        // Fallbacks to enforce that every task has exactly one A
+        let aUserId: string | null = aPick?.userId ?? null
+        let aExplain = aPick?.explain
+        let aScore = aPick?.score
+        if (!aUserId) {
+          // Try relaxed thresholds first (keep allowSameRA as is)
+          const relaxed1 = pickAccountableForTask(
+            {
+              id: String(taskId),
+              name: task?.name || String(taskId),
+              required_skills: taskSkillsMap.get(taskId) || [],
+              priority: 1,
+              estimated_hours: 8
+            },
+            rUserId,
+            candidateIds,
             experienceMatrix,
-            taskSkillsMap.get(assignment.task_id) || [],
-            max_concurrent_tasks
+            { ...context, minAccountableScore: 0, minAccountableSkillFit: 0 }
           )
-          
-          // Add role recommendations for the responsible user
-          const responsibleUser = availableUsers.find(u => u.id === assignment.user_id)
-          let roleRecommendations = null
-          
-          if (responsibleUser) {
-            // Get actual completed tasks count for this user's skills from user_skill_matrix
-            const { data: userSkillData } = await supabase
-              .from('user_skill_matrix')
-              .select('skill_id, completed_tasks_count')
-              .eq('user_id', responsibleUser.id)
-              .in('skill_id', taskSkillsMap.get(assignment.task_id) || [])
-            
-            const requiredSkills = taskSkillsMap.get(assignment.task_id) || []
-            
-            const totalCompletedTasks = requiredSkills.reduce((sum, skillId) => {
-              const skillData = userSkillData?.find((s: any) => s.skill_id === skillId)
-              return sum + (skillData?.completed_tasks_count || 0)
-            }, 0)
-            
-            // Add role recommendations based on completed tasks
-            roleRecommendations = {
-              R: { 
-                completed_tasks: totalCompletedTasks, 
-                reason: totalCompletedTasks >= 3 ? `Có kinh nghiệm (đã hoàn thành ${totalCompletedTasks} công việc liên quan)` : 'Có thể thực hiện' 
-              },
-              A: { 
-                completed_tasks: totalCompletedTasks, 
-                reason: totalCompletedTasks >= 5 ? `Có thể đảm nhận trách nhiệm (đã hoàn thành ${totalCompletedTasks} công việc liên quan)` : 'Cần hỗ trợ thêm' 
-              },
-              C: { 
-                completed_tasks: totalCompletedTasks, 
-                reason: totalCompletedTasks >= 5 ? `Có chuyên môn để tư vấn (đã hoàn thành ${totalCompletedTasks} công việc liên quan)` : 'Cần kinh nghiệm thêm' 
-              },
-              I: { 
-                completed_tasks: 0, 
-                reason: 'Có thể theo dõi tiến độ' 
-              }
-            }
+          if (relaxed1) {
+            aUserId = relaxed1.userId
+            aExplain = relaxed1.explain
+            aScore = relaxed1.score
           }
+        }
+        if (!aUserId && !context.allowSameRA) {
+          // Allow same R/A as last resort
+          const relaxed2 = pickAccountableForTask(
+            {
+              id: String(taskId),
+              name: task?.name || String(taskId),
+              required_skills: taskSkillsMap.get(taskId) || [],
+              priority: 1,
+              estimated_hours: 8
+            },
+            rUserId,
+            candidateIds,
+            experienceMatrix,
+            { ...context, allowSameRA: true, minAccountableScore: 0, minAccountableSkillFit: 0 }
+          )
+          if (relaxed2) {
+            aUserId = relaxed2.userId
+            aExplain = relaxed2.explain
+            aScore = relaxed2.score
+          }
+        }
+        if (!aUserId) {
+          // Absolute fallback: set A = R (ensures exactly one A)
+          aUserId = rUserId
+        }
 
-          results.push({
-            task_id: assignment.task_id,
-            task_name: task?.name,
-            user_id: assignment.user_id,
-            user_name: user?.name,
+        // Deterministic C/I excluding R and A, respecting capacity
+        const ci = pickConsultedInformedRandom(
+          {
+            id: String(taskId),
+            name: task?.name || String(taskId),
+            required_skills: taskSkillsMap.get(taskId) || [],
+            priority: 1,
+            estimated_hours: 8
+          },
+          (allUsers as any[]).map(u => ({ id: u.id })),
+          rUserId,
+          aUserId,
+          capacityMap
+        )
+
+        // === LƯU VÀO DB: đảm bảo đúng 1 R và 1 A (simple retry) ===
+        await supabase.from('task_raci').delete().eq('task_id', taskId)
+        const rows: any[] = [{ task_id: taskId, user_id: rUserId, role: 'R' }]
+        let aSaved = null as null | string
+        if (aUserId) { rows.push({ task_id: taskId, user_id: aUserId, role: 'A' }); aSaved = aUserId }
+        for (const uid of ci.C) rows.push({ task_id: taskId, user_id: uid, role: 'C' })
+        for (const uid of ci.I) rows.push({ task_id: taskId, user_id: uid, role: 'I' })
+        let insertErr: any = null
+        let attempt = 0
+        do {
+          const { error } = await supabase.from('task_raci').insert(rows)
+          insertErr = error
+          attempt++
+        } while (insertErr && attempt < 2)
+        if (insertErr) throw insertErr
+
+        results.push({
+          task_id: taskId,
+          task_name: task?.name,
+          R: {
+            user_id: rUserId,
+            user_name: rUser?.full_name || rUser?.name,
             confidence_score: assignment.confidence_score,
             experience_score: assignment.experience_score,
-            other_assignments: otherRoleAssignments,
-            role_recommendations: roleRecommendations
-          })
-        }
+            explain: {
+              summary: '50% kinh nghiệm + 35% cân tải + 10% phủ kỹ năng + 5% chuyên sâu'
+            }
+          },
+          A: {
+            user_id: aSaved!,
+            user_name: (allUsers as any[]).find(u => u.id === aSaved)?.full_name,
+            accountable_score: aScore ?? 0,
+            explain: aExplain
+          },
+          C: ci.C,
+          I: ci.I
+        })
       } catch (error: any) {
         console.error('Assignment error:', error)
-        errors.push({
-          task_id: assignment.task_id,
-          error: error.message
-        })
+        errors.push({ task_id: assignment.task_id, error: error.message })
       }
     }
 
@@ -814,7 +704,7 @@ export async function POST(req: Request) {
     }))
 
     // Convert allUsers to User format for algorithm
-    const algorithmUsers = allUsers.map((user: any) => ({
+    const algorithmUsers = (allUsers as any[]).map((user: any) => ({
       id: user.id,
       name: user.full_name || user.name,
       current_workload: userWorkloadMap.get(user.id) ?? 0, // <-- dùng map đã tính
@@ -838,7 +728,7 @@ export async function POST(req: Request) {
 
     // Find users who were NOT assigned in optimal solution
     const assignedUserIds = new Set(optimalAssignments.map(a => a.user_id))
-    const unavailableUsersList = allUsers.filter(user => 
+    const unavailableUsersList = (allUsers as any[]).filter((user: any) => 
       !assignedUserIds.has(user.id)
     )
     
@@ -878,9 +768,13 @@ export async function POST(req: Request) {
         total_tasks: tasksData.length,
         total_users: availableUsers.length,
         available_users: filteredUsers.length,
-        algorithm_used: 'experience_matrix + constrained_hungarian',
+        algorithm_used: 'experience_matrix + constrained_hungarian + accountable_scoring + deterministic_CI',
         experience_matrix_size: Object.keys(experienceMatrix).length,
-        skills_count: allSkills.size
+        skills_count: allSkills.size,
+        minConfidenceR,
+        minAccountableScore: effectiveMinA,
+        minAccountableSkillFit: effectiveMinASkill,
+        allow_same_RA
       }
     })
 

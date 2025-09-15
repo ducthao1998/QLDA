@@ -1,6 +1,6 @@
 import { ExperienceMatrix, getExperienceScore } from './experience-matrix'
 
-export interface Task {
+export interface AlgoTask {
   id: string
   name: string
   required_skills: number[]
@@ -8,7 +8,7 @@ export interface Task {
   estimated_hours: number
 }
 
-export interface User {
+export interface AlgoUser {
   id: string
   name: string
   current_workload: number
@@ -20,6 +20,218 @@ export interface Assignment {
   user_id: string
   confidence_score: number
   experience_score: number
+}
+
+// ===========================
+//  Accountable (A) scoring helpers
+// ===========================
+
+export interface AccountableMetrics {
+  a_count?: number
+  a_on_time_rate?: number // 0..1
+  a_overdue_count?: number
+  a_avg_delay?: number // days (positive worse)
+}
+
+export interface AccountableContext {
+  // user attributes
+  userOrgUnit?: Map<string, string>
+  userManagerId?: Map<string, string | null>
+  userPositionLevel?: Map<string, number>
+  userMetrics?: Map<string, AccountableMetrics>
+  // dynamic runtime attributes
+  userWorkload?: Map<string, { current: number; max: number }>
+  // selection flags
+  allowSameRA?: boolean
+  minAccountableScore?: number
+  minAccountableSkillFit?: number
+}
+
+export interface AccountableScoreExplain {
+  experience: number
+  workload: number
+  coverage: number
+  specialization: number
+  weights: { experience: number; workload: number; coverage: number; specialization: number }
+}
+
+export function calculateAccountableScore(
+  userId: string,
+  task: AlgoTask,
+  experienceMatrix: ExperienceMatrix,
+  context: AccountableContext
+): { score: number; explain: AccountableScoreExplain } {
+  const wl = context.userWorkload?.get(userId) ?? { current: 0, max: 1 }
+  const user: AlgoUser = {
+    id: userId,
+    name: userId,
+    current_workload: wl.current ?? 0,
+    max_concurrent_tasks: Math.max(1, wl.max ?? 1)
+  }
+
+  // Recompute components same as calculateUserTaskScore
+  const experienceScores = task.required_skills.map(skillId =>
+    getExperienceScore(experienceMatrix, user.id, skillId)
+  )
+  const avgExperience = experienceScores.length > 0
+    ? experienceScores.reduce((s, v) => s + v, 0) / experienceScores.length
+    : 0
+  const experienceBonus = avgExperience > 0.7 ? 0.2 : avgExperience > 0.5 ? 0.1 : 0
+  const experience = Math.min(1, avgExperience + experienceBonus)
+
+  const maxWorkload = Math.max(1, user.max_concurrent_tasks)
+  const workloadRatio = user.current_workload / maxWorkload
+  let workload = 0
+  if (workloadRatio === 0)      workload = 1.0
+  else if (workloadRatio <= .33) workload = 0.8
+  else if (workloadRatio <= .66) workload = 0.5
+  else                           workload = 0.2
+
+  const covered = task.required_skills.filter(skillId =>
+    getExperienceScore(experienceMatrix, user.id, skillId) > 0
+  ).length
+  const coverage = task.required_skills.length > 0
+    ? covered / task.required_skills.length
+    : 1
+
+  const hasHighExpertise = experienceScores.some(s => s > 0.8)
+  const specialization = hasHighExpertise ? 1 : 0.5
+
+  const weights = { experience: 0.5, workload: 0.35, coverage: 0.1, specialization: 0.05 }
+  let total = (
+    experience * weights.experience +
+    workload * weights.workload +
+    coverage * weights.coverage +
+    specialization * weights.specialization
+  )
+
+  if (avgExperience === 0 && coverage === 0) {
+    total = workload * 0.4 + (user.current_workload === 0 ? 0.1 : 0.05)
+    if (total === 0) total = 0.01
+  }
+
+  // Strong penalty for zero coverage if task has required skills
+  if ((task.required_skills?.length ?? 0) > 0 && coverage === 0) {
+    total = Math.max(0, total - 0.3)
+  }
+
+  return {
+    score: Math.min(1, total),
+    explain: { experience, workload, coverage, specialization, weights }
+  }
+}
+
+export function pickAccountableForTask(
+  task: AlgoTask,
+  rUserId: string,
+  candidateUserIds: string[],
+  experienceMatrix: ExperienceMatrix,
+  context: AccountableContext
+): { userId: string; score: number; explain: AccountableScoreExplain } | null {
+  const allowSame = context.allowSameRA ?? false
+  const minScore = context.minAccountableScore ?? 0.5
+  const minSkillFit = context.minAccountableSkillFit ?? 0.3
+
+  const filtered = candidateUserIds.filter(uid => (allowSame ? true : uid !== rUserId))
+  if (filtered.length === 0) return null
+
+  const scored = filtered.map(uid => {
+    const res = calculateAccountableScore(uid, task, experienceMatrix, context)
+    return { userId: uid, score: res.score, explain: res.explain }
+  })
+
+  // Prefer candidates with minimum coverage if task has skills
+  const hasSkills = (task.required_skills?.length ?? 0) > 0
+  let pool = scored
+  if (hasSkills) {
+    const covered = scored.filter(s => (s.explain.coverage ?? 0) >= minSkillFit)
+    if (covered.length > 0) pool = covered
+  }
+
+  const wlMap = context.userWorkload ?? new Map<string, { current: number; max: number }>()
+  pool.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    // Tie-breaker: coverage desc, then workload asc, then id asc
+    const aCov = a.explain.coverage ?? 0
+    const bCov = b.explain.coverage ?? 0
+    if (bCov !== aCov) return bCov - aCov
+    const aW = wlMap.get(a.userId)?.current ?? 0
+    const bW = wlMap.get(b.userId)?.current ?? 0
+    if (aW !== bW) return aW - bW
+    return String(a.userId).localeCompare(String(b.userId))
+  })
+
+  const best = pool[0]
+  if (!best || best.score < minScore) return null
+  return best
+}
+
+function seededRandom(seed: number) {
+  // Simple LCG
+  let state = seed >>> 0
+  return () => {
+    state = (1664525 * state + 1013904223) >>> 0
+    return state / 0xffffffff
+  }
+}
+
+function hashStringToInt(str: string): number {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i)
+    h = Math.imul(h, 16777619) >>> 0
+  }
+  return h >>> 0
+}
+
+export function pickConsultedInformedRandom(
+  task: AlgoTask,
+  users: { id: string }[],
+  rUserId: string,
+  aUserId: string | null,
+  capacity: Map<string, { current: number; max: number }>,
+  countC: number = 1,
+  countI: number = 1
+): { C: string[]; I: string[] } {
+  const exclude = new Set<string>([rUserId])
+  if (aUserId) exclude.add(aUserId)
+
+  const canTake = (uid: string) => {
+    const wl = capacity.get(uid)
+    if (!wl) return true
+    return (wl.current ?? 0) < Math.max(1, wl.max ?? 1)
+  }
+
+  const pool = users.map(u => u.id).filter(uid => !exclude.has(uid) && canTake(uid))
+
+  // Deterministic seeds per role
+  const seedC = hashStringToInt(`${task.id}:C`)
+  const seedI = hashStringToInt(`${task.id}:I`)
+  const randC = seededRandom(seedC)
+  const randI = seededRandom(seedI)
+
+  const pickOne = (rnd: () => number, arr: string[]): string | null => {
+    if (arr.length === 0) return null
+    const idx = Math.floor(rnd() * arr.length)
+    return arr[idx] ?? null
+  }
+
+  const picks = (rnd: () => number, arr: string[], k: number) => {
+    const selected: string[] = []
+    const available = [...arr]
+    for (let t = 0; t < k && available.length > 0; t++) {
+      const idx = Math.floor(rnd() * available.length)
+      const uid = available.splice(idx, 1)[0]
+      if (uid) selected.push(uid)
+    }
+    return selected
+  }
+
+  const cUsers = picks(randC, pool, Math.max(0, countC))
+  const remaining = pool.filter(uid => !cUsers.includes(uid))
+  const iUsers = picks(randI, remaining, Math.max(0, countI))
+
+  return { C: cUsers, I: iUsers }
 }
 
 /* ===========================
@@ -72,8 +284,8 @@ function hungarian(cost: number[][]): number[] {
  *  Ưu tiên kinh nghiệm & cân bằng workload
  * =========================== */
 export function calculateUserTaskScore(
-  user: User,
-  task: Task,
+  user: AlgoUser,
+  task: AlgoTask,
   experienceMatrix: ExperienceMatrix
 ): number {
   // 1) Field Experience (50%)
@@ -140,8 +352,8 @@ export function calculateUserTaskScore(
  * Ràng buộc: Mỗi người tối đa `min(maxConcurrentTasks, user.max_concurrent_tasks)` công việc đồng thời
  */
 export function constrainedHungarianAssignment(
-  tasks: Task[],
-  users: User[],
+  tasks: AlgoTask[],
+  users: AlgoUser[],
   experienceMatrix: ExperienceMatrix,
   maxConcurrentTasks: number = 2,
   options?: {
@@ -177,7 +389,7 @@ export function constrainedHungarianAssignment(
   while (slots.length < n) slots.push({ userId: 'UNASSIGNED', slotIndex: slots.length, isDummy: true })
 
   // Thêm task giả để vuông (không ảnh hưởng kết quả)
-  const padTasks: Task[] = [...tasks]
+  const padTasks: AlgoTask[] = [...tasks]
   while (padTasks.length < n) {
     padTasks.push({
       id: `DUMMY_TASK_${padTasks.length}`,
@@ -279,11 +491,11 @@ export function constrainedHungarianAssignment(
 export async function assignSingleTask(
   taskId: string,
   requiredSkills: number[],
-  availableUsers: User[],
+  availableUsers: AlgoUser[],
   experienceMatrix: ExperienceMatrix,
   maxConcurrentTasks: number = 2
 ): Promise<Assignment | null> {
-  const task: Task = {
+  const task: AlgoTask = {
     id: taskId,
     name: `Task ${taskId}`,
     required_skills: requiredSkills,
@@ -308,7 +520,7 @@ export async function assignSingleTask(
  */
 export function validateAssignments(
   assignments: Assignment[],
-  users: User[],
+  users: AlgoUser[],
   maxConcurrentTasks: number = 2
 ): { isValid: boolean; violations: string[] } {
   const violations: string[] = []

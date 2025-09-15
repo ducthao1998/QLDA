@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { buildExperienceMatrix } from '@/algorithm/experience-matrix'
-import { constrainedHungarianAssignment, type Task, type User } from '@/algorithm/hungarian-assignment'
+import { constrainedHungarianAssignment, type AlgoTask, type AlgoUser } from '@/algorithm/hungarian-assignment'
 
 
 export async function POST(

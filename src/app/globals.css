@@ -202,3 +202,61 @@
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
   font-size: 12px;
 }
+
+/* Critical path highlighting - Multiple selectors for maximum compatibility */
+.gantt_task_line.gantt-task-critical,
+.gantt_task_line.critical_task,
+.gantt-task-critical.gantt_task_line,
+.gantt_bar_task.gantt-task-critical {
+  background-color: #ef4444 !important;
+  background: #ef4444 !important;
+  border: 2px solid #b91c1c !important;
+  border-color: #b91c1c !important;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3) !important;
+}
+
+.gantt_task_line.gantt-task-critical .gantt_task_content,
+.gantt_task_line.critical_task .gantt_task_content,
+.gantt-task-critical .gantt_task_content {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+}
+
+.gantt_task_line.gantt-task-critical .gantt_task_progress,
+.gantt-task-critical .gantt_task_progress {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+
+.gantt_task_line.gantt-task-critical .gantt_task_progress_wrapper,
+.gantt-task-critical .gantt_task_progress_wrapper {
+  background: transparent !important;
+}
+
+/* Critical path links */
+.gantt_line.gantt-link-critical .gantt_line_wrapper div,
+.gantt_line.critical_link .gantt_line_wrapper div {
+  background-color: #ef4444 !important;
+  stroke: #ef4444 !important;
+}
+
+.gantt_line.gantt-link-critical .gantt_link_arrow,
+.gantt_line.critical_link .gantt_link_arrow {
+  border-left-color: #ef4444 !important;
+  fill: #ef4444 !important;
+}
+
+/* Additional DOM-based selectors for manual application */
+[task_id].gantt-task-critical,
+.gantt_task_line[class*="gantt-task-critical"] {
+  background-color: #ef4444 !important;
+  border-color: #b91c1c !important;
+}
+
+/* Ensure critical tasks stand out in all view modes */
+.gantt_scale_week .gantt-task-critical,
+.gantt_scale_day .gantt-task-critical,
+.gantt_scale_month .gantt-task-critical {
+  background-color: #ef4444 !important;
+  border: 2px solid #b91c1c !important;
+}

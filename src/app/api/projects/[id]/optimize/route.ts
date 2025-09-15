@@ -1,7 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
-import { NextResponse } from "next/server"
+  import { NextResponse } from "next/server"
 import { optimizeSchedule } from "@/algorithm/schedule-optimizer"
-import { buildExperienceMatrix } from "@/algorithm/experience-matrix"
 import { OptimizationConfig } from "@/algorithm/types"
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {

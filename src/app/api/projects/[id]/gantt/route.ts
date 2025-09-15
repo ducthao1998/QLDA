@@ -351,10 +351,24 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }) || []
 
+    // Làm sạch dependencies trước khi tính CPM
+    const taskIdSet = new Set((processedTasks || []).map(t => String(t.id)))
+    const cleanDependencies = (dependencies || [])
+      .filter((d: any) =>
+        d && d.task_id != null && d.depends_on_id != null &&
+        String(d.task_id) !== String(d.depends_on_id) &&
+        taskIdSet.has(String(d.task_id)) &&
+        taskIdSet.has(String(d.depends_on_id))
+      )
+      .map((d: any) => ({
+        task_id: String(d.task_id),
+        depends_on_id: String(d.depends_on_id),
+      }))
+
     // Calculate Critical Path (Thuật toán 3 - Multi-Project CPM)
     const criticalPath = calculateCriticalPath(
       processedTasks.map(t => ({
-        id: parseInt(t.id),
+        id: String(t.id),
         project_id: projectId,
         name: t.name,
         status: t.status as any,
@@ -364,7 +378,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         start_date: t.start_date,
         end_date: t.end_date
       })),
-      dependencies || []
+      cleanDependencies,
+      undefined // không truyền deadline vì ta chỉ có start date; tìm end tối ưu
     )
 
     // Calculate project statistics with enhanced metrics
@@ -394,10 +409,17 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }
 
+    // Gắn cờ is_critical_path để frontend hiển thị/Export
+    const criticalSet = new Set((criticalPath.criticalPath || []).map((x: any) => String(x)))
+    const tasksWithCritical = processedTasks.map(t => ({
+      ...t,
+      is_critical_path: criticalSet.has(String(t.id)),
+    }))
+
     return NextResponse.json({
       project: enhancedProject,
-      tasks: processedTasks,
-      dependencies: dependencies || [],
+      tasks: tasksWithCritical,
+      dependencies: cleanDependencies,
       users: allUsers || [],
       skills: allSkills || [],
       experience_matrix: experienceMatrix,
@@ -405,7 +427,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         "Experience Matrix",
         "Multi-Project CPM",
         "Critical Path Analysis"
-      ]
+      ],
+      cpm_details: criticalPath
     })
 
   } catch (error) {
