@@ -365,6 +365,27 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         depends_on_id: String(d.depends_on_id),
       }))
 
+    // Load CPM prefs from algorithm_settings for current user + project
+    let cpmOptions: any = {}
+    try {
+      const { data: sessionRes } = await supabase.auth.getSession()
+      const session = sessionRes?.session
+      if (session?.user?.id) {
+        const { data: row } = await supabase
+          .from('algorithm_settings')
+          .select('cpm_prefs')
+          .eq('user_id', session.user.id)
+          .eq('project_id', projectId)
+          .maybeSingle()
+        const prefs = (row as any)?.cpm_prefs || {}
+        cpmOptions = {
+          defaultTaskDurationDays: prefs.default_task_duration_days ?? 1,
+          allowStartNextDay: prefs.allow_start_next_day ?? true,
+          criticalityThresholdDays: prefs.criticality_threshold_days ?? 0,
+        }
+      }
+    } catch {}
+
     // Calculate Critical Path (Thuật toán 3 - Multi-Project CPM)
     const criticalPath = calculateCriticalPath(
       processedTasks.map(t => ({
@@ -379,7 +400,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         end_date: t.end_date
       })),
       cleanDependencies,
-      undefined // không truyền deadline vì ta chỉ có start date; tìm end tối ưu
+      undefined, // không truyền deadline vì ta chỉ có start date; tìm end tối ưu
+      cpmOptions
     )
 
     // Calculate project statistics with enhanced metrics

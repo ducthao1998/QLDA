@@ -13,6 +13,10 @@ import {
   subWeeks,
   isBefore,
   isAfter,
+  startOfYear,
+  endOfYear,
+  addYears,
+  subYears,
 } from "date-fns"
 import { vi } from "date-fns/locale"
 import { ChevronLeftIcon, ChevronRightIcon, CalendarIcon, AlertCircleIcon, Loader2 } from "lucide-react"
@@ -56,10 +60,11 @@ export default function SchedulePage() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [currentDate, setCurrentDate] = useState(new Date())
-  const [viewMode, setViewMode] = useState<"week" | "month">("week")
+  const [viewMode, setViewMode] = useState<"week" | "month" | "year">("week")
 
   // Debug state
   const [debugInfo, setDebugInfo] = useState<any>({})
+  const [activeSchedule, setActiveSchedule] = useState<{ run: any; details: any[] } | null>(null)
 
   useEffect(() => {
     loadProjects()
@@ -68,9 +73,25 @@ export default function SchedulePage() {
   useEffect(() => {
     if (selectedProject) {
       console.log("Selected project changed:", selectedProject)
-      loadTasks()
+      ;(async () => {
+        try {
+          const res = await fetch(`/api/projects/${selectedProject}/schedule/active`)
+          if (res.ok) {
+            const json = await res.json()
+            setActiveSchedule(json?.run ? json : null)
+            await loadTasks(json?.run ? json : null)
+          } else {
+            setActiveSchedule(null)
+            await loadTasks(null)
+          }
+        } catch {
+          setActiveSchedule(null)
+          await loadTasks(null)
+        }
+      })()
     } else {
       setTasks([])
+      setActiveSchedule(null)
     }
   }, [selectedProject])
 
@@ -113,7 +134,7 @@ export default function SchedulePage() {
     }
   }
 
-  async function loadTasks() {
+  async function loadTasks(active?: { run: any; details: any[] } | null) {
     try {
       setIsLoadingTasks(true)
       setError(null)
@@ -131,8 +152,69 @@ export default function SchedulePage() {
       const data = await res.json()
       console.log("Tasks API response data:", data)
 
-      const tasksData = data.data || data.tasks || []
+      let tasksData: Task[] = data.data || data.tasks || []
+      // Overlay approved schedule if any
+      const scheduleForOverlay = active?.details?.length ? active : activeSchedule
+      if (scheduleForOverlay?.details?.length) {
+        const map = new Map<string | number, any>()
+        scheduleForOverlay.details.forEach((d: any) => map.set(String(d.task_id), d))
+        tasksData = tasksData.map((t: any) => {
+          const d = map.get(String(t.id))
+          return d ? { ...t, start_date: d.start_ts, end_date: d.finish_ts } : t
+        })
+
+        // Bổ sung các task chỉ có trong schedule_details (nếu API tasks không trả về)
+        const existing = new Set(tasksData.map((t: any) => String(t.id)))
+        const extras: Task[] = []
+        for (const d of scheduleForOverlay.details) {
+          const tid = String(d.task_id)
+          if (existing.has(tid)) continue
+          const parsedId = Number(tid)
+          if (!Number.isNaN(parsedId)) {
+            extras.push({
+              id: parsedId,
+              name: `Task ${tid}`,
+              project_id: selectedProject,
+              status: "todo",
+              start_date: d.start_ts,
+              end_date: d.finish_ts,
+            } as Task)
+          }
+        }
+        if (extras.length) tasksData = [...tasksData, ...extras]
+      }
       console.log("Processed tasks:", tasksData)
+      // Auto-jump timeline to first task window if current view has no tasks
+      try {
+        const parse = (v: string | null) => (v ? new Date(v) : null)
+        const starts = tasksData.map(t => parse(t.start_date)).filter((d): d is Date => !!d)
+        const ends = tasksData.map(t => parse(t.end_date)).filter((d): d is Date => !!d)
+        const earliestStart = starts.length ? new Date(Math.min(...starts.map(d => d.getTime()))) : null
+        const latestEnd = ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : null
+
+        if (earliestStart) {
+          const start = startOfWeek(currentDate, { weekStartsOn: 1 })
+          const end = viewMode === "week" ? endOfWeek(currentDate, { weekStartsOn: 1 }) : addDays(start, 27)
+          const hasVisible = tasksData.some(t => {
+            const s = parse(t.start_date) || parse(t.end_date)
+            const e = parse(t.end_date) || parse(t.start_date)
+            if (!s || !e) return false
+            return !(e < start || s > end)
+          })
+          if (!hasVisible) {
+            setCurrentDate(earliestStart)
+          }
+        } else {
+          // Fallback: nhảy về mốc start của project nếu chưa xác định được
+          try {
+            const pres = await fetch(`/api/projects/${selectedProject}`)
+            if (pres.ok) {
+              const pj = await pres.json()
+              if (pj?.start_date) setCurrentDate(new Date(pj.start_date))
+            }
+          } catch {}
+        }
+      } catch {}
 
       setTasks(tasksData)
       setDebugInfo((prev: any) => ({ ...prev, tasksCount: tasksData.length }))
@@ -153,29 +235,43 @@ export default function SchedulePage() {
       const start = startOfWeek(currentDate, { weekStartsOn: 1 })
       const end = endOfWeek(currentDate, { weekStartsOn: 1 })
       return eachDayOfInterval({ start, end })
-    } else {
+    } else if (viewMode === "month") {
       const start = startOfWeek(currentDate, { weekStartsOn: 1 })
       const end = addDays(start, 27)
+      return eachDayOfInterval({ start, end })
+    } else {
+      const start = startOfYear(currentDate)
+      const end = endOfYear(currentDate)
       return eachDayOfInterval({ start, end })
     }
   }
 
   const days = getDaysInView()
+  const visibleTasksForHeight = tasks.filter((t) => {
+    const st = getTaskStyle(t) as any
+    return !(st && st.display === "none")
+  })
+  const rowHeightPx = 36
+  const containerHeightPx = Math.max(80, visibleTasksForHeight.length * rowHeightPx + 16)
 
   // Navigation functions
   const goToPrevious = () => {
     if (viewMode === "week") {
       setCurrentDate(subWeeks(currentDate, 1))
-    } else {
+    } else if (viewMode === "month") {
       setCurrentDate(subWeeks(currentDate, 4))
+    } else {
+      setCurrentDate(subYears(currentDate, 1))
     }
   }
 
   const goToNext = () => {
     if (viewMode === "week") {
       setCurrentDate(addWeeks(currentDate, 1))
-    } else {
+    } else if (viewMode === "month") {
       setCurrentDate(addWeeks(currentDate, 4))
+    } else {
+      setCurrentDate(addYears(currentDate, 1))
     }
   }
 
@@ -227,7 +323,7 @@ export default function SchedulePage() {
   }
 
   // Calculate task position and width in the calendar
-  const getTaskStyle = (task: Task) => {
+  function getTaskStyle(task: Task) {
     if (!task.start_date || !task.end_date) return { display: "none" }
 
     const startDate = new Date(task.start_date)
@@ -303,13 +399,14 @@ export default function SchedulePage() {
             </SelectContent>
           </Select>
 
-          <Select value={viewMode} onValueChange={(value: "week" | "month") => setViewMode(value)}>
+          <Select value={viewMode} onValueChange={(value: "week" | "month" | "year") => setViewMode(value)}>
             <SelectTrigger className="w-[120px]">
               <SelectValue placeholder="Chế độ xem" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="week">Tuần</SelectItem>
               <SelectItem value="month">Tháng</SelectItem>
+              <SelectItem value="year">Năm</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -336,7 +433,9 @@ export default function SchedulePage() {
               <CalendarIcon className="h-5 w-5" />
               {viewMode === "week"
                 ? `Tuần ${format(days[0], "'từ' dd/MM/yyyy 'đến' ", { locale: vi })}${format(days[days.length - 1], "dd/MM/yyyy", { locale: vi })}`
-                : `Tháng ${format(currentDate, "MM/yyyy", { locale: vi })}`}
+                : viewMode === "month"
+                ? `Tháng ${format(currentDate, "MM/yyyy", { locale: vi })}`
+                : `Năm ${format(currentDate, "yyyy", { locale: vi })}`}
             </CardTitle>
 
             <div className="flex items-center gap-2">
@@ -351,6 +450,11 @@ export default function SchedulePage() {
               </Button>
             </div>
           </div>
+          {activeSchedule?.run && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Đang hiển thị lịch đã duyệt: <b>{activeSchedule.run.name}</b> ({new Date(activeSchedule.run.created_at).toLocaleString()})
+            </div>
+          )}
         </CardHeader>
 
         <CardContent>
@@ -408,21 +512,21 @@ export default function SchedulePage() {
               <div className="space-y-3">
                 <div className="relative bg-muted/20 rounded-lg p-4">
                   {/* Calendar grid lines */}
-                  <div className="grid grid-cols-7 gap-1 absolute inset-4 pointer-events-none opacity-30">
+                  <div className="grid grid-cols-7 gap-1 absolute top-4 bottom-4 left-4 right-4 pointer-events-none opacity-30 overflow-hidden">
                     {days.map((day, i) => (
                       <div key={i} className="border-r border-dashed h-full"></div>
                     ))}
                   </div>
 
                   {/* Tasks */}
-                  <div className="relative min-h-[80px] space-y-2">
-                    {tasks.map((task, index) => {
+                  <div className="relative space-y-2" style={{ height: `${containerHeightPx}px` }}>
+                    {visibleTasksForHeight.map((task, index) => {
                       const taskStyle = getTaskStyle(task)
                       const isApproaching = isApproachingDeadline(task)
                       const isLate = isOverdue(task)
                       const responsibleUser = getResponsibleUser(task)
 
-                      if (taskStyle.display === "none") return null
+                      if ((taskStyle as any).display === "none") return null
 
                       return (
                         <TooltipProvider key={task.id}>
@@ -435,7 +539,7 @@ export default function SchedulePage() {
                                   } ${isLate ? "ring-2 ring-red-500" : ""}`}
                                   style={{
                                     ...taskStyle,
-                                    top: `${index * 36}px`,
+                                    top: `${index * rowHeightPx}px`,
                                     zIndex: 10,
                                   }}
                                 >

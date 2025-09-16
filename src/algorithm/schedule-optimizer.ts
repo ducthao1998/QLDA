@@ -1,5 +1,5 @@
 import { OptimizationInput, OptimizationConfig, OptimizationResult, ScheduleChange } from './types'
-import { calculateCriticalPath } from './critical-path'
+import { calculateCriticalPath, type CPMTaskInput } from './critical-path'
 import { ScheduleDetail } from '@/app/types/table-types'
 
 export class ScheduleOptimizer {
@@ -42,7 +42,14 @@ export class ScheduleOptimizer {
     console.log(`✅ Metrics sau tối ưu: Makespan=${optimizedMakespan} ngày, Resource=${(optimizedResourceUtilization * 100).toFixed(1)}%`);
 
     // 4. Tính toán critical path
-    const criticalPathResult = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const cpmPrefs = (this.config as any)?.cpm_prefs || {}
+    const cpmOptions = {
+      defaultTaskDurationDays: cpmPrefs.default_task_duration_days ?? 1,
+      allowStartNextDay: cpmPrefs.allow_start_next_day ?? true,
+      criticalityThresholdDays: cpmPrefs.criticality_threshold_days ?? 0,
+    }
+    const cpmTasks1: CPMTaskInput[] = this.buildCpmTasks()
+    const criticalPathResult = calculateCriticalPath(cpmTasks1, this.input.dependencies as any, undefined, cpmOptions);
     const criticalPath = criticalPathResult.criticalPath;
 
     // 5. Tạo báo cáo thay đổi lịch trình
@@ -115,7 +122,14 @@ export class ScheduleOptimizer {
 
   private async runMultiProjectCPM(): Promise<ScheduleDetail[]> {
     // Use multi-project critical path method to optimize schedule
-    const criticalPathResult = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const cpmPrefs2 = (this.config as any)?.cpm_prefs || {}
+    const cpmOptions2 = {
+      defaultTaskDurationDays: cpmPrefs2.default_task_duration_days ?? 1,
+      allowStartNextDay: cpmPrefs2.allow_start_next_day ?? true,
+      criticalityThresholdDays: cpmPrefs2.criticality_threshold_days ?? 0,
+    }
+    const cpmTasks2: CPMTaskInput[] = this.buildCpmTasks()
+    const criticalPathResult = calculateCriticalPath(cpmTasks2, this.input.dependencies as any, undefined, cpmOptions2);
     const criticalPath = criticalPathResult.criticalPath;
     
     // Build dependency graph for better optimization
@@ -142,6 +156,9 @@ export class ScheduleOptimizer {
     
     // Create optimized schedule with earliest start time strategy
     const optimizedSchedule: ScheduleDetail[] = [];
+    const cpmPrefs = (this.config as any)?.cpm_prefs || {}
+    const allowNextDay = cpmPrefs.allow_start_next_day ?? true
+    const defaultDur = cpmPrefs.default_task_duration_days ?? 1
     const projectStart = new Date(this.input.project.start_date);
     const taskEndTimes = new Map<string, Date>();
     
@@ -164,7 +181,7 @@ export class ScheduleOptimizer {
     // Schedule tasks with earliest start time strategy
     sortedTasks.forEach(task => {
       const taskId = String(task.id);
-      const taskDuration = task.duration_days || 1;
+      const taskDuration = task.duration_days || defaultDur;
       
       // Find earliest possible start time based on dependencies
       let earliestStart = new Date(projectStart);
@@ -194,7 +211,9 @@ export class ScheduleOptimizer {
           const latestCriticalDepEnd = new Date(Math.max(...criticalDepEndTimes.map(d => d.getTime())));
           if (latestCriticalDepEnd > earliestStart) {
             earliestStart = new Date(latestCriticalDepEnd);
-            earliestStart.setDate(earliestStart.getDate() + 1);
+            if (allowNextDay) {
+              earliestStart.setDate(earliestStart.getDate() + 1);
+            }
           }
         }
       }
@@ -280,7 +299,14 @@ export class ScheduleOptimizer {
     const originalParallelDuration = totalTaskDuration;
     
     // Calculate optimized parallel duration based on critical path
-    const criticalPathResult = calculateCriticalPath(this.input.tasks, this.input.dependencies);
+    const cpmPrefs = (this.config as any)?.cpm_prefs || {}
+    const cpmOptions = {
+      defaultTaskDurationDays: cpmPrefs.default_task_duration_days ?? 1,
+      allowStartNextDay: cpmPrefs.allow_start_next_day ?? true,
+      criticalityThresholdDays: cpmPrefs.criticality_threshold_days ?? 0,
+    }
+    const cpmTasks: CPMTaskInput[] = this.buildCpmTasks()
+    const criticalPathResult = calculateCriticalPath(cpmTasks, this.input.dependencies as any, undefined, cpmOptions);
     const criticalPathDuration = criticalPathResult.criticalPathDuration;
     
     // Count parallel tasks (tasks that can run simultaneously)
@@ -383,6 +409,29 @@ export class ScheduleOptimizer {
       critical_path_optimized: criticalPath.length > 0,
       bottlenecks_identified: bottlenecks
     };
+  }
+
+  private buildCpmTasks(): CPMTaskInput[] {
+    const projectStart = new Date(this.input.project.start_date)
+    const defaultDur = ((this.config as any)?.cpm_prefs?.default_task_duration_days) ?? 1
+    return this.input.tasks.map(t => {
+      const sd = this.input.scheduleDetails.find(d => String(d.task_id) === String(t.id))
+      const start = sd?.start_ts ? new Date(sd.start_ts) : new Date(projectStart)
+      const end = sd?.finish_ts
+        ? new Date(sd.finish_ts)
+        : new Date(new Date(start).setDate(start.getDate() + ((t.duration_days ?? defaultDur) - 1)))
+      return {
+        id: String(t.id),
+        project_id: String(t.project_id),
+        name: t.name,
+        status: t.status as any,
+        note: t.note,
+        duration_days: t.duration_days,
+        template_id: t.template_id ?? null,
+        start_date: start.toISOString(),
+        end_date: end.toISOString(),
+      }
+    })
   }
 }
 

@@ -360,11 +360,13 @@ export function constrainedHungarianAssignment(
     minConfidence?: number   // ngưỡng tự tin tối thiểu để chấp nhận gán
     unassignedCost?: number  // chi phí gán “không ai” (0..1), càng thấp càng dễ bỏ qua
     bigPenalty?: number      // phạt lớn để cấm gán
+    priorityMode?: 'weighted' | 'lexi'
   }
 ): Assignment[] {
   const minConfidence = options?.minConfidence ?? 0.4
   const unassignedCost = options?.unassignedCost ?? 0.45
   const bigPenalty = options?.bigPenalty ?? 1e6
+  const priorityMode = options?.priorityMode ?? 'weighted'
 
   // 1) Tạo slots theo capacity còn lại của mỗi user
   type Slot = { userId: string; slotIndex: number; isDummy?: boolean }
@@ -402,6 +404,8 @@ export function constrainedHungarianAssignment(
 
   // 3) Xây ma trận chi phí (Hungarian minimize)
   const cost: number[][] = Array.from({ length: n }, () => Array(n).fill(0))
+  // Gợi ý điểm tin cậy 0..1 để lọc theo minConfidence (đặc biệt cho chế độ 'lexi')
+  const scoreHint: number[][] = Array.from({ length: n }, () => Array(n).fill(0))
 
   for (let i = 0; i < n; i++) {
     const task = padTasks[i]
@@ -417,8 +421,14 @@ export function constrainedHungarianAssignment(
       }
 
       if (slot.isDummy) {
-        // Gán task thật vào slot "không ai"
-        cost[i][j] = unassignedCost
+        // Gán task thật vào slot "không ai" (UNASSIGNED)
+        // Scale chi phí theo chế độ ưu tiên để tránh thiên vị UNASSIGNED
+        if (priorityMode === 'lexi') {
+          // Chi phí lexicographic ~ 0..1e3 -> scale unassignedCost (0..1) lên cùng thang
+          cost[i][j] = (options?.unassignedCost ?? 0.5) * 1e3
+        } else {
+          cost[i][j] = unassignedCost
+        }
         continue
       }
 
@@ -430,24 +440,65 @@ export function constrainedHungarianAssignment(
         continue
       }
 
-      // Tính coverage ratio thay vì chặn cứng
-      const totalReq = task.required_skills.length
-      const covered = totalReq === 0 ? 0 : task.required_skills
-        .reduce((acc, sid) => acc + (getExperienceScore(experienceMatrix, user.id, sid) > 0 ? 1 : 0), 0)
-      
-      const coverageRatio = totalReq === 0 ? 1 : covered / totalReq
+      if (priorityMode === 'lexi') {
+        // Lexicographic priorities:
+        // P1: Trần công việc đã đảm bảo bằng slots; nếu vượt trần thì đã bị loại ở trên
+        // P2: Kinh nghiệm lĩnh vực (cao thì tốt)
+        const exps = task.required_skills.map(sid => getExperienceScore(experienceMatrix, user.id, sid))
+        const domainScore = exps.length ? exps.reduce((a, b) => a + b, 0) / exps.length : 0 // 0..1
 
-      // Điểm cơ sở theo hàm calculateUserTaskScore
-      let baseScore = calculateUserTaskScore(user, task, experienceMatrix)
+        // P3: Workload ratio (thấp thì tốt)
+        const capUser = Math.min(maxConcurrentTasks, user.max_concurrent_tasks)
+        const wr = capUser > 0 ? (user.current_workload / Math.max(1, capUser)) : 1
 
-      // Nếu không phủ kỹ năng nào (coverageRatio = 0) thì giảm điểm một chút (phạt mềm),
-      // nhưng không về 0 để thuật toán vẫn có thể đề xuất dựa vào workload:
-      if (totalReq > 0 && coverageRatio === 0) {
-        baseScore = Math.max(0, baseScore - 0.15) // phạt 0.15
+        // P4: Random tie-break deterministic per (task,user)
+        const seed = hashStringToInt(`${task.id}:${user.id}`)
+        const rand = seededRandom(seed)()
+
+        // Build cost (minimize): domainScore first, then workload, then random
+        cost[i][j] = (1 - domainScore) * 1e3 + wr * 1e1 + (1 - rand) * 1e-3
+        // Confidence hint dùng để so với minConfidence: dùng trực tiếp domainScore (0..1)
+        scoreHint[i][j] = domainScore
+      } else {
+        // Weighted scoring (existing behavior)
+        const totalReq = task.required_skills.length
+        const covered = totalReq === 0 ? 0 : task.required_skills
+          .reduce((acc, sid) => acc + (getExperienceScore(experienceMatrix, user.id, sid) > 0 ? 1 : 0), 0)
+        
+        const coverageRatio = totalReq === 0 ? 1 : covered / totalReq
+
+        let baseScore = calculateUserTaskScore(user, task, experienceMatrix)
+        if (totalReq > 0 && coverageRatio === 0) {
+          baseScore = Math.max(0, baseScore - 0.15)
+        }
+
+        const normalized = Math.max(0, Math.min(1, baseScore))
+        cost[i][j] = 1 - normalized
+        scoreHint[i][j] = normalized
+      }
+    }
+  }
+
+  // Sau khi xây xong cost/scoreHint: với 'lexi', cấm UNASSIGNED nếu có ứng viên đạt ngưỡng
+  if (priorityMode === 'lexi') {
+    for (let i = 0; i < n; i++) {
+      const task = padTasks[i]
+      if (task.name === 'DUMMY') continue
+
+      // Có người đạt minConfidence theo domainScore không?
+      let hasOk = false
+      for (let j = 0; j < n; j++) {
+        const slot = slots[j]
+        if (slot.isDummy) continue
+        if (scoreHint[i][j] >= minConfidence) { hasOk = true; break }
       }
 
-      // Score -> cost
-      cost[i][j] = 1 - Math.max(0, Math.min(1, baseScore))
+      // Điều chỉnh các cột UNASSIGNED
+      for (let j = 0; j < n; j++) {
+        const slot = slots[j]
+        if (!slot.isDummy) continue
+        cost[i][j] = hasOk ? bigPenalty : (unassignedCost * 1e3)
+      }
     }
   }
 
@@ -467,7 +518,8 @@ export function constrainedHungarianAssignment(
     if (slot.isDummy || slot.userId === 'UNASSIGNED') continue // “không gán ai”
 
     const user = users.find(u => u.id === slot.userId)!
-    const score = 1 - cost[row][j]
+    // Với 'lexi', scoreHint đã là 0..1 theo domainScore; với 'weighted', scoreHint = normalized baseScore
+    const score = scoreHint[row][j]
     if (score < minConfidence) continue
 
     // experience_score trung bình trên required_skills

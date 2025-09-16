@@ -55,6 +55,11 @@ export function calculateCriticalPath(
   tasks: CPMTaskInput[],
   dependencies: CPMDependencyInput[],
   projectEndISO?: string,
+  options?: {
+    defaultTaskDurationDays?: number
+    allowStartNextDay?: boolean
+    criticalityThresholdDays?: number
+  }
 ): CriticalPathResult {
   const T = tasks.map(t => ({ ...t, id: String(t.id), duration_days: t.duration_days ?? 1 }))
   const edges = (dependencies || []).map(d => ({ task_id: String(d.task_id), depends_on_id: String(d.depends_on_id) }))
@@ -63,8 +68,11 @@ export function calculateCriticalPath(
   const preds = new Map<string, string[]>()
   const succs = new Map<string, string[]>()
 
+  const defaultDur = Math.max(1, options?.defaultTaskDurationDays ?? 1)
+  const allowNextDay = options?.allowStartNextDay ?? true
+
   T.forEach(t => {
-    nodes.set(t.id, { id: t.id, d: (t.duration_days || 1) * 24, ES:0, EF:0, LS:0, LF:0, slack:0, free:0, dependencies: [] })
+    nodes.set(t.id, { id: t.id, d: (t.duration_days || defaultDur) * 24, ES:0, EF:0, LS:0, LF:0, slack:0, free:0, dependencies: [] })
     preds.set(t.id, [])
     succs.set(t.id, [])
   })
@@ -159,9 +167,10 @@ export function calculateCriticalPath(
   const totalDurationDays = toDays(networkEnd)
   const criticalPathDurationDays = bestPath.reduce((s, id) => s + toDays(nodes.get(id)!.d), 0)
 
+  const thrDays = options?.criticalityThresholdDays ?? 0
   const taskDetails = T.map(t => {
     const n = nodes.get(t.id)!
-    const isCritical = n.slack <= 0
+    const isCritical = (n.slack / 24) <= thrDays
     const drivingPredecessorIds = preds.get(t.id)!.filter(p => nodes.get(p)!.EF === n.ES)
     const deadlineSlack = projectEndTS ? toDays(n.LF - n.EF) : undefined
     const reason = isCritical
