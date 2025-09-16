@@ -111,6 +111,52 @@ export async function GET(
       currentWorkloads?.map(w => (w.tasks as any).project_id) || []
     ).size
 
+    // Đếm số công việc đã hoàn thành theo vai trò R/A của user (toàn bộ lịch sử)
+    let completedByRole = { R: 0, A: 0 }
+    try {
+      const { data: userTaskRoles } = await supabase
+        .from('task_raci')
+        .select('task_id, role')
+        .eq('user_id', userId)
+        .in('role', ['R','A'])
+
+      const taskIdToRoles = new Map<string, Set<'R'|'A'>>()
+      for (const r of (userTaskRoles as any[]) || []) {
+        const tid = String(r.task_id)
+        const role = String(r.role) as 'R' | 'A'
+        if (!taskIdToRoles.has(tid)) taskIdToRoles.set(tid, new Set())
+        taskIdToRoles.get(tid)!.add(role)
+      }
+
+      const taskIds = Array.from(taskIdToRoles.keys())
+      const taskIdsStr = taskIds.map(String)
+      const doneStatuses = ['done','completed','hoan_thanh']
+      const completedSet = new Set<string>()
+
+      if (taskIdsStr.length > 0) {
+        const { data: doneByStatus } = await supabase
+          .from('tasks')
+          .select('id, status')
+          .in('id', taskIdsStr)
+          .in('status', doneStatuses as any)
+        for (const r of (doneByStatus as any[]) || []) completedSet.add(String(r.id))
+
+        const { data: doneByProgress } = await supabase
+          .from('task_progress')
+          .select('task_id')
+          .in('task_id', taskIdsStr)
+          .not('actual_finish', 'is', null)
+        for (const row of (doneByProgress as any[]) || []) completedSet.add(String(row.task_id))
+      }
+
+      for (const tid of completedSet) {
+        const roles = taskIdToRoles.get(tid)
+        if (!roles) continue
+        if (roles.has('R')) completedByRole.R += 1
+        if (roles.has('A')) completedByRole.A += 1
+      }
+    } catch {}
+
     // Xây dựng experience matrix
     const experienceMatrix = await buildExperienceMatrix([userId], requiredSkills)
 
@@ -136,9 +182,30 @@ export async function GET(
     const experienceBonus = avgExperience > 0.7 ? 0.2 : avgExperience > 0.5 ? 0.1 : 0
     const fieldExperienceScore = Math.min(1, avgExperience + experienceBonus)
 
-    // Workload score
-    const maxWorkload = 3
-    const workloadRatio = currentWorkload / maxWorkload
+    // Workload score with dynamic capacity
+    let effectiveCap = 2
+    try {
+      const { data: capRow } = await supabase
+        .from('users')
+        .select('max_concurrent_tasks')
+        .eq('id', userId)
+        .maybeSingle()
+      effectiveCap = Math.max(1, (capRow as any)?.max_concurrent_tasks ?? 2)
+      // Read assignment prefs for respect_user_caps/default cap
+      const { data: settingsRow } = await supabase
+        .from('algorithm_settings')
+        .select('assignment_prefs')
+        .eq('project_id', taskData.project_id)
+        .eq('user_id', userId)
+        .maybeSingle()
+      const prefs: any = (settingsRow as any)?.assignment_prefs || null
+      const respectCaps = prefs?.respect_user_caps
+      const defaultCap = prefs?.default_max_concurrent_tasks
+      if (respectCaps === false && typeof defaultCap === 'number') {
+        effectiveCap = Math.max(1, defaultCap)
+      }
+    } catch {}
+    const workloadRatio = effectiveCap > 0 ? currentWorkload / effectiveCap : 1
     let workloadScore = 0
     let workloadLevel = ''
 
@@ -286,6 +353,11 @@ export async function GET(
         current_tasks: currentWorkload,
         projects_count: projectsCount,
         level: workloadLevel
+      },
+      completed_counts: {
+        R: completedByRole.R,
+        A: completedByRole.A,
+        total: completedByRole.R + completedByRole.A
       },
       skills: skillExperiences,
       reasons: reasons,

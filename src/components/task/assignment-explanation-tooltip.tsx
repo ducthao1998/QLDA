@@ -65,6 +65,7 @@ export function AssignmentExplanationTooltip({
   const [workloadSummary, setWorkloadSummary] = useState<{active_in_progress: number; completed_with_required_skills: number} | null>(null)
   const [raciCounts, setRaciCounts] = useState<{ R: number; A: number } | null>(null)
   const [recentRA, setRecentRA] = useState<Array<{ role: 'R' | 'A'; task_id: string; task_name: string }>>([])
+  const [completedRaciCounts, setCompletedRaciCounts] = useState<{ R: number; A: number } | null>(null)
 
   const loadExplanation = async () => {
     if (loading) return
@@ -98,7 +99,20 @@ export function AssignmentExplanationTooltip({
           const h = await hRes.json()
           const counts = h?.role_counts || { R: 0, A: 0, C: 0, I: 0 }
           setRaciCounts({ R: counts.R || 0, A: counts.A || 0 })
-          const hist: Array<{ role: 'R' | 'A'; task_id: string; task_name: string }> = (h?.raci_history || [])
+          const historyAll: any[] = h?.raci_history || []
+          // Count completed tasks by role (R/A) from history
+          try {
+            if (h?.completed_role_counts) {
+              setCompletedRaciCounts({ R: h.completed_role_counts.R || 0, A: h.completed_role_counts.A || 0 })
+            } else {
+              const doneSet = new Set(["done", "completed", "hoan_thanh"]) // fallback
+              const completedR = historyAll.filter((r: any) => String(r.role) === 'R' && doneSet.has(String(r.status || '').toLowerCase())).length
+              const completedA = historyAll.filter((r: any) => String(r.role) === 'A' && doneSet.has(String(r.status || '').toLowerCase())).length
+              setCompletedRaciCounts({ R: completedR, A: completedA })
+            }
+          } catch {}
+
+          const hist: Array<{ role: 'R' | 'A'; task_id: string; task_name: string }> = historyAll
             .filter((r: any) => r.role === 'R' || r.role === 'A')
             .slice(0, 2)
             .map((r: any) => ({ role: r.role, task_id: r.task_id, task_name: r.task_name }))
@@ -170,19 +184,16 @@ export function AssignmentExplanationTooltip({
                 </Badge>
               </div>
 
-              {/* Summary (no percentages) */}
+              {/* Summary */}
               <div className="space-y-2 text-xs">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-3 w-3 text-muted-foreground" />
                   <span className="text-foreground">Đánh giá tổng quan: <span className="font-medium">{explanation.recommendation}</span></span>
                 </div>
-                {/* R/A role counts */}
-                {raciCounts && (
+                {completedRaciCounts && (
                   <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">Kinh nghiệm vai trò:</span>
-                    <span className="text-foreground">R: <span className="font-medium">{raciCounts.R}</span></span>
-                    <span className="text-muted-foreground">·</span>
-                    <span className="text-foreground">A: <span className="font-medium">{raciCounts.A}</span></span>
+                    <span className="text-muted-foreground">Đã hoàn thành:</span>
+                    <span className="text-foreground"><span className="font-medium">{(completedRaciCounts.R + completedRaciCounts.A)}</span> việc</span>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-1">
@@ -223,9 +234,6 @@ export function AssignmentExplanationTooltip({
                 <Users className="h-3 w-3 text-muted-foreground" />
                 <span className="text-foreground">
                   Đang thực hiện: <span className="font-medium">{(explanation as any).__currentActive}</span> việc
-                  {typeof workloadSummary?.completed_with_required_skills === 'number' && (
-                    <> · Hoàn thành (liên quan kỹ năng này): <span className="font-medium">{workloadSummary?.completed_with_required_skills}</span> việc</>
-                  )}
                 </span>
               </div>
 

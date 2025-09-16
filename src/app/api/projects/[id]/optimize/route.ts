@@ -158,8 +158,25 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
     }) || []
 
+    // Load CPM prefs from algorithm_settings
+    let cpmPrefs: any = {}
+    try {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession()
+      if (session?.user?.id) {
+        const { data: row } = await supabase
+          .from('algorithm_settings')
+          .select('cpm_prefs')
+          .eq('user_id', session.user.id)
+          .eq('project_id', projectId)
+          .maybeSingle()
+        cpmPrefs = (row as any)?.cpm_prefs || {}
+      }
+    } catch {}
+
     // Build optimization config
-    const config: OptimizationConfig = {
+    const config: OptimizationConfig & { cpm_prefs?: any } = {
       algorithm: algorithm as any,
       objective: {
         type: objective.type,
@@ -169,7 +186,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         respect_dependencies: true,
         respect_skills: true,
         respect_availability: true
-      }
+      },
+      cpm_prefs: cpmPrefs
     }
 
     // Run optimization

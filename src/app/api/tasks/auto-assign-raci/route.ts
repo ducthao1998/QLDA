@@ -172,7 +172,8 @@ async function getUnavailableUsersInfo(
       }
     })
 
-    const hasRequiredSkills = userSkills && userSkills.length > 0
+    // ĐÁNH GIÁ KỸ NĂNG: dùng tập hợp cuối cùng (bao gồm fallback) thay vì chỉ view
+    const hasRequiredSkills = (userSkillData?.skills?.length ?? 0) > 0
     const userMaxConcurrent = Number.isFinite(user.max_concurrent_tasks) 
       ? user.max_concurrent_tasks 
       : maxConcurrentTasks
@@ -361,7 +362,46 @@ export async function POST(req: Request) {
     console.log('Task skills map:', Object.fromEntries(taskSkillsMap))
     console.log('All skills:', Array.from(allSkills))
 
-    // === BƯỚC 3: LẤY DANH SÁCH TẤT CẢ USERS TRONG HỆ THỐNG ===
+    // === BƯỚC 3: ĐỌC CẤU HÌNH ALGORITHM (assignment_prefs) ===
+    const { data: sessionRes } = await supabase.auth.getSession()
+    const session = sessionRes?.session
+    let AP: any = {}
+    if (session?.user?.id) {
+      const { data: apRow } = await supabase
+        .from('algorithm_settings')
+        .select('assignment_prefs')
+        .eq('user_id', session.user.id)
+        .eq('project_id', project_id)
+        .maybeSingle()
+      const settings = (apRow as any)?.assignment_prefs || {}
+      AP = {
+        enabled: settings.enabled ?? true,
+        priority_mode: settings.priority_mode ?? 'lexi',
+        default_max_concurrent_tasks: settings.default_max_concurrent_tasks ?? max_concurrent_tasks,
+        respect_user_caps: settings.respect_user_caps ?? true,
+        min_confidence_R: settings.min_confidence_R ?? minConfidenceR,
+        unassigned_cost: settings.unassigned_cost ?? 0.5,
+        allow_same_RA: settings.allow_same_RA ?? allow_same_RA,
+        min_accountable_score: settings.min_accountable_score ?? Math.max(0.6, minAccountableScore),
+        min_accountable_skill_fit: settings.min_accountable_skill_fit ?? Math.max(0.3, minAccountableSkillFit),
+      }
+    } else {
+      AP = {
+        enabled: true,
+        priority_mode: 'weighted',
+        default_max_concurrent_tasks: max_concurrent_tasks,
+        respect_user_caps: true,
+        min_confidence_R: minConfidenceR,
+        unassigned_cost: 0.5,
+        allow_same_RA,
+        min_accountable_score: Math.max(0.6, minAccountableScore),
+        min_accountable_skill_fit: Math.max(0.3, minAccountableSkillFit),
+      }
+    }
+
+    const effMaxConcurrent = Number(AP.default_max_concurrent_tasks) || max_concurrent_tasks
+
+    // === BƯỚC 4: LẤY DANH SÁCH TẤT CẢ USERS TRONG HỆ THỐNG ===
     // Lấy tất cả users trong hệ thống (không giới hạn org_unit)
     const { data: allUsers, error: usersError } = await supabase
       .from('users')
@@ -433,10 +473,10 @@ export async function POST(req: Request) {
         id: user.id,
         name: user.full_name,
         current_workload: userWorkloadMap.get(user.id) || 0,
-        // Ưu tiên trần của từng user; fallback tham số route
-        max_concurrent_tasks: Number.isFinite(user.max_concurrent_tasks)
+        // Trần: nếu tôn trọng trần riêng thì dùng users.max_concurrent_tasks, ngược lại dùng default
+        max_concurrent_tasks: AP.respect_user_caps && Number.isFinite(user.max_concurrent_tasks)
           ? user.max_concurrent_tasks
-          : max_concurrent_tasks
+          : effMaxConcurrent
       }
     })
 
@@ -506,11 +546,12 @@ export async function POST(req: Request) {
       algorithmTasks,
       availableUsers,
       experienceMatrix,
-      max_concurrent_tasks,
+      effMaxConcurrent,
       {
-        minConfidence: effectiveMinR,
-        unassignedCost: 0.5,    // cho phép "không gán" khi điểm < 0.5
-        bigPenalty: 1e6
+        minConfidence: AP.min_confidence_R ?? effectiveMinR,
+        unassignedCost: AP.unassigned_cost ?? 0.5,
+        bigPenalty: 1e6,
+        priorityMode: AP.priority_mode
       }
     )
     
@@ -528,7 +569,7 @@ export async function POST(req: Request) {
       posLevelMap.set(u.id, 0)
       capacityMap.set(u.id, {
         current: userWorkloadMap.get(u.id) || 0,
-        max: Number.isFinite(u.max_concurrent_tasks) ? u.max_concurrent_tasks : max_concurrent_tasks
+        max: (AP.respect_user_caps && Number.isFinite(u.max_concurrent_tasks)) ? u.max_concurrent_tasks : effMaxConcurrent
       })
     }
 
@@ -552,9 +593,9 @@ export async function POST(req: Request) {
           userPositionLevel: posLevelMap,
           userMetrics,
           userWorkload: capacityMap,
-          allowSameRA: !!allow_same_RA,
-          minAccountableScore: Number(effectiveMinA),
-          minAccountableSkillFit: Number(effectiveMinASkill)
+          allowSameRA: !!AP.allow_same_RA,
+          minAccountableScore: Number(AP.min_accountable_score ?? effectiveMinA),
+          minAccountableSkillFit: Number(AP.min_accountable_skill_fit ?? effectiveMinASkill)
         }
 
         const candidateIds = (allUsers as any[]).map(u => u.id)
@@ -718,11 +759,12 @@ export async function POST(req: Request) {
       optimalAlgorithmTasks,
       algorithmUsers,
       experienceMatrix,
-      max_concurrent_tasks,
+      effMaxConcurrent,
       {
-        minConfidence: 0.35,    // từ 0.4 xuống 0.35 để mềm dẻo hơn
-        unassignedCost: 0.5,    // cho phép "không gán" khi điểm < 0.5
-        bigPenalty: 1e6
+        minConfidence: AP.min_confidence_R ?? 0.35,
+        unassignedCost: AP.unassigned_cost ?? 0.5,
+        bigPenalty: 1e6,
+        priorityMode: AP.priority_mode
       }
     )
 
@@ -771,10 +813,13 @@ export async function POST(req: Request) {
         algorithm_used: 'experience_matrix + constrained_hungarian + accountable_scoring + deterministic_CI',
         experience_matrix_size: Object.keys(experienceMatrix).length,
         skills_count: allSkills.size,
-        minConfidenceR,
-        minAccountableScore: effectiveMinA,
-        minAccountableSkillFit: effectiveMinASkill,
-        allow_same_RA
+        minConfidenceR: AP.min_confidence_R ?? minConfidenceR,
+        minAccountableScore: AP.min_accountable_score ?? effectiveMinA,
+        minAccountableSkillFit: AP.min_accountable_skill_fit ?? effectiveMinASkill,
+        allow_same_RA: AP.allow_same_RA,
+        priority_mode: AP.priority_mode,
+        default_max_concurrent_tasks: effMaxConcurrent,
+        respect_user_caps: AP.respect_user_caps
       }
     })
 

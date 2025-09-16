@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { notFound } from "next/navigation"
 import Link from "next/link"
+import type React from "react"
 import {
   ArrowLeftIcon,
   PencilIcon,
@@ -15,6 +16,11 @@ import {
   BuildingIcon,
   ClockIcon,
   InfoIcon,
+  ClipboardListIcon,
+  EyeIcon,
+  CheckCircleIcon,
+  AlertTriangleIcon,
+  ArchiveIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -45,14 +51,52 @@ type TaskDetail = {
   task_skills: { skills: { id: number; name: string } | null }[]
 }
 
-// Map trạng thái công việc với màu sắc và nhãn hiển thị
-const statusMap: Record<TaskStatus, { label: string; className: string; icon: string }> = {
-  todo: { label: "Cần làm", className: "bg-gray-100 text-gray-800 border-gray-300", icon: "⏳" },
-  in_progress: { label: "Đang thực hiện", className: "bg-blue-100 text-blue-800 border-blue-300", icon: "🔄" },
-  review: { label: "Đang review", className: "bg-yellow-100 text-yellow-800 border-yellow-300", icon: "👀" },
-  done: { label: "Hoàn thành", className: "bg-green-100 text-green-800 border-green-300", icon: "✅" },
-  blocked: { label: "Bị chặn", className: "bg-red-100 text-red-800 border-red-300", icon: "🚫" },
-  archived: { label: "Lưu trữ", className: "bg-gray-100 text-gray-600 border-gray-300", icon: "📦" },
+// Map trạng thái công việc với màu sắc, nhãn và icon hiển thị (đồng nhất phong cách)
+const statusMap: Record<
+  TaskStatus,
+  {
+    label: string
+    variant: "default" | "secondary" | "destructive" | "outline"
+    color: string
+    icon: React.ReactNode
+  }
+> = {
+  todo: {
+    label: "Cần làm",
+    variant: "secondary",
+    color: "bg-gray-100 text-gray-800",
+    icon: <ClipboardListIcon className="h-4 w-4" />,
+  },
+  in_progress: {
+    label: "Đang thực hiện",
+    variant: "default",
+    color: "bg-blue-100 text-blue-800",
+    icon: <RefreshCwIcon className="h-4 w-4" />,
+  },
+  review: {
+    label: "Đang review",
+    variant: "secondary",
+    color: "bg-amber-100 text-amber-800",
+    icon: <EyeIcon className="h-4 w-4" />,
+  },
+  done: {
+    label: "Hoàn thành",
+    variant: "default",
+    color: "bg-emerald-100 text-emerald-800",
+    icon: <CheckCircleIcon className="h-4 w-4" />,
+  },
+  blocked: {
+    label: "Bị chặn",
+    variant: "destructive",
+    color: "bg-red-100 text-red-800",
+    icon: <AlertTriangleIcon className="h-4 w-4" />,
+  },
+  archived: {
+    label: "Lưu trữ",
+    variant: "outline",
+    color: "bg-gray-200 text-gray-600",
+    icon: <ArchiveIcon className="h-4 w-4" />,
+  },
 }
 
 // Map vai trò RACI với mô tả
@@ -119,41 +163,108 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
 
   return (
     <div className="container mx-auto p-4 md:p-6 lg:p-8 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <Button variant="outline" asChild>
-            <Link href={`/dashboard/projects/${task.project_id}`}>
-              <ArrowLeftIcon className="mr-2 h-4 w-4" />
-              Quay lại Dự án
-            </Link>
-          </Button>
+      {/* Gradient Hero */}
+      <div className="relative overflow-hidden rounded-xl bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 p-8 text-white">
+        <div className="absolute inset-0 bg-black/10"></div>
+        <div className="relative z-10">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-12 w-12 bg-white/20 rounded-lg flex items-center justify-center">
+                  <FileTextIcon className="h-6 w-6" />
+                </div>
+                <div>
+                  <h1 className="text-3xl font-bold tracking-tight">{task.name}</h1>
+                  <div className="flex items-center gap-2 text-blue-100 mt-1">
+                    <BuildingIcon className="h-4 w-4" />
+                    <span>Thuộc dự án:</span>
+                    <Link
+                      href={`/dashboard/projects/${task.project_id}`}
+                      className="font-medium underline-offset-2 hover:underline text-white"
+                    >
+                      {task.projects?.name}
+                    </Link>
+                  </div>
+                </div>
+              </div>
 
-          <div className="flex items-center gap-3">
-            <Badge className={cn("text-sm border", statusInfo.className)}>
-              <span className="mr-1">{statusInfo.icon}</span>
-              {statusInfo.label}
-            </Badge>
-            <Button asChild>
-              <Link href={`/dashboard/tasks/${task.id}/edit`}>
-                <PencilIcon className="mr-2 h-4 w-4" />
-                Chỉnh sửa
-              </Link>
-            </Button>
+              <div className="flex items-center gap-6 text-sm">
+                <Badge variant="secondary" className="bg-white/20 text-white border-white/30 hover:bg-white/30">
+                  <span className="flex items-center gap-1.5">
+                    {statusInfo.icon}
+                    {statusInfo.label}
+                  </span>
+                </Badge>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button variant="secondary" asChild className="bg-white/20 hover:bg-white/30 text-white border-white/30">
+                <Link href={`/dashboard/tasks/${task.id}/edit`}>
+                  <PencilIcon className="mr-2 h-4 w-4" />
+                  Chỉnh sửa
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Task Title & Project Info */}
-        <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">{task.name}</h1>
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <BuildingIcon className="h-4 w-4" />
-            <span>Thuộc dự án:</span>
-            <Link href={`/dashboard/projects/${task.project_id}`} className="font-medium text-primary hover:underline">
-              {task.projects?.name}
-            </Link>
-          </div>
-        </div>
+      {/* Quick Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-600">Trạng thái</p>
+                <p className="text-xl font-bold text-green-900">{statusInfo.label}</p>
+              </div>
+              <div className="h-10 w-10 bg-green-500 rounded-lg flex items-center justify-center">{statusInfo.icon}</div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-blue-600">Dự án</p>
+                <p className="text-xl font-bold text-blue-900">{task.projects?.name || "Không xác định"}</p>
+              </div>
+              <div className="h-10 w-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                <BuildingIcon className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-purple-600">Thời lượng (ngày)</p>
+                <p className="text-xl font-bold text-purple-900">{task.duration_days ?? "Chưa xác định"}</p>
+              </div>
+              <div className="h-10 w-10 bg-purple-500 rounded-lg flex items-center justify-center">
+                <ClockIcon className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-amber-600">Người thực hiện</p>
+                <p className="text-xl font-bold text-amber-900">{responsibleUser?.full_name || "Chưa gán"}</p>
+              </div>
+              <div className="h-10 w-10 bg-amber-500 rounded-lg flex items-center justify-center">
+                <UserIcon className="h-5 w-5 text-white" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Main Content Grid */}

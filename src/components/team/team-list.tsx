@@ -15,6 +15,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { useEffect, useState } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AddUserDialog } from "./add-user-dialog"
+import { EditUserDialog, type EditUserData } from "./edit-user-dialog"
 
 interface TeamMember {
   id: string
@@ -22,12 +23,15 @@ interface TeamMember {
   position: string
   org_unit: string
   email: string
+  phone_number?: string
 }
 
 export function TeamList() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editingUser, setEditingUser] = useState<EditUserData | null>(null)
+  const [isEditOpen, setIsEditOpen] = useState(false)
 
   const fetchTeamMembers = async () => {
     try {
@@ -99,6 +103,12 @@ export function TeamList() {
       <div className="flex justify-end">
         <AddUserDialog onUserAdded={fetchTeamMembers} />
       </div>
+      <EditUserDialog
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        user={editingUser}
+        onUpdated={fetchTeamMembers}
+      />
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -138,7 +148,21 @@ export function TeamList() {
                       <DropdownMenuLabel>Hành động</DropdownMenuLabel>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem>Xem hồ sơ</DropdownMenuItem>
-                      <DropdownMenuItem>Chỉnh sửa thông tin</DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={(e) => {
+                          e.preventDefault()
+                          setEditingUser({
+                            id: member.id,
+                            full_name: member.full_name,
+                            email: member.email,
+                            position: member.position,
+                            org_unit: member.org_unit,
+                          })
+                          setIsEditOpen(true)
+                        }}
+                      >
+                        Chỉnh sửa thông tin
+                      </DropdownMenuItem>
                       <DropdownMenuItem>Xem nhiệm vụ được giao</DropdownMenuItem>
                       <DropdownMenuItem>Xem dự án tham gia</DropdownMenuItem>
                       <DropdownMenuSeparator />

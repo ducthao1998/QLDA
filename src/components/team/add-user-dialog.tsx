@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-export function AddUserDialog({ onUserAdded }: { onUserAdded: () => void }) {
+export function AddUserDialog({ onUserAdded }: { onUserAdded?: () => void }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [newUser, setNewUser] = useState({
@@ -83,8 +83,8 @@ export function AddUserDialog({ onUserAdded }: { onUserAdded: () => void }) {
         org_unit: "",
         password: "password123"
       })
-      // Gọi callback để cập nhật danh sách
-      onUserAdded()
+      // Gọi callback để cập nhật danh sách (nếu có)
+      onUserAdded?.()
     } catch (error) {
       toast.error("Lỗi khi thêm nhân sự", {
         description: error instanceof Error ? error.message : "Đã xảy ra lỗi không xác định",

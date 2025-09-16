@@ -27,6 +27,9 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
   const [viewMode, setViewMode] = useState<ViewModeType>("month")
   const [showTasksWithoutDependencies, setShowTasksWithoutDependencies] = useState(false)
   const [taskAnalysis, setTaskAnalysis] = useState<Record<string, any>>({})
+  const [saving, setSaving] = useState(false)
+  const [approving, setApproving] = useState(false)
+  const [lastDraftRun, setLastDraftRun] = useState<any>(null)
   const [selectedTaskForAnalysis, setSelectedTaskForAnalysis] = useState<string | null>(null)
   const ganttContainerRef = useRef<HTMLDivElement>(null)
 
@@ -70,6 +73,50 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
     }
 
     return displayTasks
+  }
+
+  const handleSaveOptimizedSchedule = async () => {
+    try {
+      if (!projectId) return
+      const tasks = getDisplayTasks()
+      if (!tasks?.length) { toast.error("Không có dữ liệu để lưu"); return }
+      setSaving(true)
+      const res = await fetch(`/api/projects/${projectId}/schedule/optimize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `Lịch tối ưu ${new Date().toLocaleString()}` })
+      })
+      if (!res.ok) {
+        const t = await res.text()
+        throw new Error(t || `HTTP ${res.status}`)
+      }
+      const json = await res.json()
+      setLastDraftRun(json?.schedule_run || null)
+      toast.success('Đã lưu lịch tối ưu dạng nháp')
+    } catch (e: any) {
+      console.error(e)
+      toast.error('Lưu lịch tối ưu thất bại')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleApproveLastRun = async () => {
+    try {
+      if (!lastDraftRun?.id) { toast.error('Chưa có bản nháp để duyệt'); return }
+      setApproving(true)
+      const res = await fetch(`/api/schedules/${lastDraftRun.id}/accept`, { method: 'POST' })
+      if (!res.ok) {
+        const t = await res.text()
+        throw new Error(t || `HTTP ${res.status}`)
+      }
+      toast.success('Đã duyệt lịch và đặt làm Active')
+    } catch (e: any) {
+      console.error(e)
+      toast.error('Duyệt lịch thất bại')
+    } finally {
+      setApproving(false)
+    }
   }
 
   const buildScheduleRows = () => {
@@ -389,6 +436,14 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
                 <Button variant="outline" size="sm" onClick={handleExportExcel} title="Xuất Excel">
                   <Download className="h-4 w-4" /><span className="ml-2 hidden md:inline">Excel</span>
                 </Button>
+                <Button variant="default" size="sm" onClick={handleSaveOptimizedSchedule} disabled={saving || isLoading} title="Lưu lịch tối ưu (nháp)">
+                  {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Calendar className="h-4 w-4" />}
+                  <span className="ml-2 hidden md:inline">Lưu nháp</span>
+                </Button>
+                <Button variant="secondary" size="sm" onClick={handleApproveLastRun} disabled={approving || !lastDraftRun} title="Duyệt bản nháp gần nhất">
+                  {approving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
+                  <span className="ml-2 hidden md:inline">Duyệt</span>
+                </Button>
                 <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
                   <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                 </Button>
@@ -430,172 +485,80 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
         </CardContent>
       </Card>
 
-      {/* Task Analysis Panel */}
-      {Object.keys(taskAnalysis).length > 0 && (
-        <Card className="border-l-4 border-l-orange-500">
+      {/* Critical Path Panel */}
+      {projectData?.cpm_details?.criticalPath?.length > 0 && (
+        <Card className="border-l-4 border-l-red-500">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
-              <AlertCircle className="h-5 w-5 text-orange-500" />
-              Phân tích Task có vấn đề
+              <AlertCircle className="h-5 w-5 text-red-500" />
+              Đường găng (Critical Path)
               <Badge variant="destructive" className="ml-2">
-                {Object.keys(taskAnalysis).length} task
+                {projectData.cpm_details.criticalPath.length} task
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {Object.values(taskAnalysis).map((analysis: any) => (
-                <div key={analysis.taskId} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-3 h-3 rounded-full ${
-                        analysis.severity === 'critical' ? 'bg-red-500' :
-                        analysis.severity === 'high' ? 'bg-orange-500' :
-                        analysis.severity === 'medium' ? 'bg-yellow-500' : 'bg-blue-500'
-                      }`}></div>
-                      <h4 className="font-semibold text-gray-900">{analysis.taskName}</h4>
-                      <Badge variant={
-                        analysis.severity === 'critical' ? 'destructive' :
-                        analysis.severity === 'high' ? 'secondary' :
-                        'outline'
-                      }>
-                        {analysis.severity === 'critical' ? 'Nghiêm trọng' :
-                         analysis.severity === 'high' ? 'Cao' :
-                         analysis.severity === 'medium' ? 'Trung bình' : 'Thấp'}
-                      </Badge>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedTaskForAnalysis(
-                        selectedTaskForAnalysis === analysis.taskId ? null : analysis.taskId
-                      )}
-                    >
-                      {selectedTaskForAnalysis === analysis.taskId ? 'Thu gọn' : 'Chi tiết'}
-                    </Button>
-                  </div>
-
-                  {/* Current Status */}
-                  <div className="mb-3 p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className={`w-3 h-3 rounded-full bg-${analysis.currentStatus?.color || "gray"}-500`}></div>
-                      <span className="font-medium text-gray-900">Trạng thái hiện tại:</span>
-                      <span className="text-sm text-gray-600">{analysis.currentStatus?.description || ""}</span>
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      {analysis.impact?.impactDescription || ""}
-                    </div>
-                  </div>
-
-                  {/* Next Actions */}
-                  <div className="mb-3">
-                    <h5 className="font-medium text-gray-900 mb-2">Hành động cần thực hiện:</h5>
-                    <div className="space-y-2">
-                      {analysis.nextActions.slice(0, 2).map((action: any, index: number) => (
-                        <div key={index} className={`p-2 rounded border-l-4 ${
-                          action.priority === 'critical' ? 'border-red-500 bg-red-50' :
-                          action.priority === 'high' ? 'border-orange-500 bg-orange-50' :
-                          'border-blue-500 bg-blue-50'
-                        }`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-medium text-sm">{action.action}</span>
-                            <Badge variant={
-                              action.priority === 'critical' ? 'destructive' :
-                              action.priority === 'high' ? 'secondary' : 'outline'
-                            } className="text-xs">
-                              {action.deadline}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-gray-600">{action.description}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Detailed Analysis */}
-                  {selectedTaskForAnalysis === analysis.taskId && (
-                    <div className="space-y-4 mt-4 pt-4 border-t">
-                      {/* Blocking Tasks */}
-                      {analysis.nextActions.some((action: any) => action.action === 'Giải quyết task phụ thuộc') && (
-                        <div className="bg-red-50 rounded-lg p-4 border-l-4 border-red-500">
-                          <h5 className="font-medium text-red-900 mb-2">Task đang bị chặn bởi:</h5>
-                          <div className="space-y-2">
-                            {analysis.nextActions
-                              .filter((action: any) => action.action === 'Giải quyết task phụ thuộc')
-                              .map((action: any, index: number) => (
-                                <div key={index} className="bg-white p-2 rounded border">
-                                  <p className="text-sm text-red-700">{action.description}</p>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* All Issues */}
-                      {analysis.issues.map((issue: any, index: number) => (
-                        <div key={index} className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className={`w-2 h-2 rounded-full ${
-                              issue.severity === 'critical' ? 'bg-red-500' :
-                              issue.severity === 'high' ? 'bg-orange-500' :
-                              'bg-yellow-500'
-                            }`}></div>
-                            <h5 className="font-medium text-gray-900">{issue.title}</h5>
-                          </div>
-                          
-                          <p className="text-sm text-gray-600 mb-3">{issue.description}</p>
-                          
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <h6 className="font-medium text-gray-800 mb-2">Nguyên nhân:</h6>
-                              <p className="text-sm text-gray-600 bg-white p-2 rounded border">
-                                {issue.rootCause}
-                              </p>
-                            </div>
-                            
-                            <div>
-                              <h6 className="font-medium text-gray-800 mb-2">Giải pháp:</h6>
-                              <ul className="text-sm text-gray-600 space-y-1">
-                                {issue.recommendations.slice(0, 3).map((rec: string, recIndex: number) => (
-                                  <li key={recIndex} className="flex items-start gap-2">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-2 flex-shrink-0"></div>
-                                    <span>{rec}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* All Actions */}
-                      <div className="bg-blue-50 rounded-lg p-4 border-l-4 border-blue-500">
-                        <h5 className="font-medium text-blue-900 mb-3">Tất cả hành động cần thực hiện:</h5>
-                        <div className="space-y-2">
-                          {analysis.nextActions.map((action: any, index: number) => (
-                            <div key={index} className={`p-3 rounded border ${
-                              action.priority === 'critical' ? 'border-red-300 bg-red-100' :
-                              action.priority === 'high' ? 'border-orange-300 bg-orange-100' :
-                              'border-blue-300 bg-blue-100'
-                            }`}>
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="font-medium text-sm">{action.action}</span>
-                                <Badge variant={
-                                  action.priority === 'critical' ? 'destructive' :
-                                  action.priority === 'high' ? 'secondary' : 'outline'
-                                } className="text-xs">
-                                  {action.deadline}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-gray-700">{action.description}</p>
-                            </div>
-                          ))}
-                        </div>
+              {(projectData.cpm_details.criticalPath as string[]).map((taskId: any, idx: number) => {
+                const id = String(taskId)
+                const task = (projectData.tasks || []).find((t: any) => String(t.id) === id)
+                const detail = (projectData.cpm_details.taskDetails || []).find((td: any) => String(td.taskId) === id)
+                return (
+                  <div key={id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                        <h4 className="font-semibold text-gray-900">{task?.name || `Task ${id}`}</h4>
+                        <Badge variant="secondary">#{idx + 1}</Badge>
+                        {typeof detail?.slack === 'number' && (
+                          <Badge variant="outline">{`Có thể trễ tối đa: ${Math.max(0, Math.round(detail.slack))} ngày${(detail.slack ?? 0) <= 0 ? ' (trễ sẽ làm chậm dự án)' : ''}`}</Badge>
+                        )}
+                        {typeof detail?.duration === 'number' && (
+                          <Badge variant="outline">Thời lượng: {Math.round(detail.duration)} ngày</Badge>
+                        )}
                       </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setSelectedTaskForAnalysis(selectedTaskForAnalysis === id ? null : id)
+                        }
+                      >
+                        {selectedTaskForAnalysis === id ? 'Thu gọn' : 'Chi tiết'}
+                      </Button>
                     </div>
-                  )}
-                </div>
-              ))}
+                    {selectedTaskForAnalysis === id && (
+                      <div className="space-y-3 mt-2 pt-3 border-t">
+                        <div className="text-sm text-gray-700">
+                          Đây là công việc thuộc đường găng. Nếu công việc này bị trễ, thời hạn dự án sẽ bị lùi.
+                        </div>
+                        {(task?.calculated_start_date || task?.calculated_end_date) && (
+                          <div className="text-sm text-gray-700">
+                            Bắt đầu: {task?.calculated_start_date ? new Date(task.calculated_start_date).toLocaleDateString('vi-VN') : '-'} · Kết thúc: {task?.calculated_end_date ? new Date(task.calculated_end_date).toLocaleDateString('vi-VN') : '-'}
+                          </div>
+                        )}
+                        {detail?.reason && (
+                          <div className="bg-white p-2 rounded border">
+                            <div className="text-sm text-gray-800 font-medium mb-1">Vì sao là đường găng</div>
+                            <div className="text-sm text-gray-600">{detail.reason}</div>
+                          </div>
+                        )}
+                        {detail?.drivingPredecessorIds?.length ? (
+                          <div className="bg-blue-50 rounded-lg p-3 border-l-4 border-blue-500">
+                            <div className="text-sm font-medium text-blue-900 mb-1">Công việc đứng trước ảnh hưởng trực tiếp</div>
+                            <ul className="text-sm text-blue-900 list-disc pl-5">
+                              {detail.drivingPredecessorIds.map((pid: string) => {
+                                const pTask = (projectData.tasks || []).find((t: any) => String(t.id) === String(pid))
+                                return <li key={pid}>{pTask?.name || `Task ${pid}`}</li>
+                              })}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>

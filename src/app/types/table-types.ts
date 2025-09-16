@@ -37,6 +37,7 @@ export interface User {
   email: string
   phone_number: string | null
   created_at: string
+  max_concurrent_tasks: number
 }
 
 // 2. external_orgs
@@ -402,12 +403,20 @@ export interface DashboardData {
 // ==========================================================
 
 // Schedule runs - Lưu trữ các lần chạy tối ưu hóa
+export type ScheduleRunStatus = 'draft' | 'approved' | 'archived'
+
 export interface ScheduleRun {
   id: string
   project_id: string
+  name: string
   algorithm_used: string
+  status: ScheduleRunStatus
+  is_active: boolean
+  created_by: string
   created_at: string
   parameters: Json
+  metrics: Json
+  explanation?: string | null
 }
 
 // Schedule details - Lưu trữ lịch trình được tối ưu hóa
@@ -415,11 +424,12 @@ export interface ScheduleDetail {
   id: string
   schedule_run_id: string
   task_id: string
-  assigned_user: string
-  start_ts: string      // Calculated start time
-  finish_ts: string     // Calculated finish time
+  assigned_user: string | null
+  start_ts: string
+  finish_ts: string
+  confidence: number
+  experience_score: number
   created_at: string
-  updated_at: string
 }
 
 // User skills - Kỹ năng của người dùng
