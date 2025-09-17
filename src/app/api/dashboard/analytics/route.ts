@@ -75,6 +75,7 @@ async function getOverviewMetrics(supabase: any, from: string, to: string, orgUn
         status, 
         end_date,
         created_at,
+        updated_at,
         projects!inner(
           users!created_by(org_unit)
         )
@@ -90,9 +91,17 @@ async function getOverviewMetrics(supabase: any, from: string, to: string, orgUn
 
     const completedTasks = tasks?.filter((t:any) => ["done", "completed"].includes(t.status)).length || 0
 
+    // Calculate overdue tasks (incomplete tasks past their end date)
     const overdueTasks =
       tasks?.filter((t:any) => !["done", "completed"].includes(t.status) && t.end_date && new Date(t.end_date) < new Date())
         .length || 0
+
+    // Calculate on-time completed tasks (completed before or on end date)
+    const onTimeCompletedTasks = tasks?.filter((t:any) => {
+      if (!["done", "completed"].includes(t.status) || !t.end_date || !t.updated_at) return false
+      // Check if task was completed on time (updated_at is completion time)
+      return new Date(t.updated_at) <= new Date(t.end_date)
+    }).length || 0
 
     // Users count
     let usersQuery = supabase.from("users").select("id, org_unit")
@@ -103,7 +112,7 @@ async function getOverviewMetrics(supabase: any, from: string, to: string, orgUn
 
     const totalTasks = tasks?.length || 0
     const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
-    const onTimeRate = totalTasks > 0 ? ((totalTasks - overdueTasks) / totalTasks) * 100 : 0
+    const onTimeRate = completedTasks > 0 ? (onTimeCompletedTasks / completedTasks) * 100 : 0
 
     return {
       total_projects: projects?.length || 0,
@@ -686,13 +695,20 @@ async function getAdvancedAnalytics(supabase: any, from: string, to: string, org
     const avgTasksPerUser =
       Array.from(userTaskCounts.values()).reduce((sum: number, user: any) => sum + user.count, 0) / activeUsers
 
+    // Calculate efficiency score based on multiple factors
+    const completionRate = (completedTasksKPI / totalTasksKPI) * 100
+    const qualityRate = completedTasksKPI > 0 ? (onTimeTasksKPI / completedTasksKPI) * 100 : 0
+    const utilizationRate = Math.min(95, (avgTasksPerUser / 5) * 100)
+    
+    // Efficiency combines completion rate, quality, and resource utilization
+    const efficiency_score = (completionRate * 0.4 + qualityRate * 0.4 + utilizationRate * 0.2)
+
     const kpis = {
-      efficiency_score: (completedTasksKPI / totalTasksKPI) * 100,
-      quality_score: completedTasksKPI > 0 ? (onTimeTasksKPI / completedTasksKPI) * 100 : 0,
-      resource_utilization: Math.min(95, (avgTasksPerUser / 5) * 100),
-      // Map legacy fields to UI-expected keys for consistency
-      compliance_score: 85,
-      process_optimization: 75,
+      efficiency_score: Math.min(100, efficiency_score),
+      quality_score: qualityRate,
+      resource_utilization: utilizationRate,
+      compliance_score: Math.min(100, (completionRate + qualityRate) / 2), // Based on actual performance
+      process_optimization: Math.min(100, utilizationRate * 0.8 + qualityRate * 0.2), // Based on efficiency
     }
 
     return {
