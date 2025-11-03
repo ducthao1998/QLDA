@@ -24,8 +24,9 @@ import {
   AreaChart,
   Area,
 } from "recharts"
-import { TrendingUp, Users, CheckCircle, Clock, AlertTriangle, Target, Calendar, BarChart3, Activity, Award, RefreshCw, FileText, Building } from 'lucide-react'
+import { TrendingUp, Users, CheckCircle, Clock, AlertTriangle, Target, Calendar, BarChart3, Activity, Award, RefreshCw, FileText, Building, Info, HelpCircle } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { format, subDays, startOfMonth } from "date-fns"
 import { vi } from "date-fns/locale"
 
@@ -229,7 +230,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 p-6 pb-16">
+    <TooltipProvider>
+      <div className="space-y-6 p-6 pb-16">
       {/* Header */}
       <div className="flex flex-col space-y-4 md:flex-row md:items-center md:justify-between md:space-y-0">
         <div>
@@ -285,17 +287,46 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Tỷ lệ hoàn thành</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-medium">Tỷ lệ hoàn thành</CardTitle>
+              <UITooltip>
+                <TooltipTrigger>
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Tỷ lệ công việc đã hoàn thành trên tổng số công việc được tạo</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {data.overview.completed_tasks} / {data.overview.total_tasks} công việc
+                  </p>
+                </TooltipContent>
+              </UITooltip>
+            </div>
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{data.overview.completion_rate?.toFixed(1)}%</div>
             <Progress value={data.overview.completion_rate} className="mt-2" />
+            <p className="text-xs text-muted-foreground mt-2">
+              {data.overview.completed_tasks} / {data.overview.total_tasks} công việc
+            </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Đúng tiến độ</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-medium">Đúng tiến độ</CardTitle>
+              <UITooltip>
+                <TooltipTrigger>
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Tỷ lệ công việc hoàn thành đúng hoặc trước hạn</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Tính trên các công việc đã hoàn thành
+                  </p>
+                </TooltipContent>
+              </UITooltip>
+            </div>
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -305,7 +336,20 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Hiệu suất thực hiện</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-medium">Hiệu suất thực hiện</CardTitle>
+              <UITooltip>
+                <TooltipTrigger>
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Chỉ số tổng hợp đánh giá hiệu suất làm việc</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Kết hợp: Tỷ lệ hoàn thành (40%) + Chất lượng (40%) + Sử dụng nguồn lực (20%)
+                  </p>
+                </TooltipContent>
+              </UITooltip>
+            </div>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
@@ -418,7 +462,17 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Hiệu suất thực hiện</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Hiệu suất thực hiện</span>
+                    <UITooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Chỉ số tổng hợp: Hoàn thành + Chất lượng + Nguồn lực</p>
+                      </TooltipContent>
+                    </UITooltip>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.efficiency_score} className="w-20" />
                     <span className="text-sm font-medium">
@@ -427,7 +481,17 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Chất lượng công việc</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Chất lượng công việc</span>
+                    <UITooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Tỷ lệ công việc hoàn thành đúng hạn trên tổng số hoàn thành</p>
+                      </TooltipContent>
+                    </UITooltip>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.quality_score} className="w-20" />
                     <span className="text-sm font-medium">
@@ -436,7 +500,18 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Sử dụng nguồn lực</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Sử dụng nguồn lực</span>
+                    <UITooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Mức độ sử dụng hiệu quả nguồn lực nhân sự</p>
+                        <p className="text-xs text-muted-foreground mt-1">Dựa trên khối lượng công việc trung bình</p>
+                      </TooltipContent>
+                    </UITooltip>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.resource_utilization} className="w-20" />
                     <span className="text-sm font-medium">
@@ -445,7 +520,18 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Tuân thủ quy trình</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Tuân thủ quy trình</span>
+                    <UITooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Mức độ tuân thủ quy trình làm việc</p>
+                        <p className="text-xs text-muted-foreground mt-1">Dựa trên hiệu suất và chất lượng</p>
+                      </TooltipContent>
+                    </UITooltip>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.compliance_score} className="w-20" />
                     <span className="text-sm font-medium">
@@ -454,7 +540,18 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">Tối ưu hóa quy trình</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">Tối ưu hóa quy trình</span>
+                    <UITooltip>
+                      <TooltipTrigger>
+                        <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Mức độ tối ưu hóa trong quy trình làm việc</p>
+                        <p className="text-xs text-muted-foreground mt-1">Dựa trên hiệu quả sử dụng nguồn lực</p>
+                      </TooltipContent>
+                    </UITooltip>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Progress value={data.advanced_analytics.kpis.process_optimization} className="w-20" />
                     <span className="text-sm font-medium">
@@ -893,6 +990,7 @@ export default function DashboardPage() {
           </Card>
         </TabsContent>
       </Tabs>
-    </div>
+      </div>
+    </TooltipProvider>
   )
 }
