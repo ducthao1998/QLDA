@@ -66,7 +66,7 @@ interface TasksListProps {
   onTaskUpdate?: () => void
 }
 
-type SortField = "name" | "status" | "start_date" | "end_date" | "assignee"
+type SortField = "dependency" | "name" | "status" | "start_date" | "end_date" | "assignee"
 type SortDirection = "asc" | "desc"
 
 const statusColors: Record<
@@ -102,6 +102,8 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
   // Sorting states
   const [sortField, setSortField] = useState<SortField>("name")
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc")
+  // Dependency order map: task_id -> order index (level, indexInLevel)
+  const [taskOrder, setTaskOrder] = useState<Record<string, number>>({})
 
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1)
@@ -126,6 +128,14 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
     }
   }, [initialTasks, projectId])
 
+  // Default sort by dependency for project-specific view
+  useEffect(() => {
+    if (isProjectSpecificView) {
+      setSortField("dependency")
+      setSortDirection("asc")
+    }
+  }, [isProjectSpecificView])
+
   async function loadProjects() {
     try {
       const res = await fetch("/api/projects")
@@ -144,6 +154,22 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
   async function processInitialTasks(tasks: Task[], projectIdToLoad: string) {
     setIsLoading(true)
     try {
+      // Fetch dependency tree to compute order
+      try {
+        const treeRes = await fetch(`/api/projects/${projectIdToLoad}/dependency-tree`)
+        if (treeRes.ok) {
+          const treeData = await treeRes.json()
+          const orderMap: Record<string, number> = {}
+          const nodes = treeData?.tree?.nodes || []
+          nodes.forEach((n: any) => {
+            const lvl = Number(n.level) || 0
+            const idx = Number(n.indexInLevel) || 0
+            orderMap[String(n.id)] = lvl * 100000 + idx
+          })
+          setTaskOrder(orderMap)
+        }
+      } catch {}
+
       // Process tasks with RACI data
       const tasksWithAssignees = await Promise.all(
         tasks.map(async (task: any) => {
@@ -191,6 +217,22 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
       }
 
       const tasksData = await tasksRes.json()
+
+      // Fetch dependency tree to compute order
+      try {
+        const treeRes = await fetch(`/api/projects/${projectIdToLoad}/dependency-tree`)
+        if (treeRes.ok) {
+          const treeData = await treeRes.json()
+          const orderMap: Record<string, number> = {}
+          const nodes = treeData?.tree?.nodes || []
+          nodes.forEach((n: any) => {
+            const lvl = Number(n.level) || 0
+            const idx = Number(n.indexInLevel) || 0
+            orderMap[String(n.id)] = lvl * 100000 + idx
+          })
+          setTaskOrder(orderMap)
+        }
+      } catch {}
 
       // Fetch RACI data for each task to get responsible users
       const tasksWithAssignees = await Promise.all(
@@ -300,6 +342,14 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
       let bValue: any
 
       switch (sortField) {
+        case "dependency": {
+          const aOrder = taskOrder[String(a.id)]
+          const bOrder = taskOrder[String(b.id)]
+          // Tasks without order go last
+          aValue = Number.isFinite(aOrder) ? aOrder : Number.MAX_SAFE_INTEGER
+          bValue = Number.isFinite(bOrder) ? bOrder : Number.MAX_SAFE_INTEGER
+          break
+        }
         case "name":
           aValue = a.name.toLowerCase()
           bValue = b.name.toLowerCase()
@@ -330,7 +380,7 @@ export function OptimizedTasksList({ projectId, tasks: initialTasks, onTaskUpdat
     })
 
     return filtered
-  }, [tasks, searchTerm, statusFilter, showIncomplete, showUnassigned, sortField, sortDirection])
+  }, [tasks, searchTerm, statusFilter, showIncomplete, showUnassigned, sortField, sortDirection, taskOrder])
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedTasks.length / ITEMS_PER_PAGE)

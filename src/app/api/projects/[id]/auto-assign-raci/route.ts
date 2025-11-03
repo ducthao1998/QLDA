@@ -13,7 +13,7 @@ export async function POST(
 
   try {
     const body = await req.json()
-    const { task_ids, max_concurrent_tasks = 2 } = body
+    const { task_ids, max_concurrent_tasks = 2, planning = false } = body
 
     if (!task_ids || !Array.isArray(task_ids) || task_ids.length === 0) {
       return NextResponse.json(
@@ -180,14 +180,56 @@ export async function POST(
     console.log('Available Users:', availableUsers)
     console.log('Available Users (filtered by workload):', availableUsers.filter(u => u.current_workload < max_concurrent_tasks))
     
-    const assignments = constrainedHungarianAssignment(
-      algorithmTasks,
-      availableUsers,
-      experienceMatrix,
-      max_concurrent_tasks
-    )
+    let assignments: any[] = []
+    if (planning) {
+      // Greedy preview/mode: bỏ qua capacity, gán mỗi task cho user có kinh nghiệm trung bình cao nhất
+      assignments = algorithmTasks.map(t => {
+        let best: any = null
+        let bestScore = -1
+        let expAvg = 0
+        for (const u of availableUsers) {
+          const exps = t.required_skills.map(sid => (experienceMatrix?.[u.id]?.[sid] ?? 0))
+          const avg = exps.length ? exps.reduce((a: number, b: number) => a + b, 0) / exps.length : 0
+          if (avg > bestScore) { bestScore = avg; best = u; expAvg = avg }
+        }
+        return { task_id: t.id, user_id: best?.id, confidence_score: bestScore < 0 ? 0 : bestScore, experience_score: expAvg }
+      })
+    } else {
+      assignments = constrainedHungarianAssignment(
+        algorithmTasks,
+        availableUsers,
+        experienceMatrix,
+        max_concurrent_tasks
+      )
+    }
     
     console.log('Assignments result:', assignments)
+
+    // Second-pass fallback for project-level: relax confidence and penalize unassigned
+    if (assignments.length < algorithmTasks.length) {
+      const assignedIds = new Set(assignments.map(a => a.task_id))
+      const unassignedCount = algorithmTasks.filter(t => !assignedIds.has(t.id)).length
+      const freeUsers = availableUsers.filter(u => u.current_workload < Math.min(max_concurrent_tasks, u.max_concurrent_tasks))
+      if (unassignedCount > 0 && freeUsers.length > 0) {
+        const relaxed = constrainedHungarianAssignment(
+          algorithmTasks,
+          availableUsers,
+          experienceMatrix,
+          max_concurrent_tasks,
+          { minConfidence: 0.2, unassignedCost: 0.7 }
+        )
+        const relaxedMap = new Map(relaxed.map(r => [r.task_id, r]))
+        const merged: typeof assignments = []
+        for (const t of algorithmTasks) {
+          const strict = assignments.find(a => a.task_id === t.id)
+          if (strict) { merged.push(strict); continue }
+          const alt = relaxedMap.get(t.id)
+          if (alt) merged.push(alt)
+        }
+        assignments = merged
+        console.log('Assignments after fallback:', assignments)
+      }
+    }
 
     // === BƯỚC 9: LƯU KẾT QUẢ PHÂN CÔNG VÀO DATABASE ===
     const results = []
@@ -255,7 +297,7 @@ export async function POST(
         total_tasks: tasksData.length,
         total_users: availableUsers.length,
         available_users: availableUsers.filter(u => u.current_workload < max_concurrent_tasks).length,
-        algorithm_used: 'experience_matrix + constrained_hungarian'
+        algorithm_used: planning ? 'planning_greedy (ignore capacity)' : 'experience_matrix + constrained_hungarian'
       }
     })
 

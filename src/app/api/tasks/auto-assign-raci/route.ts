@@ -280,7 +280,9 @@ export async function POST(req: Request) {
       allow_same_RA = false,
       minConfidenceR = 0.35,
       minAccountableScore = 0.5,
-      minAccountableSkillFit = 0.3
+      minAccountableSkillFit = 0.3,
+      planning = false,
+      force_assignments
     } = body
 
     if (!task_ids || !Array.isArray(task_ids) || task_ids.length === 0) {
@@ -530,11 +532,10 @@ export async function POST(req: Request) {
       })
     }
 
-    // === BƯỚC 8: SỬ DỤNG HUNGARIAN ASSIGNMENT ===
+    // === BƯỚC 8: TẠO PHÂN CÔNG R (chế độ lập kế hoạch bỏ qua capacity)
     const filteredUsers = availableUsers.filter(u => u.current_workload < max_concurrent_tasks)
     if (!isProd) console.log('Filtered users (by workload):', filteredUsers.length)
     
-    // Load threshold defaults from ENV if not provided
     const envMinR = parseFloat(String(process.env.MIN_CONFIDENCE_R || ''))
     const envMinA = parseFloat(String(process.env.MIN_ACCOUNTABLE_SCORE || ''))
     const envMinASkill = parseFloat(String(process.env.MIN_ACCOUNTABLE_SKILL_FIT || ''))
@@ -542,20 +543,139 @@ export async function POST(req: Request) {
     const effectiveMinA = Number.isFinite(envMinA) ? envMinA : Math.max(0.6, minAccountableScore)
     const effectiveMinASkill = Number.isFinite(envMinASkill) ? envMinASkill : minAccountableSkillFit
 
-    const assignments = constrainedHungarianAssignment(
-      algorithmTasks,
-      availableUsers,
-      experienceMatrix,
-      effMaxConcurrent,
-      {
-        minConfidence: AP.min_confidence_R ?? effectiveMinR,
-        unassignedCost: AP.unassigned_cost ?? 0.5,
-        bigPenalty: 1e6,
-        priorityMode: AP.priority_mode
+    let assignments: { task_id: string; user_id: string; confidence_score: number; experience_score: number }[] = []
+    if (Array.isArray(force_assignments) && force_assignments.length > 0) {
+      // Force use preview assignments exactly
+      const allowedTaskIds = new Set(tasksData.map(t => t.id))
+      const allowedUserIds = new Set((allUsers as any[]).map(u => u.id))
+      assignments = force_assignments
+        .filter((fa: any) => allowedTaskIds.has(fa.task_id) && allowedUserIds.has(fa.user_id))
+        .map((fa: any) => {
+          const reqSkills = taskSkillsMap.get(fa.task_id) || []
+          const exps = reqSkills.map(sid => (experienceMatrix?.[fa.user_id]?.[sid] ?? 0))
+          const expAvg = exps.length ? exps.reduce((a: number, b: number) => a + b, 0) / exps.length : 0
+          return { task_id: fa.task_id, user_id: fa.user_id, confidence_score: expAvg, experience_score: expAvg }
+        })
+    } else if (planning) {
+      // Greedy: chọn user có kinh nghiệm trung bình cao nhất cho từng task, bỏ qua capacity
+      assignments = algorithmTasks.map(t => {
+        let bestUser: any = null
+        let bestScore = -1
+        let expAvg = 0
+        for (const u of availableUsers) {
+          const exps = t.required_skills.map(sid => experienceMatrix?.[u.id]?.[sid] ?? 0)
+          const avg = exps.length ? exps.reduce((a: number, b: number) => a + b, 0) / exps.length : 0
+          if (avg > bestScore) { bestScore = avg; bestUser = u; expAvg = avg }
+          else if (avg === bestScore && bestUser) {
+            // Tie-break: workload asc, then user id asc
+            const uW = userWorkloadMap.get(u.id) || 0
+            const bW = userWorkloadMap.get(bestUser.id) || 0
+            if (uW < bW || (uW === bW && String(u.id).localeCompare(String(bestUser.id)) < 0)) {
+              bestUser = u; expAvg = avg
+            }
+          }
+        }
+        return { task_id: t.id, user_id: bestUser?.id, confidence_score: bestScore < 0 ? 0 : bestScore, experience_score: expAvg }
+      })
+    } else {
+      assignments = constrainedHungarianAssignment(
+        algorithmTasks,
+        availableUsers,
+        experienceMatrix,
+        effMaxConcurrent,
+        {
+          minConfidence: AP.min_confidence_R ?? effectiveMinR,
+          unassignedCost: AP.unassigned_cost ?? 0.5,
+          bigPenalty: 1e6,
+          priorityMode: AP.priority_mode
+        }
+      )
+      // Second-pass fallback nếu còn trống
+      if (assignments.length < algorithmTasks.length) {
+        const assignedTaskIds = new Set(assignments.map(a => a.task_id))
+        const unassignedCount = algorithmTasks.filter(t => !assignedTaskIds.has(t.id)).length
+        const freeUsers = availableUsers.filter(u => (u.current_workload < Math.min(effMaxConcurrent, u.max_concurrent_tasks)))
+        if (unassignedCount > 0 && freeUsers.length > 0) {
+          const relaxed = constrainedHungarianAssignment(
+            algorithmTasks,
+            availableUsers,
+            experienceMatrix,
+            effMaxConcurrent,
+            {
+              minConfidence: Math.min(0.2, AP.min_confidence_R ?? effectiveMinR),
+              unassignedCost: Math.max(0.7, AP.unassigned_cost ?? 0.5),
+              bigPenalty: 1e6,
+              priorityMode: AP.priority_mode
+            }
+          )
+          const relaxedMap = new Map(relaxed.map(r => [r.task_id, r]))
+          const merged: typeof assignments = []
+          for (const t of algorithmTasks) {
+            const strict = assignments.find(a => a.task_id === t.id)
+            if (strict) { merged.push(strict); continue }
+            const alt = relaxedMap.get(t.id)
+            if (alt) merged.push(alt)
+          }
+          assignments = merged
+        }
       }
-    )
+      // Single-task hard fallback: nếu vẫn chưa có ai, chọn người rảnh nhất có kinh nghiệm cao nhất (tôn trọng capacity)
+      if (algorithmTasks.length === 1 && assignments.length === 0) {
+        const t = algorithmTasks[0]
+        const pool = availableUsers.filter(u => (u.current_workload < Math.min(effMaxConcurrent, u.max_concurrent_tasks)))
+        if (pool.length > 0) {
+          let best: any = null
+          let bestAvg = -1
+          for (const u of pool) {
+            const exps = t.required_skills.map(sid => experienceMatrix?.[u.id]?.[sid] ?? 0)
+            const avg = exps.length ? exps.reduce((a: number, b: number) => a + b, 0) / exps.length : 0
+            if (avg > bestAvg) { bestAvg = avg; best = u }
+            else if (avg === bestAvg && best) {
+              const uW = u.current_workload || 0
+              const bW = best.current_workload || 0
+              if (uW < bW || (uW === bW && String(u.id).localeCompare(String(best.id)) < 0)) best = u
+            }
+          }
+          if (best) {
+            assignments = [{ task_id: t.id, user_id: best.id, confidence_score: Math.max(0, bestAvg), experience_score: Math.max(0, bestAvg) }]
+          }
+        }
+      }
+    }
     
     console.log('Assignments result:', assignments)
+
+    // Second-pass fallback: if many tasks unassigned but users are free, relax thresholds
+    if (assignments.length < algorithmTasks.length) {
+      const assignedTaskIds = new Set(assignments.map(a => a.task_id))
+      const unassignedCount = algorithmTasks.filter(t => !assignedTaskIds.has(t.id)).length
+      const freeUsers = availableUsers.filter(u => (u.current_workload < Math.min(effMaxConcurrent, u.max_concurrent_tasks)))
+      if (unassignedCount > 0 && freeUsers.length > 0) {
+        const relaxed = constrainedHungarianAssignment(
+          algorithmTasks,
+          availableUsers,
+          experienceMatrix,
+          effMaxConcurrent,
+          {
+            minConfidence: Math.min(0.2, AP.min_confidence_R ?? effectiveMinR),
+            unassignedCost: Math.max(0.7, AP.unassigned_cost ?? 0.5),
+            bigPenalty: 1e6,
+            priorityMode: AP.priority_mode
+          }
+        )
+        // Prefer relaxed results where previously unassigned
+        const relaxedMap = new Map(relaxed.map(r => [r.task_id, r]))
+        const merged: typeof assignments = []
+        for (const t of algorithmTasks) {
+          const strict = assignments.find(a => a.task_id === t.id)
+          if (strict) { merged.push(strict); continue }
+          const alt = relaxedMap.get(t.id)
+          if (alt) merged.push(alt)
+        }
+        assignments = merged
+        console.log('Assignments after fallback:', assignments)
+      }
+    }
 
     // === BƯỚC 9: PHA 2 - CHỌN A, C, I THEO YÊU CẦU ===
     const orgMap = new Map<string, string>()
@@ -810,7 +930,7 @@ export async function POST(req: Request) {
         total_tasks: tasksData.length,
         total_users: availableUsers.length,
         available_users: filteredUsers.length,
-        algorithm_used: 'experience_matrix + constrained_hungarian + accountable_scoring + deterministic_CI',
+        algorithm_used: planning ? 'planning_greedy (ignore capacity) + accountable_scoring + deterministic_CI' : 'experience_matrix + constrained_hungarian + accountable_scoring + deterministic_CI',
         experience_matrix_size: Object.keys(experienceMatrix).length,
         skills_count: allSkills.size,
         minConfidenceR: AP.min_confidence_R ?? minConfidenceR,
@@ -829,5 +949,228 @@ export async function POST(req: Request) {
       error: error.message,
       assignments: []
     }, { status: 500 })
+  }
+}
+
+export async function GET(req: Request) {
+  const supabase = await createClient()
+
+  try {
+    const { searchParams } = new URL(req.url)
+    const taskIds = (searchParams.get('task_ids') || '').split(',').filter(Boolean)
+    const projectId = searchParams.get('project_id') || ''
+    const maxConcurrentParam = Number(searchParams.get('max_concurrent_tasks') || '0')
+    const max_concurrent_tasks = Number.isFinite(maxConcurrentParam) && maxConcurrentParam > 0 ? maxConcurrentParam : 2
+    const planning = (searchParams.get('planning') || '0') === '1'
+
+    if (taskIds.length === 0) {
+      return NextResponse.json({ error: 'Cần cung cấp task_ids' }, { status: 400 })
+    }
+    if (!projectId) {
+      return NextResponse.json({ error: 'Cần cung cấp project_id' }, { status: 400 })
+    }
+
+    // 1) Load tasks
+    const { data: tasksData, error: tasksError } = await supabase
+      .from('tasks')
+      .select(`id, name, template_id, project_id, task_skills(skill_id)`)    
+      .in('id', taskIds)
+      .eq('project_id', projectId)
+
+    if (tasksError || !tasksData || tasksData.length === 0) {
+      return NextResponse.json({ error: 'Không tìm thấy tasks trong dự án' }, { status: 404 })
+    }
+
+    // 2) Build required skills per task
+    const allSkills = new Set<number>()
+    const taskSkillsMap = new Map<string, number[]>()
+    for (const task of tasksData) {
+      let requiredSkills: number[] = []
+      if (task.template_id) {
+        const { data: templateData } = await supabase
+          .from('task_templates')
+          .select('required_skill_id')
+          .eq('id', task.template_id)
+          .single()
+        if (templateData?.required_skill_id) {
+          requiredSkills.push(templateData.required_skill_id)
+          allSkills.add(templateData.required_skill_id)
+        }
+      }
+      if (task.task_skills && task.task_skills.length > 0) {
+        const skillIds = task.task_skills.map((ts: any) => ts.skill_id).filter((id: number) => id !== null)
+        requiredSkills = [...new Set([...requiredSkills, ...skillIds])]
+        skillIds.forEach(id => allSkills.add(id))
+      }
+      taskSkillsMap.set(task.id, requiredSkills)
+    }
+
+    // 3) Read algorithm settings
+    const { data: sessionRes } = await supabase.auth.getSession()
+    const session = sessionRes?.session
+    let AP: any = {}
+    const minConfidenceR = 0.35
+    if (session?.user?.id) {
+      const { data: apRow } = await supabase
+        .from('algorithm_settings')
+        .select('assignment_prefs')
+        .eq('user_id', session.user.id)
+        .eq('project_id', projectId)
+        .maybeSingle()
+      const settings = (apRow as any)?.assignment_prefs || {}
+      AP = {
+        enabled: settings.enabled ?? true,
+        priority_mode: settings.priority_mode ?? 'lexi',
+        default_max_concurrent_tasks: settings.default_max_concurrent_tasks ?? max_concurrent_tasks,
+        respect_user_caps: settings.respect_user_caps ?? true,
+        min_confidence_R: settings.min_confidence_R ?? minConfidenceR,
+        unassigned_cost: settings.unassigned_cost ?? 0.5,
+      }
+    } else {
+      AP = {
+        enabled: true,
+        priority_mode: 'weighted',
+        default_max_concurrent_tasks: max_concurrent_tasks,
+        respect_user_caps: true,
+        min_confidence_R: minConfidenceR,
+        unassigned_cost: 0.5,
+      }
+    }
+
+    const effMaxConcurrent = Number(AP.default_max_concurrent_tasks) || max_concurrent_tasks
+
+    // 4) Load all users (global) and compute workloads
+    const { data: allUsers } = await supabase
+      .from('users')
+      .select('id, full_name, position, org_unit, max_concurrent_tasks')
+      .not('id', 'is', null)
+
+    if (!allUsers || allUsers.length === 0) {
+      return NextResponse.json({ preview: [], assignments: [], unassigned: [], debug: { total_tasks: tasksData.length, total_users: 0 } })
+    }
+
+    const userIds = (allUsers as any[]).map((u: any) => u.id).filter(Boolean)
+    const { data: currentWorkloads } = await supabase
+      .from('task_raci')
+      .select(`user_id, tasks!inner(id, status, project_id, projects!inner(id,name,status))`)
+      .eq('role', 'R')
+      .in('tasks.status', ['todo', 'in_progress', 'review', 'blocked'])
+      .in('user_id', userIds)
+
+    const userWorkloadMap = new Map<string, number>()
+    currentWorkloads?.forEach((item: any) => {
+      const projectStatus = item?.tasks?.projects?.status
+      if (item.user_id && (projectStatus === 'active' || projectStatus === 'planning')) {
+        userWorkloadMap.set(item.user_id, (userWorkloadMap.get(item.user_id) || 0) + 1)
+      }
+    })
+
+    const availableUsers: AlgoUser[] = (allUsers as any[]).map((user: any) => ({
+      id: user.id,
+      name: user.full_name,
+      current_workload: userWorkloadMap.get(user.id) || 0,
+      max_concurrent_tasks: AP.respect_user_caps && Number.isFinite(user.max_concurrent_tasks)
+        ? user.max_concurrent_tasks
+        : effMaxConcurrent,
+    }))
+
+    // 5) Experience matrix
+    const experienceMatrix = await buildExperienceMatrix(userIds, Array.from(allSkills))
+
+    // 6) Build algorithm tasks
+    const algorithmTasks: AlgoTask[] = tasksData.map(task => ({
+      id: task.id,
+      name: task.name,
+      required_skills: taskSkillsMap.get(task.id) || [],
+      priority: 1,
+      estimated_hours: 8,
+    }))
+
+    // 7) Run assignment + fallback (or planning greedy)
+    let assignments: any[] = []
+    if (planning) {
+      assignments = algorithmTasks.map(t => {
+        let bestUser: any = null
+        let bestScore = -1
+        let expAvg = 0
+        for (const u of availableUsers) {
+          const exps = t.required_skills.map(sid => experienceMatrix?.[u.id]?.[sid] ?? 0)
+          const avg = exps.length ? exps.reduce((a: number, b: number) => a + b, 0) / exps.length : 0
+          if (avg > bestScore) { bestScore = avg; bestUser = u; expAvg = avg }
+        }
+        return { task_id: t.id, user_id: bestUser?.id, confidence_score: bestScore < 0 ? 0 : bestScore, experience_score: expAvg }
+      })
+    } else {
+      const assignmentsStrict = constrainedHungarianAssignment(
+        algorithmTasks,
+        availableUsers,
+        experienceMatrix,
+        effMaxConcurrent,
+        {
+          minConfidence: AP.min_confidence_R ?? minConfidenceR,
+          unassignedCost: AP.unassigned_cost ?? 0.5,
+          bigPenalty: 1e6,
+          priorityMode: AP.priority_mode,
+        }
+      )
+      assignments = assignmentsStrict
+      if (assignmentsStrict.length < algorithmTasks.length) {
+        const assignedSet = new Set(assignmentsStrict.map(a => a.task_id))
+        const unassignedCount = algorithmTasks.filter(t => !assignedSet.has(t.id)).length
+        const freeUsers = availableUsers.filter(u => u.current_workload < Math.min(effMaxConcurrent, u.max_concurrent_tasks))
+        if (unassignedCount > 0 && freeUsers.length > 0) {
+          const relaxed = constrainedHungarianAssignment(
+            algorithmTasks,
+            availableUsers,
+            experienceMatrix,
+            effMaxConcurrent,
+            { minConfidence: 0.2, unassignedCost: 0.7, bigPenalty: 1e6, priorityMode: AP.priority_mode }
+          )
+          const relaxedMap = new Map(relaxed.map(r => [r.task_id, r]))
+          const merged: typeof assignments = []
+          for (const t of algorithmTasks) {
+            const strict = assignmentsStrict.find(a => a.task_id === t.id)
+            if (strict) { merged.push(strict); continue }
+            const alt = relaxedMap.get(t.id)
+            if (alt) merged.push(alt)
+          }
+          assignments = merged
+        }
+      }
+    }
+
+    // 8) Build preview payload (R only)
+    const results = assignments.map(a => {
+      const task = tasksData.find(t => t.id === a.task_id)
+      const user = (allUsers as any[]).find(u => u.id === a.user_id)
+      return {
+        task_id: a.task_id,
+        task_name: task?.name,
+        user_id: a.user_id,
+        user_name: user?.full_name,
+        confidence_score: a.confidence_score,
+        experience_score: a.experience_score,
+      }
+    })
+
+    const unassignedTasks = tasksData
+      .filter(task => !assignments.some(a => a.task_id === task.id))
+      .map(task => ({ task_id: task.id, task_name: task.name, reason: 'Preview: chưa đạt ngưỡng hoặc thiếu năng lực/capacity' }))
+
+    return NextResponse.json({
+      success: true,
+      message: `Preview: Có thể phân công ${results.length}/${tasksData.length} công việc`,
+      assignments: results,
+      unassigned: unassignedTasks,
+      debug: {
+        total_tasks: tasksData.length,
+        total_users: availableUsers.length,
+        available_users: availableUsers.filter(u => u.current_workload < Math.min(effMaxConcurrent, u.max_concurrent_tasks)).length,
+        algorithm_used: planning ? 'planning_greedy (ignore capacity) (preview)' : 'experience_matrix + constrained_hungarian (preview)'
+      }
+    })
+  } catch (error: any) {
+    console.error('Lỗi preview tự động phân công RACI:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }

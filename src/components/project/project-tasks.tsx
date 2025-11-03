@@ -6,8 +6,19 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
-import { FileText, PlusCircle } from "lucide-react"
+import { FileText, PlusCircle, Bot, Trash2 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { OptimizedTasksList } from "../task/tasks-list"
+import { AutoAssignRaciModal } from "./auto-assign-raci-modal"
 
 interface ProjectTasksProps {
   projectId: string
@@ -18,6 +29,22 @@ export function ProjectTasks({ projectId }: ProjectTasksProps) {
   const [loading, setLoading] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showAutoAssignModal, setShowAutoAssignModal] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const clearAssignments = async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/raci/clear`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Không thể gỡ phân công')
+      const data = await res.json()
+      toast.success(data.message || 'Đã gỡ phân công')
+      fetchTasks()
+    } catch (e: any) {
+      toast.error(e.message || 'Không thể gỡ phân công')
+    } finally {
+      setConfirmClear(false)
+    }
+  }
 
   const fetchTasks = async () => {
     try {
@@ -99,9 +126,45 @@ export function ProjectTasks({ projectId }: ProjectTasksProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Danh sách Công việc</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>Danh sách Công việc</CardTitle>
+          {tasks.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={() => setShowAutoAssignModal(true)}>
+                <Bot className="mr-2 h-4 w-4" />
+                Phân công tự động
+              </Button>
+              <Button variant="destructive" onClick={() => setConfirmClear(true)}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Gỡ phân công toàn dự án
+              </Button>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent>{renderContent()}</CardContent>
+      <AutoAssignRaciModal
+        open={showAutoAssignModal}
+        onClose={() => setShowAutoAssignModal(false)}
+        projectId={projectId}
+        tasks={tasks}
+        onSuccess={fetchTasks}
+      />
+
+      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận gỡ phân công</AlertDialogTitle>
+            <AlertDialogDescription>
+              Hành động này sẽ gỡ toàn bộ phân công R/A/C/I của tất cả công việc trong dự án. Không thể hoàn tác.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogAction onClick={clearAssignments}>Tiếp tục</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }
