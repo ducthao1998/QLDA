@@ -1,138 +1,112 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { buildExperienceMatrixData } from '@/algorithm/experience-matrix'
 
+/**
+ * GET /api/team/skill-matrix
+ *
+ * Returns the team's skill matrix with the FULL experience score breakdown
+ * (base × recency × quality), not just a raw completed-task count. The
+ * `/dashboard/team` heatmap renders this directly.
+ *
+ * Response shape:
+ *  {
+ *    skills: Skill[],                 // every skill in the org
+ *    users:  UserSkillProfile[]       // one entry per user, even if no logs
+ *  }
+ * where UserSkillProfile carries each skill's experience_days, last activity,
+ * combined score and component weights so the UI can show a tooltip /
+ * detailed profile dialog.
+ */
 export async function GET() {
   try {
     const supabase = await createClient()
-    
-    const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-    if (sessionError || !session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+    // Auth check — anyone logged in may view the team's skill matrix.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch all users
-    const { data: usersData, error: usersError } = await supabase
-      .from('users')
-      .select('id, full_name, position')
-      .order('full_name')
+    // 1) All users + all skills.
+    const [{ data: usersData, error: usersError }, { data: skillsData, error: skillsError }] = await Promise.all([
+      supabase
+        .from('users')
+        .select('id, full_name, position, org_unit, max_concurrent_tasks')
+        .order('full_name'),
+      supabase.from('skills').select('id, name, field').order('id'),
+    ])
 
-    if (usersError) {
-      console.error('Error fetching users for skill matrix:', usersError)
-      return NextResponse.json({ error: usersError.message }, { status: 500 })
-    }
+    if (usersError) return NextResponse.json({ error: usersError.message }, { status: 500 })
+    if (skillsError) return NextResponse.json({ error: skillsError.message }, { status: 500 })
 
-    // Get skill aggregations from user_skill_matrix view (may be empty for some users)
-    const { data: matrixData, error } = await supabase
-      .from('user_skill_matrix')
-      .select(`
-        user_id,
-        full_name,
-        skill_id,
-        skill_name,
-        completed_tasks_count,
-        last_activity_date
-      `)
-      .order('full_name')
+    const users = (usersData as any[]) || []
+    const skills = (skillsData as any[]) || []
 
-    if (error) {
-      console.error('Error fetching skill matrix:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
+    // 2) Build rich experience matrix across all users × all skills.
+    const userIds = users.map((u) => u.id)
+    const skillIds = skills.map((s) => s.id)
+    const matrix = await buildExperienceMatrixData(userIds, skillIds)
 
-    // Initialize all users with empty skills, then merge matrix rows
-    const userIdToUser: Record<string, any> = {}
-    usersData?.forEach(u => {
-      userIdToUser[u.id] = {
+    // 3) Project per-user view: for each skill, attach experience_days,
+    //    last_activity_date, score + breakdown.
+    const profiles = users.map((u: any) => {
+      const userBreakdown = matrix.breakdown?.[u.id] || {}
+      const userSkills = skills
+        .map((s: any) => {
+          const b = (userBreakdown as any)[s.id]
+          const score = matrix.scores[u.id]?.[s.id] || 0
+          // We always include the row so the UI can render an empty cell
+          // explicitly (instead of "missing"). Down-stream we sort/filter by
+          // score so zero-score rows naturally fall to the bottom.
+          return {
+            skill_id: s.id,
+            skill_name: s.name,
+            skill_field: s.field || null,
+            experience_days: b?.experienceDays ?? 0,
+            last_activity_date: b?.lastActivityDate ?? null,
+            score,
+            base_score: b?.baseScore ?? 0,
+            recency_weight: b?.recencyWeight ?? 0,
+            quality_weight: b?.qualityWeight ?? 0,
+          }
+        })
+        // Hide zero-score skills from the row payload so the heatmap data
+        // is lean; the UI can still show "-" for missing skills by joining
+        // against the `skills` list.
+        .filter((row) => row.score > 0 || row.experience_days > 0)
+
+      // Top-N strongest skills for the "headline" view + a single overall
+      // expert score (average of top 3 — rewards specialists, not breadth-only).
+      const topSkills = [...userSkills]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map(({ skill_id, skill_name, score }) => ({ skill_id, skill_name, score }))
+      const expertScore =
+        topSkills.length > 0
+          ? topSkills.reduce((sum, s) => sum + s.score, 0) / topSkills.length
+          : 0
+
+      return {
         user_id: u.id,
         full_name: u.full_name,
-        position: u.position,
-        skills: [] as Array<{
-          skill_id: number
-          skill_name: string
-          completed_tasks_count: number
-          last_activity_date: string | null
-        }>
+        position: u.position || null,
+        org_unit: u.org_unit || null,
+        max_concurrent_tasks: u.max_concurrent_tasks ?? 3,
+        skills: userSkills,
+        top_skills: topSkills,
+        expert_score: expertScore,
       }
     })
 
-    matrixData?.forEach(item => {
-      const user = userIdToUser[item.user_id]
-      if (!user) {
-        // Fallback if user not present in users table for some reason
-        userIdToUser[item.user_id] = {
-          user_id: item.user_id,
-          full_name: item.full_name,
-          position: undefined,
-          skills: []
-        }
-      }
-      const target = userIdToUser[item.user_id]
-      target.skills.push({
-        skill_id: item.skill_id,
-        skill_name: item.skill_name,
-        completed_tasks_count: item.completed_tasks_count,
-        last_activity_date: item.last_activity_date
-      })
+    return NextResponse.json({
+      skills: skills.map((s) => ({ id: s.id, name: s.name, field: s.field || null })),
+      users: profiles,
     })
-
-    // Fallback aggregation: derive skills from completed tasks when worklogs are missing
-    // Count done tasks per (user, skill) via task_raci (role R) and task_skills
-    const { data: raciAgg, error: raciError } = await supabase
-      .from('task_raci')
-      .select(`
-        user_id,
-        tasks!inner(
-          id,
-          status,
-          task_skills!inner(
-            skill_id,
-            skills!inner(name)
-          )
-        )
-      `)
-      .eq('role', 'R')
-
-    if (!raciError && raciAgg) {
-      // Build counts for users that still have empty skills
-      const fallbackCounts: Record<string, Record<number, { name: string; count: number }>> = {}
-      raciAgg.forEach((row: any) => {
-        const userId = row.user_id as string
-        const task = row.tasks as any
-        if (!task) return
-        const status = String(task.status || '').toLowerCase()
-        // Treat these statuses as completed
-        const isCompleted = status === 'done' || status === 'completed' || status === 'hoan_thanh'
-        if (!isCompleted) return
-        const tskills = (task.task_skills as any[]) || []
-        if (!fallbackCounts[userId]) fallbackCounts[userId] = {}
-        tskills.forEach(ts => {
-          const skillId = ts.skill_id as number
-          const skillName = ts.skills?.name as string
-          if (!fallbackCounts[userId][skillId]) {
-            fallbackCounts[userId][skillId] = { name: skillName, count: 0 }
-          }
-          fallbackCounts[userId][skillId].count += 1
-        })
-      })
-
-      Object.entries(fallbackCounts).forEach(([userId, skillsMap]) => {
-        const user = userIdToUser[userId]
-        if (!user) return
-        if ((user.skills?.length || 0) > 0) return // already has data from view
-        user.skills = Object.entries(skillsMap).map(([skillId, info]) => ({
-          skill_id: Number(skillId),
-          skill_name: info.name,
-          completed_tasks_count: info.count,
-          last_activity_date: null
-        }))
-      })
-    }
-
-    const result = Object.values(userIdToUser)
-
-    return NextResponse.json(result)
-  } catch (error) {
-    console.error('Error in GET /api/team/skill-matrix:', error)
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+  } catch (err: any) {
+    console.error('Error in GET /api/team/skill-matrix:', err)
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }

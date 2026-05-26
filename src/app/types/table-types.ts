@@ -440,3 +440,19 @@ export interface UserSkill {
   created_at: string
   updated_at: string
 }
+
+/**
+ * Aggregated per-user performance row consumed by the Hiệu suất Nhân sự table
+ * (components/team/user-performance.tsx). Produced by the /api/user-performance
+ * route from worklogs + task_progress.
+ */
+export interface UserPerformance {
+  id: string
+  full_name: string
+  /** Fraction (0..1) of completed tasks delivered on or before planned_finish. */
+  pct_on_time: number
+  /** 1..5 quality score derived from completion + on-time-rate signals. */
+  avg_quality: number
+  /** 0..1 composite score combining on-time + quality + workload. */
+  perf_score: number
+}

@@ -1,6 +1,7 @@
 import { OptimizationInput, OptimizationConfig, OptimizationResult, ScheduleChange } from './types'
 import { calculateCriticalPath, type CPMTaskInput } from './critical-path'
 import { ScheduleDetail } from '@/app/types/table-types'
+import { computeEarliestSchedule } from '@/lib/scheduling'
 
 export class ScheduleOptimizer {
   private input: OptimizationInput;
@@ -21,25 +22,20 @@ export class ScheduleOptimizer {
   }
 
   public async optimize(): Promise<OptimizationResult> {
-    console.log('🚀 Bắt đầu tối ưu hóa Multi-Project CPM...');
-    
-    // 1. Tính toán metrics ban đầu
-    const originalMakespan = this.calculateMakespan();
+    // Baseline = sum of all task durations (worst case: everything sequential).
+    // This makes "improvement" reflect the genuine value of parallel CPM scheduling
+    // rather than comparing two identical CPM passes.
+    const originalMakespan = this.calculateSequentialDuration();
     const originalResourceUtilization = calculateResourceUtilization(this.input);
-    
-    console.log(`📊 Metrics ban đầu: Makespan=${originalMakespan} ngày, Resource=${(originalResourceUtilization * 100).toFixed(1)}%`);
 
-    // 2. Chạy thuật toán tối ưu hóa Multi-Project CPM
-    const optimizedSchedule = await this.runMultiProjectCPM();
+    // Optimized schedule = earliest-start CPM forward pass.
+    const optimizedSchedule = this.runMultiProjectCPM();
 
-    // 3. Tính toán metrics sau tối ưu hóa
     const optimizedMakespan = this.calculateMakespan(optimizedSchedule);
     const optimizedResourceUtilization = calculateResourceUtilization({
       ...this.input,
       scheduleDetails: optimizedSchedule
     });
-
-    console.log(`✅ Metrics sau tối ưu: Makespan=${optimizedMakespan} ngày, Resource=${(optimizedResourceUtilization * 100).toFixed(1)}%`);
 
     // 4. Tính toán critical path
     const cpmPrefs = (this.config as any)?.cpm_prefs || {}
@@ -68,10 +64,8 @@ export class ScheduleOptimizer {
     const improvementPercentage = originalMakespan > 0 ? 
       Math.max(0, ((originalMakespan - optimizedMakespan) / originalMakespan) * 100) : 0;
     
-    const resourceImprovement = optimizedResourceUtilization > originalResourceUtilization ? 
+    const resourceImprovement = optimizedResourceUtilization > originalResourceUtilization ?
       ((optimizedResourceUtilization - originalResourceUtilization) / Math.max(originalResourceUtilization, 0.01)) * 100 : 0;
-
-    console.log(`🎯 Cải thiện: Thời gian=${improvementPercentage.toFixed(1)}%, Tài nguyên=+${resourceImprovement.toFixed(1)}%`);
 
     return {
       algorithm_used: this.config.algorithm,
@@ -120,126 +114,55 @@ export class ScheduleOptimizer {
     return Math.ceil((projectEnd - projectStart) / (1000 * 60 * 60 * 24));
   }
 
-  private async runMultiProjectCPM(): Promise<ScheduleDetail[]> {
-    // Use multi-project critical path method to optimize schedule
-    const cpmPrefs2 = (this.config as any)?.cpm_prefs || {}
-    const cpmOptions2 = {
-      defaultTaskDurationDays: cpmPrefs2.default_task_duration_days ?? 1,
-      allowStartNextDay: cpmPrefs2.allow_start_next_day ?? true,
-      criticalityThresholdDays: cpmPrefs2.criticality_threshold_days ?? 0,
-    }
-    const cpmTasks2: CPMTaskInput[] = this.buildCpmTasks()
-    const criticalPathResult = calculateCriticalPath(cpmTasks2, this.input.dependencies as any, undefined, cpmOptions2);
-    const criticalPath = criticalPathResult.criticalPath;
-    
-    // Build dependency graph for better optimization
-    const dependencyGraph = new Map<string, string[]>();
-    const reverseDependencyGraph = new Map<string, string[]>();
-    
-    // Initialize graphs
-    this.input.tasks.forEach(task => {
-      dependencyGraph.set(String(task.id), []);
-      reverseDependencyGraph.set(String(task.id), []);
-    });
-    
-    // Build dependency relationships
-    this.input.dependencies.forEach(dep => {
-      const taskId = String(dep.task_id);
-      const dependsOnId = String(dep.depends_on_id);
-      
-      if (!dependencyGraph.has(taskId)) dependencyGraph.set(taskId, []);
-      if (!dependencyGraph.has(dependsOnId)) dependencyGraph.set(dependsOnId, []);
-      
-      dependencyGraph.get(taskId)!.push(dependsOnId);
-      reverseDependencyGraph.get(dependsOnId)!.push(taskId);
-    });
-    
-    // Create optimized schedule with earliest start time strategy
-    const optimizedSchedule: ScheduleDetail[] = [];
+  /**
+   * Earliest-start CPM forward pass via the shared scheduling lib.
+   *
+   * The previous implementation re-sorted tasks by "criticality" before scheduling,
+   * which broke topological order: a critical task could be visited before its own
+   * predecessor, so `taskEndTimes` lookup fell back to `projectStart` and produced
+   * dates that violated the dependency. We now delegate to `computeEarliestSchedule`
+   * which uses Kahn's topo sort under the hood and is guaranteed to visit
+   * predecessors first.
+   */
+  private runMultiProjectCPM(): ScheduleDetail[] {
     const cpmPrefs = (this.config as any)?.cpm_prefs || {}
-    const allowNextDay = cpmPrefs.allow_start_next_day ?? true
-    const defaultDur = cpmPrefs.default_task_duration_days ?? 1
-    const projectStart = new Date(this.input.project.start_date);
-    const taskEndTimes = new Map<string, Date>();
-    
-    // Sort tasks by critical path first, then by dependencies
-    const sortedTasks = this.input.tasks
-      .map(task => ({
-        ...task,
-        isCritical: criticalPath.includes(String(task.id)),
-        dependencyCount: dependencyGraph.get(String(task.id))?.length || 0
-      }))
-      .sort((a, b) => {
-        // Critical path tasks first
-        if (a.isCritical !== b.isCritical) return a.isCritical ? -1 : 1;
-        // Then by dependency count (fewer dependencies first)
-        if (a.dependencyCount !== b.dependencyCount) return a.dependencyCount - b.dependencyCount;
-        // Then by duration (longer tasks first)
-        return (b.duration_days || 1) - (a.duration_days || 1);
-      });
-    
-    // Schedule tasks with earliest start time strategy
-    sortedTasks.forEach(task => {
-      const taskId = String(task.id);
-      const taskDuration = task.duration_days || defaultDur;
-      
-      // Find earliest possible start time based on dependencies
-      let earliestStart = new Date(projectStart);
-      
-      const dependencies = dependencyGraph.get(taskId) || [];
-      if (dependencies.length > 0) {
-        // Find the latest end time of all dependencies
-        const depEndTimes = dependencies.map(depId => {
-          return taskEndTimes.get(depId) || projectStart;
-        });
-        const latestDepEnd = new Date(Math.max(...depEndTimes.map(d => d.getTime())));
-        earliestStart = new Date(latestDepEnd);
-        earliestStart.setDate(earliestStart.getDate() + 1); // Start next day after dependency
-      }
-      
-      // For critical path tasks, try to start even earlier if possible
-      if (criticalPath.includes(taskId)) {
-        // Critical tasks should start as early as possible
-        const criticalDeps = dependencies.filter(depId => 
-          criticalPath.includes(depId)
-        );
-        
-        if (criticalDeps.length > 0) {
-          const criticalDepEndTimes = criticalDeps.map(depId => {
-            return taskEndTimes.get(depId) || projectStart;
-          });
-          const latestCriticalDepEnd = new Date(Math.max(...criticalDepEndTimes.map(d => d.getTime())));
-          if (latestCriticalDepEnd > earliestStart) {
-            earliestStart = new Date(latestCriticalDepEnd);
-            if (allowNextDay) {
-              earliestStart.setDate(earliestStart.getDate() + 1);
-            }
-          }
-        }
-      }
-      
-      const endTime = new Date(earliestStart);
-      endTime.setDate(earliestStart.getDate() + taskDuration - 1);
-      
-      // Store task end time for future reference
-      taskEndTimes.set(taskId, new Date(endTime));
-      
-      // Find original schedule detail
-      const originalDetail = this.input.scheduleDetails.find(sd => sd.task_id === taskId);
-      
-      optimizedSchedule.push({
+    const projectStart = new Date(this.input.project.start_date)
+
+    const scheduled = computeEarliestSchedule(
+      this.input.tasks.map((t) => ({ id: String(t.id), duration_days: t.duration_days })),
+      this.input.dependencies as any,
+      projectStart,
+      {
+        defaultDurationDays: cpmPrefs.default_task_duration_days ?? 1,
+        startNextDayAfterDependency: cpmPrefs.allow_start_next_day ?? true,
+      },
+    )
+
+    return this.input.tasks.map((task): ScheduleDetail => {
+      const taskId = String(task.id)
+      const s = scheduled.get(taskId)
+      const originalDetail = this.input.scheduleDetails.find((sd) => sd.task_id === taskId)
+      return {
         id: originalDetail?.id || crypto.randomUUID(),
         schedule_run_id: originalDetail?.schedule_run_id || '',
         task_id: taskId,
         assigned_user: originalDetail?.assigned_user || '',
-        start_ts: earliestStart.toISOString(),
-        finish_ts: endTime.toISOString(),
+        start_ts: s?.start_date || projectStart.toISOString(),
+        finish_ts: s?.end_date || projectStart.toISOString(),
+        confidence: originalDetail?.confidence ?? 1,
+        experience_score: originalDetail?.experience_score ?? 0,
         created_at: originalDetail?.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      });
-    });
-    
-    return optimizedSchedule;
+      }
+    })
+  }
+
+  /**
+   * Sequential (no parallelization) duration in days — sum of all task durations.
+   * Used as the baseline against which the CPM-optimized makespan is compared.
+   */
+  private calculateSequentialDuration(): number {
+    const defaultDur = ((this.config as any)?.cpm_prefs?.default_task_duration_days) ?? 1
+    return this.input.tasks.reduce((sum, t) => sum + (t.duration_days || defaultDur), 0)
   }
 
   private generateScheduleChanges(optimizedSchedule: ScheduleDetail[]): ScheduleChange[] {

@@ -22,8 +22,10 @@ export async function GET() {
       `)
       .eq("user_id", authUser.id)
 
-    // Get unique project IDs
-    const uniqueProjectIds = new Set(projectsData?.map(item => item.tasks?.project_id) || [])
+    // Get unique project IDs (same array-typed join workaround as stats route)
+    const uniqueProjectIds = new Set(
+      (projectsData as any[] | null)?.map((item: any) => item.tasks?.project_id) || [],
+    )
     const totalProjects = uniqueProjectIds.size
 
     // Get task statistics
@@ -39,15 +41,16 @@ export async function GET() {
       .eq("user_id", authUser.id)
       .in("role", ["R", "A"])
 
-    const totalTasks = tasksData?.length || 0
-    const completedTasks = tasksData?.filter(item => item.tasks?.status === "done").length || 0
-    const inProgressTasks = tasksData?.filter(item => item.tasks?.status === "in_progress").length || 0
-    
+    const tasksList = (tasksData as any[]) || []
+    const totalTasks = tasksList.length
+    const completedTasks = tasksList.filter((item: any) => item.tasks?.status === "done").length
+    const inProgressTasks = tasksList.filter((item: any) => item.tasks?.status === "in_progress").length
+
     // Calculate on-time rate for completed tasks
     const now = new Date()
-    const completedOnTime = tasksData?.filter(item => 
-      item.tasks?.status === "done" && new Date(item.tasks?.end_date) >= now
-    ).length || 0
+    const completedOnTime = tasksList.filter(
+      (item: any) => item.tasks?.status === "done" && new Date(item.tasks?.end_date) >= now,
+    ).length
 
     const completionRate = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0
     const onTimeRate = completedTasks > 0 ? (completedOnTime / completedTasks) * 100 : 0

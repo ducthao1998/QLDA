@@ -58,6 +58,7 @@ export function AutoAssignRaciModal({
 }: AutoAssignRaciModalProps) {
   const [selectedTasks, setSelectedTasks] = useState<string[]>([])
   const [maxConcurrentTasks, setMaxConcurrentTasks] = useState(2)
+  const [planningMode, setPlanningMode] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [isPreviewMode, setIsPreviewMode] = useState(false)
   const [assignments, setAssignments] = useState<AssignmentResult[]>([])
@@ -107,10 +108,8 @@ export function AutoAssignRaciModal({
 
     try {
       const response = await fetch(
-        `/api/tasks/auto-assign-raci?task_ids=${selectedTasks.join(',')}&project_id=${projectId}`,
-        {
-          method: 'GET'
-        }
+        `/api/tasks/auto-assign-raci?task_ids=${selectedTasks.join(',')}&project_id=${projectId}&max_concurrent_tasks=${maxConcurrentTasks}&planning=${planningMode ? '1' : '0'}`,
+        { method: 'GET' }
       )
 
       if (!response.ok) {
@@ -118,10 +117,9 @@ export function AutoAssignRaciModal({
       }
 
       const data = await response.json()
-      
-      // For now, use the same logic as POST since GET is not fully implemented
-      // In a real implementation, you'd have the preview logic in the GET endpoint
-      toast.info("Preview chưa được implement đầy đủ. Sử dụng chế độ thực thi.")
+      setAssignments(data.assignments || [])
+      setUnassigned(data.unassigned || [])
+      setDebugInfo(data.debug)
       
     } catch (error: any) {
       console.error('Preview error:', error)
@@ -148,7 +146,8 @@ export function AutoAssignRaciModal({
         body: JSON.stringify({
           task_ids: selectedTasks,
           project_id: projectId,
-          max_concurrent_tasks: maxConcurrentTasks
+          max_concurrent_tasks: maxConcurrentTasks,
+          planning: planningMode
         })
       })
 
@@ -245,6 +244,10 @@ export function AutoAssignRaciModal({
                     onChange={(e) => setMaxConcurrentTasks(parseInt(e.target.value) || 2)}
                     className="w-20"
                   />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox id="planningMode" checked={planningMode} onCheckedChange={(v) => setPlanningMode(!!v)} />
+                  <Label htmlFor="planningMode">Chế độ lập kế hoạch (bỏ qua capacity)</Label>
                 </div>
               </div>
             </CardContent>
@@ -367,6 +370,7 @@ export function AutoAssignRaciModal({
                 )}
 
                 {/* Debug info */}
+{/* 
                 {debugInfo && (
                   <div className="text-xs text-muted-foreground bg-gray-50 p-3 rounded">
                     <strong>Thông tin debug:</strong>
@@ -378,6 +382,7 @@ export function AutoAssignRaciModal({
                     </ul>
                   </div>
                 )}
+                 */}
               </CardContent>
             </Card>
           )}
@@ -404,7 +409,37 @@ export function AutoAssignRaciModal({
                 </Button>
                 
                 <Button
-                  onClick={handleAutoAssign}
+                  onClick={async () => {
+                    // Nếu đang ở chế độ lập kế hoạch, gửi kèm force_assignments để đảm bảo đúng theo preview
+                    if (planningMode && assignments.length > 0) {
+                      setIsLoading(true)
+                      try {
+                        const res = await fetch(`/api/tasks/auto-assign-raci`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            task_ids: selectedTasks,
+                            project_id: projectId,
+                            max_concurrent_tasks: maxConcurrentTasks,
+                            planning: true,
+                            force_assignments: assignments.map(a => ({ task_id: a.task_id, user_id: a.user_id }))
+                          })
+                        })
+                        if (!res.ok) throw new Error('Failed to auto-assign (forced)')
+                        const data = await res.json()
+                        setAssignments(data.assignments || [])
+                        setUnassigned(data.unassigned || [])
+                        setDebugInfo(data.debug)
+                        if (data.success) { toast.success(data.message); onSuccess() } else { toast.error(data.error || 'Có lỗi xảy ra') }
+                      } catch (e: any) {
+                        toast.error(e.message || 'Không thể phân công')
+                      } finally {
+                        setIsLoading(false)
+                      }
+                      return
+                    }
+                    await handleAutoAssign()
+                  }}
                   disabled={isLoading}
                 >
                   {isLoading && !isPreviewMode ? (

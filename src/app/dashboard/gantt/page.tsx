@@ -2,22 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { GanttChart } from "@/components/gantt-chart"
-import { Button } from "@/components/ui/button"
+import { OptimizationResultPanel } from "@/components/gantt/optimization-result-panel"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
-import {
-  BarChart3Icon,
-  TrendingUpIcon,
-  UsersIcon,
-  ClockIcon,
-  TargetIcon,
-  AlertCircleIcon,
-  ArrowRightIcon,
-} from "lucide-react"
+import { BarChart3Icon, TrendingUpIcon, TargetIcon } from "lucide-react"
 
 interface Project {
   id: string
@@ -212,142 +203,7 @@ export default function GanttPage() {
 
         <TabsContent value="optimization" className="mt-6">
           {optimizationResults ? (
-            <div className="space-y-6">
-              {/* Metrics Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Thời gian hoàn thành</CardTitle>
-                    <ClockIcon className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1">
-                      <div className="text-2xl font-bold text-green-600">
-                        {optimizationResults.optimized_makespan} ngày
-                      </div>
-                      <div className="flex items-center text-xs text-muted-foreground">
-                        <span>Từ {optimizationResults.original_makespan} ngày</span>
-                        <ArrowRightIcon className="h-3 w-3 mx-1" />
-                        <span className="text-green-600 font-medium">
-                          -{(optimizationResults.improvement_percentage || 0).toFixed(1)}%
-                        </span>
-                      </div>
-                      <Progress value={100 - (optimizationResults.improvement_percentage || 0)} className="h-2" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Hiệu suất tài nguyên</CardTitle>
-                    <UsersIcon className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1">
-                      <div className="text-2xl font-bold text-blue-600">
-                        {((optimizationResults.resource_utilization || 0) * 100).toFixed(1)}%
-                      </div>
-                      <Progress value={(optimizationResults.resource_utilization || 0) * 100} className="h-2" />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Đường găng</CardTitle>
-                    <TargetIcon className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1">
-                      <div className="text-2xl font-bold text-red-600">
-                        {optimizationResults.critical_path?.length || 0}
-                      </div>
-                      <div className="text-xs text-muted-foreground">công việc quan trọng</div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                    <CardTitle className="text-sm font-medium">Thuật toán</CardTitle>
-                    <TrendingUpIcon className="h-4 w-4 text-muted-foreground" />
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1">
-                      <div className="text-sm font-bold text-purple-600">{optimizationResults.algorithm_used}</div>
-                      <div className="text-xs text-muted-foreground">được sử dụng</div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Critical Path */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <TargetIcon className="h-5 w-5" />
-                    Đường găng (Critical Path)
-                  </CardTitle>
-                  <CardDescription>Chuỗi công việc quan trọng nhất quyết định thời gian dự án</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {optimizationResults.critical_path?.length > 0 ? (
-                      <div className="space-y-2">
-                        {optimizationResults.critical_path.map((taskId: string, index: number) => (
-                          <div key={taskId} className="flex items-center gap-2 p-2 bg-red-50 rounded-md border">
-                            <Badge variant="destructive" className="text-xs">
-                              {index + 1}
-                            </Badge>
-                            <span className="text-sm font-medium">Công việc #{taskId}</span>
-                            {index < optimizationResults.critical_path.length - 1 && (
-                              <ArrowRightIcon className="h-4 w-4 text-muted-foreground ml-auto" />
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-4 text-muted-foreground">
-                        <AlertCircleIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">Chưa xác định được đường găng</p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Export Actions */}
-              {/* <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-medium">Xuất báo cáo tối ưu hóa</h3>
-                      <p className="text-sm text-muted-foreground">Lưu kết quả tối ưu hóa để chia sẻ và lưu trữ</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => window.print()}>
-                        In báo cáo
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          const dataStr = JSON.stringify(optimizationResults, null, 2)
-                          const dataBlob = new Blob([dataStr], { type: "application/json" })
-                          const url = URL.createObjectURL(dataBlob)
-                          const link = document.createElement("a")
-                          link.href = url
-                          link.download = `optimization-results-${selectedProject}.json`
-                          link.click()
-                        }}
-                      >
-                        Xuất JSON
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card> */}
-            </div>
+            <OptimizationResultPanel data={optimizationResults} />
           ) : (
             <Card>
               <CardContent className="py-16">

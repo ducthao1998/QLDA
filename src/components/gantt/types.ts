@@ -29,6 +29,27 @@ export interface OptimizationResult {
   resource_utilization: number
   critical_path: string[]
   optimized_schedule: Task[]
+  duration_analysis?: {
+    total_task_duration: number
+    original_parallel_duration: number
+    optimized_parallel_duration: number
+    duration_reduction: number
+    parallel_tasks_count: number
+  }
+  critical_path_details?: {
+    criticalPath: string[]
+    criticalPathDuration: number
+    totalDuration: number
+    explanation: string
+    taskDetails: Array<{
+      taskId: string
+      taskName: string
+      duration: number
+      slack: number
+      isCritical: boolean
+      reason: string
+    }>
+  }
 }
 
 export type ViewModeType = "day" | "week" | "month"

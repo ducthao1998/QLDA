@@ -30,8 +30,12 @@ export async function GET() {
     // Group by project and count tasks
     const projectMap = new Map()
     
-    userTasks.forEach(item => {
-      const projectId = item.tasks.project_id
+    userTasks.forEach((item: any) => {
+      // Supabase JS v2 sometimes types many-to-one relations as arrays even
+      // though at runtime they're a single object. Treat as `any` to access the
+      // joined fields directly.
+      const task = item.tasks
+      const projectId = task?.project_id
       if (!projectMap.has(projectId)) {
         projectMap.set(projectId, {
           project_id: projectId,
@@ -40,12 +44,12 @@ export async function GET() {
           tasks_completed: 0
         })
       }
-      
+
       const project = projectMap.get(projectId)
       project.roles.add(item.role)
       project.tasks_assigned++
-      
-      if (item.tasks.status === "done") {
+
+      if (task?.status === "done") {
         project.tasks_completed++
       }
     })

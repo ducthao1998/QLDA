@@ -8,9 +8,22 @@ interface OptimizationResult {
   weight: number
 }
 
-export async function optimizeTask(task: Task): Promise<OptimizationResult> {
+/**
+ * Task in this codebase only has `duration_days` — the older code in this
+ * service referenced min_duration_hours / max_duration_hours / max_retries
+ * fields that never existed on the schema. We accept either the canonical
+ * `Task` or a loose object so this service can still be called from the
+ * optimizer without breaking the type check.
+ */
+type OptimizableTask = Task & {
+  min_duration_hours?: number
+  max_duration_hours?: number
+  max_retries?: number
+}
+
+export async function optimizeTask(task: OptimizableTask): Promise<OptimizationResult> {
   const supabase = await createClient()
-  
+
   // 1. Lấy thông tin dependencies
   const { data: dependencies } = await supabase
     .from("task_dependencies")
@@ -20,11 +33,14 @@ export async function optimizeTask(task: Task): Promise<OptimizationResult> {
   // 2. Tính toán độ phức tạp dựa trên dependencies
   const complexity = calculateComplexity(dependencies?.length || 0)
 
-  // 3. Tính toán rủi ro dựa trên thời gian và số lần thử lại
+  // 3. Tính toán rủi ro dựa trên thời gian và số lần thử lại.
+  // Fall back to reasonable defaults when the legacy hour-range fields aren't
+  // provided (which is the common case — the schema only carries `duration_days`).
+  const baseHours = (task.duration_days ?? 1) * 8
   const risk_level = calculateRiskLevel(
-    task.min_duration_hours,
-    task.max_duration_hours,
-    task.max_retries
+    task.min_duration_hours ?? Math.max(1, baseHours - 4),
+    task.max_duration_hours ?? baseHours + 4,
+    task.max_retries ?? 3,
   )
 
   // 4. Tính toán trọng số dựa trên độ phức tạp và rủi ro

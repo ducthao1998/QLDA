@@ -1,4 +1,9 @@
-import { ExperienceMatrix, getExperienceScore } from './experience-matrix'
+import {
+  ExperienceMatrix,
+  ExperienceMatrixData,
+  getExperienceScore,
+  getExperienceScoreWithFallback,
+} from './experience-matrix'
 
 export interface AlgoTask {
   id: string
@@ -58,8 +63,8 @@ export interface AccountableScoreExplain {
 export function calculateAccountableScore(
   userId: string,
   task: AlgoTask,
-  experienceMatrix: ExperienceMatrix,
-  context: AccountableContext
+  experienceMatrix: ExperienceMatrix | ExperienceMatrixData,
+  context: AccountableContext,
 ): { score: number; explain: AccountableScoreExplain } {
   const wl = context.userWorkload?.get(userId) ?? { current: 0, max: 1 }
   const user: AlgoUser = {
@@ -69,10 +74,12 @@ export function calculateAccountableScore(
     max_concurrent_tasks: Math.max(1, wl.max ?? 1)
   }
 
-  // Recompute components same as calculateUserTaskScore
-  const experienceScores = task.required_skills.map(skillId =>
-    getExperienceScore(experienceMatrix, user.id, skillId)
-  )
+  // Recompute components same as calculateUserTaskScore (with field fallback if rich data)
+  const getExpAcc = (uid: string, sid: number) =>
+    'scores' in experienceMatrix
+      ? getExperienceScoreWithFallback(experienceMatrix as ExperienceMatrixData, uid, sid)
+      : getExperienceScore(experienceMatrix as ExperienceMatrix, uid, sid)
+  const experienceScores = task.required_skills.map((skillId) => getExpAcc(user.id, skillId))
   const avgExperience = experienceScores.length > 0
     ? experienceScores.reduce((s, v) => s + v, 0) / experienceScores.length
     : 0
@@ -87,9 +94,7 @@ export function calculateAccountableScore(
   else if (workloadRatio <= .66) workload = 0.5
   else                           workload = 0.2
 
-  const covered = task.required_skills.filter(skillId =>
-    getExperienceScore(experienceMatrix, user.id, skillId) > 0
-  ).length
+  const covered = task.required_skills.filter((skillId) => getExpAcc(user.id, skillId) > 0).length
   const coverage = task.required_skills.length > 0
     ? covered / task.required_skills.length
     : 1
@@ -125,8 +130,8 @@ export function pickAccountableForTask(
   task: AlgoTask,
   rUserId: string,
   candidateUserIds: string[],
-  experienceMatrix: ExperienceMatrix,
-  context: AccountableContext
+  experienceMatrix: ExperienceMatrix | ExperienceMatrixData,
+  context: AccountableContext,
 ): { userId: string; score: number; explain: AccountableScoreExplain } | null {
   const allowSame = context.allowSameRA ?? false
   const minScore = context.minAccountableScore ?? 0.5
@@ -184,14 +189,48 @@ function hashStringToInt(str: string): number {
   return h >>> 0
 }
 
-export function pickConsultedInformedRandom(
+export interface CIPickerContext {
+  /** user_id → position string (e.g., "Quản lý", "Cán bộ", "Chỉ huy") */
+  userPosition?: Map<string, string>
+  /** user_id → org_unit string */
+  userOrgUnit?: Map<string, string>
+  /** Project owner — automatically included in Informed if not already R/A/C. */
+  projectOwnerId?: string | null
+  /**
+   * Used to rank candidates by expertise on the task's required skills. If you
+   * pass the rich `ExperienceMatrixData`, the picker also uses the field-based
+   * adjacent-skill fallback.
+   */
+  experienceMatrix?: ExperienceMatrixData | ExperienceMatrix
+}
+
+/** Heuristic for "this is a senior/manager who's a good Consulted candidate". */
+const MANAGER_POSITION_RE = /(Quản lý|Chỉ huy|Trưởng|Giám đốc|Phó|Lead|Manager)/i
+
+/**
+ * Smart Consulted/Informed selection.
+ *
+ * Replaces the original random picker. Picks:
+ *   - **Consulted**: top expertise candidates on the task's required skills,
+ *     with a small bonus for senior positions. Falls back to deterministic
+ *     random if nobody has any relevant expertise.
+ *   - **Informed**: project owner first (always wants to be in the loop),
+ *     then a manager in R's org_unit (different from R/A), then anyone else
+ *     senior. Random fallback for the same reason.
+ *
+ * The pool excludes R and A. Capacity is respected only when `capacity` is
+ * provided AND the user is at their max (because C/I shouldn't bear the same
+ * workload as R, but if a user is genuinely overloaded we don't pile on).
+ */
+export function pickConsultedInformed(
   task: AlgoTask,
   users: { id: string }[],
   rUserId: string,
   aUserId: string | null,
   capacity: Map<string, { current: number; max: number }>,
+  ctx: CIPickerContext = {},
   countC: number = 1,
-  countI: number = 1
+  countI: number = 1,
 ): { C: string[]; I: string[] } {
   const exclude = new Set<string>([rUserId])
   if (aUserId) exclude.add(aUserId)
@@ -201,37 +240,113 @@ export function pickConsultedInformedRandom(
     if (!wl) return true
     return (wl.current ?? 0) < Math.max(1, wl.max ?? 1)
   }
+  const pool = users.map((u) => u.id).filter((uid) => !exclude.has(uid) && canTake(uid))
 
-  const pool = users.map(u => u.id).filter(uid => !exclude.has(uid) && canTake(uid))
-
-  // Deterministic seeds per role
-  const seedC = hashStringToInt(`${task.id}:C`)
-  const seedI = hashStringToInt(`${task.id}:I`)
-  const randC = seededRandom(seedC)
-  const randI = seededRandom(seedI)
-
-  const pickOne = (rnd: () => number, arr: string[]): string | null => {
-    if (arr.length === 0) return null
-    const idx = Math.floor(rnd() * arr.length)
-    return arr[idx] ?? null
-  }
-
-  const picks = (rnd: () => number, arr: string[], k: number) => {
-    const selected: string[] = []
-    const available = [...arr]
-    for (let t = 0; t < k && available.length > 0; t++) {
-      const idx = Math.floor(rnd() * available.length)
-      const uid = available.splice(idx, 1)[0]
-      if (uid) selected.push(uid)
+  // ───── Scoring helpers ─────
+  const expertiseOf = (uid: string): number => {
+    if (!ctx.experienceMatrix) return 0
+    const skills = task.required_skills || []
+    if (!skills.length) return 0
+    let sum = 0
+    for (const sid of skills) {
+      sum +=
+        'scores' in ctx.experienceMatrix
+          ? getExperienceScoreWithFallback(ctx.experienceMatrix as ExperienceMatrixData, uid, sid)
+          : getExperienceScore(ctx.experienceMatrix as ExperienceMatrix, uid, sid)
     }
-    return selected
+    return sum / skills.length
   }
 
-  const cUsers = picks(randC, pool, Math.max(0, countC))
-  const remaining = pool.filter(uid => !cUsers.includes(uid))
-  const iUsers = picks(randI, remaining, Math.max(0, countI))
+  const isManager = (uid: string): boolean => {
+    const pos = ctx.userPosition?.get(uid) || ''
+    return MANAGER_POSITION_RE.test(pos)
+  }
 
-  return { C: cUsers, I: iUsers }
+  // ───── Consulted: rank by expertise + small manager bonus ─────
+  const scoredC = pool.map((uid) => ({
+    uid,
+    score: expertiseOf(uid) + (isManager(uid) ? 0.1 : 0),
+  }))
+  const expertC = scoredC.filter((s) => s.score > 0).sort((a, b) => b.score - a.score)
+
+  let C: string[] = expertC.slice(0, Math.max(0, countC)).map((s) => s.uid)
+
+  // Random fallback if no expert was found (small pools, brand-new skills, etc.)
+  if (C.length < countC) {
+    const seedC = hashStringToInt(`${task.id}:C`)
+    const randC = seededRandom(seedC)
+    const remaining = pool.filter((uid) => !C.includes(uid))
+    while (C.length < countC && remaining.length) {
+      const idx = Math.floor(randC() * remaining.length)
+      const uid = remaining.splice(idx, 1)[0]
+      if (uid) C.push(uid)
+    }
+  }
+
+  // ───── Informed: prefer project owner → org_unit manager → other senior ─────
+  const remaining = pool.filter((uid) => !C.includes(uid))
+  const remainingSet = new Set(remaining)
+  const I: string[] = []
+
+  // 1. Project owner (highest stakeholder)
+  const owner = ctx.projectOwnerId
+  if (owner && remainingSet.has(owner) && !I.includes(owner) && owner !== rUserId && owner !== aUserId) {
+    I.push(owner)
+    remainingSet.delete(owner)
+  }
+
+  // 2. Manager from R's org_unit
+  const rOrg = ctx.userOrgUnit?.get(rUserId)
+  if (rOrg && I.length < countI) {
+    const orgManagers = Array.from(remainingSet).filter(
+      (uid) => ctx.userOrgUnit?.get(uid) === rOrg && isManager(uid),
+    )
+    for (const uid of orgManagers) {
+      if (I.length >= countI) break
+      I.push(uid)
+      remainingSet.delete(uid)
+    }
+  }
+
+  // 3. Any other manager system-wide
+  if (I.length < countI) {
+    const otherManagers = Array.from(remainingSet).filter((uid) => isManager(uid))
+    for (const uid of otherManagers) {
+      if (I.length >= countI) break
+      I.push(uid)
+      remainingSet.delete(uid)
+    }
+  }
+
+  // 4. Deterministic random fallback
+  if (I.length < countI) {
+    const seedI = hashStringToInt(`${task.id}:I`)
+    const randI = seededRandom(seedI)
+    const remArr = Array.from(remainingSet)
+    while (I.length < countI && remArr.length) {
+      const idx = Math.floor(randI() * remArr.length)
+      const uid = remArr.splice(idx, 1)[0]
+      if (uid) I.push(uid)
+    }
+  }
+
+  return { C, I }
+}
+
+/**
+ * @deprecated Use `pickConsultedInformed` with full context — same signature
+ * shape but parameterised. Kept here so legacy callers don't break.
+ */
+export function pickConsultedInformedRandom(
+  task: AlgoTask,
+  users: { id: string }[],
+  rUserId: string,
+  aUserId: string | null,
+  capacity: Map<string, { current: number; max: number }>,
+  countC: number = 1,
+  countI: number = 1,
+): { C: string[]; I: string[] } {
+  return pickConsultedInformed(task, users, rUserId, aUserId, capacity, {}, countC, countI)
 }
 
 /* ===========================
@@ -282,16 +397,25 @@ function hungarian(cost: number[][]): number[] {
 /* ===========================
  *  Score phù hợp user-task (0..1)
  *  Ưu tiên kinh nghiệm & cân bằng workload
+ *
+ *  Accepts either the legacy `ExperienceMatrix` or the new
+ *  `ExperienceMatrixData`. When passed the rich data, the function
+ *  automatically picks up the adjacent-skill (same `skills.field`)
+ *  fallback — so a user with related expertise isn't scored at zero.
  * =========================== */
 export function calculateUserTaskScore(
   user: AlgoUser,
   task: AlgoTask,
-  experienceMatrix: ExperienceMatrix
+  experienceMatrix: ExperienceMatrix | ExperienceMatrixData,
 ): number {
+  // Use field-fallback lookup if we got the rich data; otherwise legacy.
+  const getExp = (uid: string, sid: number) =>
+    'scores' in experienceMatrix
+      ? getExperienceScoreWithFallback(experienceMatrix as ExperienceMatrixData, uid, sid)
+      : getExperienceScore(experienceMatrix as ExperienceMatrix, uid, sid)
+
   // 1) Field Experience (50%)
-  const experienceScores = task.required_skills.map(skillId =>
-    getExperienceScore(experienceMatrix, user.id, skillId)
-  )
+  const experienceScores = task.required_skills.map((skillId) => getExp(user.id, skillId))
   const avgExperience = experienceScores.length > 0
     ? experienceScores.reduce((s, v) => s + v, 0) / experienceScores.length
     : 0
@@ -309,15 +433,12 @@ export function calculateUserTaskScore(
   else                           workloadScore = 0.2
 
   // 3) Skill Coverage (10%)
-  const skillCoverage = task.required_skills.filter(skillId =>
-    getExperienceScore(experienceMatrix, user.id, skillId) > 0
-  ).length
-  const skillCoverageScore = task.required_skills.length > 0
-    ? skillCoverage / task.required_skills.length
-    : 1
+  const skillCoverage = task.required_skills.filter((skillId) => getExp(user.id, skillId) > 0).length
+  const skillCoverageScore =
+    task.required_skills.length > 0 ? skillCoverage / task.required_skills.length : 1
 
   // 4) Specialization (5%)
-  const hasHighExpertise = experienceScores.some(s => s > 0.8)
+  const hasHighExpertise = experienceScores.some((s) => s > 0.8)
   const specializationScore = hasHighExpertise ? 1 : 0.5
 
   let total = (
@@ -354,19 +475,26 @@ export function calculateUserTaskScore(
 export function constrainedHungarianAssignment(
   tasks: AlgoTask[],
   users: AlgoUser[],
-  experienceMatrix: ExperienceMatrix,
+  experienceMatrix: ExperienceMatrix | ExperienceMatrixData,
   maxConcurrentTasks: number = 2,
   options?: {
-    minConfidence?: number   // ngưỡng tự tin tối thiểu để chấp nhận gán
-    unassignedCost?: number  // chi phí gán “không ai” (0..1), càng thấp càng dễ bỏ qua
-    bigPenalty?: number      // phạt lớn để cấm gán
+    minConfidence?: number // ngưỡng tự tin tối thiểu để chấp nhận gán
+    unassignedCost?: number // chi phí gán "không ai" (0..1), càng thấp càng dễ bỏ qua
+    bigPenalty?: number // phạt lớn để cấm gán
     priorityMode?: 'weighted' | 'lexi'
-  }
+    /**
+     * Multiplier per priority unit above the baseline (priority=1). Default 0.1
+     * means a priority-3 task has +20% emphasis: its costs get scaled up so the
+     * optimizer "tries harder" to give it a good match. Set to 0 to ignore.
+     */
+    priorityWeightPerUnit?: number
+  },
 ): Assignment[] {
   const minConfidence = options?.minConfidence ?? 0.4
   const unassignedCost = options?.unassignedCost ?? 0.45
   const bigPenalty = options?.bigPenalty ?? 1e6
   const priorityMode = options?.priorityMode ?? 'weighted'
+  const priorityWeightPerUnit = options?.priorityWeightPerUnit ?? 0.1
 
   // 1) Tạo slots theo capacity còn lại của mỗi user
   type Slot = { userId: string; slotIndex: number; isDummy?: boolean }
@@ -410,6 +538,9 @@ export function constrainedHungarianAssignment(
   for (let i = 0; i < n; i++) {
     const task = padTasks[i]
     const isDummyTask = task.name === 'DUMMY'
+    // Priority emphasis: scale this row's costs so higher-priority tasks
+    // dominate Hungarian's minimisation when there's contention.
+    const priorityWeight = isDummyTask ? 1 : 1 + priorityWeightPerUnit * Math.max(0, (task.priority || 1) - 1)
 
     for (let j = 0; j < n; j++) {
       const slot = slots[j]
@@ -421,14 +552,11 @@ export function constrainedHungarianAssignment(
       }
 
       if (slot.isDummy) {
-        // Gán task thật vào slot "không ai" (UNASSIGNED)
-        // Scale chi phí theo chế độ ưu tiên để tránh thiên vị UNASSIGNED
-        if (priorityMode === 'lexi') {
-          // Chi phí lexicographic ~ 0..1e3 -> scale unassignedCost (0..1) lên cùng thang
-          cost[i][j] = (options?.unassignedCost ?? 0.5) * 1e3
-        } else {
-          cost[i][j] = unassignedCost
-        }
+        // Gán task thật vào slot "không ai" (UNASSIGNED). Scale up by priority
+        // so high-priority tasks pay more to be skipped → more likely to find
+        // a real assignment even if it's not perfect.
+        const base = priorityMode === 'lexi' ? (options?.unassignedCost ?? 0.5) * 1e3 : unassignedCost
+        cost[i][j] = base * priorityWeight
         continue
       }
 
@@ -440,31 +568,40 @@ export function constrainedHungarianAssignment(
         continue
       }
 
+      // Helper for getting an expertise score that respects skill-field fallback
+      // when we got the rich matrix data.
+      const getExp = (uid: string, sid: number) =>
+        'scores' in experienceMatrix
+          ? getExperienceScoreWithFallback(experienceMatrix as ExperienceMatrixData, uid, sid)
+          : getExperienceScore(experienceMatrix as ExperienceMatrix, uid, sid)
+
       if (priorityMode === 'lexi') {
         // Lexicographic priorities:
         // P1: Trần công việc đã đảm bảo bằng slots; nếu vượt trần thì đã bị loại ở trên
         // P2: Kinh nghiệm lĩnh vực (cao thì tốt)
-        const exps = task.required_skills.map(sid => getExperienceScore(experienceMatrix, user.id, sid))
+        const exps = task.required_skills.map((sid) => getExp(user.id, sid))
         const domainScore = exps.length ? exps.reduce((a, b) => a + b, 0) / exps.length : 0 // 0..1
 
         // P3: Workload ratio (thấp thì tốt)
         const capUser = Math.min(maxConcurrentTasks, user.max_concurrent_tasks)
-        const wr = capUser > 0 ? (user.current_workload / Math.max(1, capUser)) : 1
+        const wr = capUser > 0 ? user.current_workload / Math.max(1, capUser) : 1
 
         // P4: Random tie-break deterministic per (task,user)
         const seed = hashStringToInt(`${task.id}:${user.id}`)
         const rand = seededRandom(seed)()
 
         // Build cost (minimize): domainScore first, then workload, then random
-        cost[i][j] = (1 - domainScore) * 1e3 + wr * 1e1 + (1 - rand) * 1e-3
+        cost[i][j] = ((1 - domainScore) * 1e3 + wr * 1e1 + (1 - rand) * 1e-3) * priorityWeight
         // Confidence hint dùng để so với minConfidence: dùng trực tiếp domainScore (0..1)
         scoreHint[i][j] = domainScore
       } else {
         // Weighted scoring (existing behavior)
         const totalReq = task.required_skills.length
-        const covered = totalReq === 0 ? 0 : task.required_skills
-          .reduce((acc, sid) => acc + (getExperienceScore(experienceMatrix, user.id, sid) > 0 ? 1 : 0), 0)
-        
+        const covered =
+          totalReq === 0
+            ? 0
+            : task.required_skills.reduce((acc, sid) => acc + (getExp(user.id, sid) > 0 ? 1 : 0), 0)
+
         const coverageRatio = totalReq === 0 ? 1 : covered / totalReq
 
         let baseScore = calculateUserTaskScore(user, task, experienceMatrix)
@@ -473,7 +610,7 @@ export function constrainedHungarianAssignment(
         }
 
         const normalized = Math.max(0, Math.min(1, baseScore))
-        cost[i][j] = 1 - normalized
+        cost[i][j] = (1 - normalized) * priorityWeight
         scoreHint[i][j] = normalized
       }
     }
@@ -544,8 +681,8 @@ export async function assignSingleTask(
   taskId: string,
   requiredSkills: number[],
   availableUsers: AlgoUser[],
-  experienceMatrix: ExperienceMatrix,
-  maxConcurrentTasks: number = 2
+  experienceMatrix: ExperienceMatrix | ExperienceMatrixData,
+  maxConcurrentTasks: number = 2,
 ): Promise<Assignment | null> {
   const task: AlgoTask = {
     id: taskId,

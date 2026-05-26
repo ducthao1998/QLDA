@@ -327,7 +327,7 @@ export function Sidebar(props: React.ComponentProps<typeof ShadSidebar>) {
 
       {/* avatar + dropdown */}
       <SidebarFooter>
-        <NavUser currentUser={currentUser} />
+        {/* <NavUser currentUser={currentUser} /> */}
       </SidebarFooter>
 
       {/* rail thu nhỏ */}

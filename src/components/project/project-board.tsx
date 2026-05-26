@@ -6,7 +6,17 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { CalendarIcon, PlusIcon, SearchIcon, MoreHorizontalIcon, AlertCircleIcon, Bot } from "lucide-react"
+import { CalendarIcon, PlusIcon, SearchIcon, MoreHorizontalIcon, AlertCircleIcon, Bot, Trash2 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -54,6 +64,21 @@ export function ProjectBoard({
   const [selectedTask, setSelectedTask] = useState<TaskWithDetails | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showAutoAssignModal, setShowAutoAssignModal] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+
+  const clearAssignments = async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/raci/clear`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Không thể gỡ phân công')
+      const data = await res.json()
+      toast.success(data.message || 'Đã gỡ phân công')
+      fetchTasks()
+    } catch (e: any) {
+      toast.error(e.message || 'Không thể gỡ phân công')
+    } finally {
+      setConfirmClear(false)
+    }
+  }
 
   useEffect(() => {
     fetchTasks()
@@ -183,12 +208,24 @@ export function ProjectBoard({
           <p className="text-muted-foreground">{initialProject.description}</p>
         </div>
 
-        {userPermissions.canAssignTasks && (
-          <Button onClick={() => setShowCreateModal(true)}>
-            <PlusIcon className="h-4 w-4 mr-2" />
-            Tạo công việc
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {userPermissions.canAssignTasks && (
+            <>
+              <Button variant="outline" onClick={() => setShowAutoAssignModal(true)}>
+                <Bot className="h-4 w-4 mr-2" />
+                Phân công tự động
+              </Button>
+              <Button variant="destructive" onClick={() => setConfirmClear(true)}>
+                <Trash2 className="h-4 w-4 mr-2" />
+                Gỡ phân công toàn dự án
+              </Button>
+              <Button onClick={() => setShowCreateModal(true)}>
+                <PlusIcon className="h-4 w-4 mr-2" />
+                Tạo công việc
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -322,6 +359,29 @@ export function ProjectBoard({
           onSuccess={fetchTasks}
         />
       )}
+
+      <AutoAssignRaciModal
+        open={showAutoAssignModal}
+        onClose={() => setShowAutoAssignModal(false)}
+        projectId={projectId}
+        tasks={tasks as any}
+        onSuccess={fetchTasks}
+      />
+
+      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận gỡ phân công</AlertDialogTitle>
+            <AlertDialogDescription>
+              Hành động này sẽ gỡ toàn bộ phân công R/A/C/I của tất cả công việc trong dự án. Không thể hoàn tác.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogAction onClick={clearAssignments}>Tiếp tục</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

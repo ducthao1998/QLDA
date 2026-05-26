@@ -110,6 +110,38 @@ export const calculateTaskDates = (tasks: Task[], dependencies: any[], projectSt
   return Array.from(taskMap.values())
 }
 
+/**
+ * Sequential / "baseline" schedule: every task is run one after the other in
+ * topological order, with NO parallelism. This is intentionally pessimistic and
+ * is what we show as "Lịch trước tối ưu" so users can visually compare against
+ * the parallel CPM schedule.
+ *
+ * `calculated_start_date` / `calculated_end_date` are populated; the original
+ * task objects are otherwise left untouched.
+ */
+export const calculateSequentialTaskDates = (
+  tasks: Task[],
+  dependencies: any[],
+  projectStartDate: Date,
+): Task[] => {
+  const sorted = sortTasksByDependencies(tasks, dependencies)
+  const oneDayMs = 86_400_000
+  let cursorMs = projectStartDate.getTime()
+  const out: Task[] = []
+  for (const task of sorted) {
+    const dur = task.duration_days && task.duration_days > 0 ? task.duration_days : 1
+    const startMs = cursorMs
+    const endMs = startMs + (dur - 1) * oneDayMs
+    out.push({
+      ...task,
+      calculated_start_date: new Date(startMs).toISOString(),
+      calculated_end_date: new Date(endMs).toISOString(),
+    })
+    cursorMs = endMs + oneDayMs // next task starts the day after this one ends
+  }
+  return out
+}
+
 export const daysBetween = (a: Date, b: Date) => Math.max(0, Math.round((+b - +a) / 86400000))
 export const addMonths = (d: Date, n: number) => { const x = new Date(d); x.setMonth(x.getMonth() + n); return x }
 export const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }

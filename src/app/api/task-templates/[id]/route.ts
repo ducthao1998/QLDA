@@ -205,7 +205,11 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     }
 
     if (dependentTemplates && dependentTemplates.length > 0) {
-      const dependentNames = dependentTemplates.map(dep => dep.template?.name).filter(name => name).join(', ')
+      // `dep.template` is typed as array by Supabase but is a single object at runtime.
+      const dependentNames = (dependentTemplates as any[])
+        .map((dep: any) => dep.template?.name)
+        .filter((name: any) => name)
+        .join(', ')
       return NextResponse.json({ 
         error: `Không thể xóa công việc mẫu này vì các công việc sau đang phụ thuộc vào nó: ${dependentNames}. Vui lòng xóa các phụ thuộc trước.` 
       }, { status: 400 })
@@ -254,7 +258,7 @@ async function checkCircularDependencies(
   const templateNames: Record<number, string> = {}
 
   // Build current graph (excluding current template)
-  allDependencies?.forEach(dep => {
+  allDependencies?.forEach((dep: any) => {
     if (!dependencyGraph[dep.template_id]) {
       dependencyGraph[dep.template_id] = []
     }

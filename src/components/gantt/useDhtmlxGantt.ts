@@ -1,9 +1,20 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import type { RefObject } from "react"
 import { toast } from "sonner"
 import { analyzeTaskIssues } from "./analysis"
 import { Task, ViewModeType } from "./types"
 
+/**
+ * Initialise DHTMLX Gantt for the current project data.
+ *
+ * Key design points:
+ *  - `taskAnalysis` is read through a ref so it does NOT need to live in the
+ *    effect's dependency array. Putting it there caused a render→effect→
+ *    setTaskAnalysis→render loop that froze the page.
+ *  - `setTaskAnalysis` (React setter) is stable so it's safe to call from inside.
+ *  - Mouse-wheel + Ctrl-zoom + drag-to-pan are wired up so the user doesn't have
+ *    to keep clicking the day/week/month tabs to navigate.
+ */
 export const useDhtmlxGantt = (
   containerRef: RefObject<HTMLDivElement>,
   projectData: any,
@@ -13,109 +24,126 @@ export const useDhtmlxGantt = (
   setTaskAnalysis: (a: Record<string, any>) => void,
   taskAnalysis: Record<string, any>,
 ) => {
+  // Read latest analysis without re-running the effect when it changes.
+  const taskAnalysisRef = useRef(taskAnalysis)
+  useEffect(() => {
+    taskAnalysisRef.current = taskAnalysis
+  }, [taskAnalysis])
+
   useEffect(() => {
     if (!containerRef.current || !projectData?.tasks) return
+
+    let cancelled = false
 
     const init = async () => {
       try {
         const { gantt } = await import("dhtmlx-gantt")
-        gantt.clearAll()
-        gantt.config.date_format = "%Y-%m-%d"
-        gantt.config.scale_unit = viewMode === "day" ? "day" : viewMode === "week" ? "week" : "month"
-        gantt.config.date_scale = viewMode === "day" ? "%d %M" : viewMode === "week" ? "Tuần %W" : "%F %Y"
-        gantt.config.subscales = viewMode === "day" ? [{ unit: "hour", step: 6, date: "%H:00" }] : []
-        gantt.config.row_height = 50
-        gantt.config.min_column_width = viewMode === "week" ? 150 : 80
-        gantt.config.scale_height = 70
-        gantt.config.task_height = 25
-        gantt.config.link_line_width = 2
-        gantt.config.link_arrow_size = 6
-        gantt.config.duration_unit = "day"
+        if (cancelled) return
 
-        // Try to enable PRO critical path plugin if available (but still apply our own classes)
-        try {
-          if (typeof (gantt as any).plugins === "function") {
-            ;(gantt as any).plugins({ critical_path: true })
-          }
-          if (typeof (gantt as any).isCriticalTask === "function") {
-            gantt.config.highlight_critical_path = true
-          }
-        } catch {}
-
-        gantt.templates.scale_cell_class = function () {
-          if (viewMode === "week") return "gantt_scale_week"
-          if (viewMode === "day") return "gantt_scale_day"
-          return "gantt_scale_month"
-        }
-
-        gantt.templates.date_scale = function (date: any) {
-          if (viewMode === "week") {
-            const weekStart = new Date(date)
-            const weekEnd = new Date(date)
-            weekEnd.setDate(weekStart.getDate() + 6)
-            const startDay = weekStart.getDate()
-            const startMonth = weekStart.getMonth() + 1
-            const endDay = weekEnd.getDate()
-            const endMonth = weekEnd.getMonth() + 1
-            return `Tuần ${startDay}/${startMonth}-${endDay}/${endMonth}`
-          } else if (viewMode === "day") {
-            return date.toLocaleDateString("vi-VN", { day: "numeric", month: "short" })
-          }
-          return date.toLocaleDateString("vi-VN", { month: "long", year: "numeric" })
-        }
-
-        // Highlight critical path tasks and links (always apply our custom classes)
-        gantt.templates.task_class = function (_start: any, _end: any, task: any) {
-          const classes = []
-          const inSet = (() => {
-            try { return criticalSet?.has(String(task.id)) } catch { return false }
-          })()
-          const isCrit = !!(task.isCritical || task.is_critical_path || (task as any)._critical || inSet)
-          if (isCrit) classes.push("gantt-task-critical")
-          return classes.join(" ")
-        }
-        
-        gantt.templates.link_class = function (link: any) {
-          try {
-            const s = gantt.getTask(link.source)
-            const t = gantt.getTask(link.target)
-            const sCrit = s?.isCritical || s?.is_critical_path
-            const tCrit = t?.isCritical || t?.is_critical_path
-            if (sCrit && tCrit) return "gantt-link-critical"
-          } catch {}
-          return ""
-        }
-
-        gantt.config.columns = [
-          { name: "text", label: "Task name", width: 200, tree: true },
-          { name: "start_date", label: "Start", width: 80, align: "center" },
-          { name: "duration", label: "Duration", width: 60, align: "center" },
-          { name: "progress", label: "Progress", width: 60, align: "center", template: (obj: any) => Math.round(obj.progress * 100) + "%" },
-        ]
-
-        const sortedTasks = getDisplayTasks().sort((a: Task, b: Task) => (a.level || 0) - (b.level || 0))
-        const analysis = analyzeTaskIssues(sortedTasks, projectData.dependencies || [])
-        setTaskAnalysis(analysis)
-        const criticalPathIds = (projectData?.cpm_details?.criticalPath || []).map((x: any) => String(x))
+        const criticalPathIds = (projectData?.cpm_details?.criticalPath || []).map(String)
         const criticalDetailIds = (projectData?.cpm_details?.taskDetails || [])
           .filter((td: any) => td?.isCritical)
           .map((td: any) => String(td.taskId))
         const criticalSet = new Set<string>([...criticalPathIds, ...criticalDetailIds])
-        const tasks = sortedTasks.map((task: Task) => ({
+        const isCritical = (id: string | number) => criticalSet.has(String(id))
+
+        // -------- Config --------
+        gantt.clearAll()
+        gantt.config.date_format = "%Y-%m-%d"
+        gantt.config.row_height = 38
+        gantt.config.scale_height = 70
+        gantt.config.task_height = 22
+        gantt.config.link_line_width = 2
+        gantt.config.link_arrow_size = 6
+        gantt.config.duration_unit = "day"
+
+        // Tree-of-zoom-levels — used by the wheel/keyboard handlers below.
+        const ZOOM_LEVELS = [
+          { name: "hour", scale_unit: "hour", date_scale: "%H:00", min_column_width: 40, scales: [{ unit: "day", step: 1, format: "%d %M" }] },
+          { name: "day", scale_unit: "day", date_scale: "%d %M", min_column_width: 70, scales: [] },
+          { name: "week", scale_unit: "week", date_scale: "Tuần %W", min_column_width: 130, scales: [] },
+          { name: "month", scale_unit: "month", date_scale: "%F %Y", min_column_width: 110, scales: [] },
+          { name: "quarter", scale_unit: "month", date_scale: "%M %Y", min_column_width: 80, scales: [{ unit: "year", step: 1, format: "%Y" }] },
+          { name: "year", scale_unit: "year", date_scale: "%Y", min_column_width: 80, scales: [] },
+        ] as const
+
+        const applyZoomLevel = (idx: number) => {
+          const lv = ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, idx))]
+          ;(gantt as any)._zoomIndex = idx
+          gantt.config.scale_unit = lv.scale_unit
+          gantt.config.date_scale = lv.date_scale
+          gantt.config.min_column_width = lv.min_column_width
+          gantt.config.subscales = lv.scales as any
+        }
+
+        // Map viewMode prop -> zoom index. The user can still wheel/zoom from here.
+        const initialZoomIdx = viewMode === "day" ? 1 : viewMode === "week" ? 2 : 3
+        applyZoomLevel(initialZoomIdx)
+
+        // Opt-in critical-path plugin if PRO build is available.
+        try {
+          if (typeof (gantt as any).plugins === "function") {
+            ;(gantt as any).plugins({ critical_path: true })
+            gantt.config.highlight_critical_path = true
+          }
+        } catch {
+          /* community build */
+        }
+
+        // -------- Templates --------
+        gantt.templates.date_scale = (date: any) => {
+          const idx = (gantt as any)._zoomIndex ?? initialZoomIdx
+          const lv = ZOOM_LEVELS[idx]
+          if (lv.name === "week") {
+            const weekStart = new Date(date)
+            const weekEnd = new Date(date)
+            weekEnd.setDate(weekStart.getDate() + 6)
+            return `Tuần ${weekStart.getDate()}/${weekStart.getMonth() + 1}-${weekEnd.getDate()}/${weekEnd.getMonth() + 1}`
+          }
+          if (lv.name === "day") return date.toLocaleDateString("vi-VN", { day: "numeric", month: "short" })
+          if (lv.name === "hour") return `${date.getHours()}:00`
+          if (lv.name === "year") return date.getFullYear().toString()
+          return date.toLocaleDateString("vi-VN", { month: "short", year: "numeric" })
+        }
+
+        gantt.templates.task_class = (_s: any, _e: any, task: any) => {
+          const crit = !!task.is_critical_path || isCritical(task.id)
+          return crit ? "gantt-task-critical" : ""
+        }
+
+        gantt.templates.link_class = (link: any) =>
+          isCritical(link.source) && isCritical(link.target) ? "gantt-link-critical" : ""
+
+        gantt.config.columns = [
+          { name: "text", label: "Công việc", width: 240, tree: true },
+          { name: "start_date", label: "Bắt đầu", width: 90, align: "center" },
+          { name: "duration", label: "Ngày", width: 50, align: "center" },
+          {
+            name: "progress",
+            label: "Tiến độ",
+            width: 70,
+            align: "center",
+            template: (obj: any) => Math.round((obj.progress || 0) * 100) + "%",
+          },
+        ]
+
+        // -------- Build dataset --------
+        const sortedTasks = getDisplayTasks().sort((a: Task, b: Task) => (a.level || 0) - (b.level || 0))
+        setTaskAnalysis(analyzeTaskIssues(sortedTasks, projectData.dependencies || []))
+
+        const ganttTasks = sortedTasks.map((task: Task) => ({
           id: String(task.id),
           text: task.name,
-          // Use string date matching gantt.config.date_format ("%Y-%m-%d")
           start_date: task.calculated_start_date
             ? new Date(task.calculated_start_date).toISOString().slice(0, 10)
             : new Date().toISOString().slice(0, 10),
           duration: task.duration_days || 1,
           progress: (task.progress ?? 0) / 100,
           open: true,
-          // Keep both flags to be robust across API/FE naming
-          is_critical_path: !!(task as any).is_critical_path || criticalSet.has(String(task.id)),
-          isCritical: !!(task as any).is_critical_path || criticalSet.has(String(task.id)),
-          analysis: taskAnalysis[task.id] || null,
+          is_critical_path: isCritical(task.id),
+          analysis: taskAnalysisRef.current[task.id] || null,
         }))
+
         const links = (projectData.dependencies || []).map((dep: any, index: number) => ({
           id: String(index + 1),
           source: String(dep.depends_on_id),
@@ -123,178 +151,53 @@ export const useDhtmlxGantt = (
           type: "0",
           ...(typeof dep.lag === "number" ? { lag: dep.lag } : {}),
         }))
-        // Force critical path styling through multiple approaches
-        gantt.attachEvent("onTaskLoading", (t: any) => {
-          try {
-            const isCrit = !!(t.is_critical_path || t.isCritical || (t as any)._critical || criticalSet.has(String(t.id)))
-            if (isCrit) {
-              // Apply class directly to task object
-              t.$class = (t.$class ? t.$class + " " : "") + "gantt-task-critical"
-              // Also set a custom property for template access
-              t._critical = true
-            }
-            // eslint-disable-next-line no-console
-            console.log("[load]", t.id, "critical:", isCrit, "class:", t.$class)
-          } catch {}
-          return true
-        })
 
-        // Ensure class assignment on creation
-        gantt.attachEvent("onTaskCreated", (t: any) => {
-          try {
-            const isCrit = !!(t.is_critical_path || t.isCritical || (t as any)._critical || criticalSet.has(String(t.id)))
-            if (isCrit) {
-              t.$class = (t.$class ? t.$class + " " : "") + "gantt-task-critical"
-              t._critical = true
-            }
-            // eslint-disable-next-line no-console
-            console.log("[created]", t.id, "critical:", isCrit, "class:", t.$class)
-          } catch {}
-          return true
-        })
+        // -------- Render --------
+        if (!containerRef.current || cancelled) return
+        gantt.init(containerRef.current)
+        gantt.parse({ data: ganttTasks, links })
 
-        // Ensure class right before display
-        gantt.attachEvent("onBeforeTaskDisplay", (id: any, t: any) => {
-          try {
-            const isCrit = !!(t.is_critical_path || t.isCritical || (t as any)._critical || criticalSet.has(String(id)))
-            if (isCrit && (!t.$class || !String(t.$class).includes("gantt-task-critical"))) {
-              t.$class = (t.$class ? t.$class + " " : "") + "gantt-task-critical"
-            }
-            // eslint-disable-next-line no-console
-            console.log("[before-display]", id, "critical:", isCrit, "class:", t.$class)
-          } catch {}
-          return true
-        })
-        
-        gantt.attachEvent("onAfterTaskAdd", (id: any, t: any) => {
-          try {
-            const isCrit = !!(t.is_critical_path || t.isCritical)
-            // eslint-disable-next-line no-console
-            console.log("[added]", id, "critical:", isCrit)
-            
-            // Force re-render of this specific task
-            if (isCrit) {
-              setTimeout(() => {
-                try {
-                  gantt.refreshTask(id)
-                } catch {}
-              }, 100)
-            }
-          } catch {}
-        })
-        
-        // Additional event to ensure styling is applied after rendering
-        gantt.attachEvent("onAfterTaskDrag", (id: any, task: any) => {
-          try {
-            const isCrit = !!(task.is_critical_path || task.isCritical || task._critical)
-            if (isCrit) {
-              // Find the DOM element and apply class directly
-              const taskElement = gantt.$task_data.querySelector(`[task_id="${id}"]`)
-              if (taskElement && !taskElement.classList.contains("gantt-task-critical")) {
-                taskElement.classList.add("gantt-task-critical")
-                // eslint-disable-next-line no-console
-                console.log("[DOM] Applied critical class to task", id)
-              }
-            }
-          } catch {}
-        })
-        
-        // Use onGanttRender event to apply styling after full render
+        // Fallback DOM sweep for lazily-rendered rows (DHTMLX virtualizes long lists).
         gantt.attachEvent("onGanttRender", () => {
-          try {
-            // Apply critical styling to all critical tasks after render
-            gantt.eachTask((task: any) => {
-              const isCrit = !!(task.is_critical_path || task.isCritical || task._critical)
-              if (isCrit) {
-                const taskElement = gantt.$task_data.querySelector(`[task_id="${task.id}"]`) ||
-                  gantt.$task_data.querySelector(`.gantt_task_line[task_id="${task.id}"]`) ||
-                  gantt.$task_data.querySelector(`[data-task-id="${task.id}"]`)
-                if (taskElement && !taskElement.classList.contains("gantt-task-critical")) {
-                  taskElement.classList.add("gantt-task-critical")
-                  // eslint-disable-next-line no-console
-                  console.log("[Render] Applied critical class to task", task.id)
-                }
-              }
-            })
-          } catch {}
+          if (!containerRef.current) return
+          const bars = containerRef.current.querySelectorAll<HTMLElement>(".gantt_task_line[task_id]")
+          bars.forEach((el) => {
+            const id = el.getAttribute("task_id") || ""
+            if (criticalSet.has(id) && !el.classList.contains("gantt-task-critical")) {
+              el.classList.add("gantt-task-critical")
+            }
+          })
         })
-        if (containerRef.current) {
-          gantt.init(containerRef.current)
-          gantt.parse({ data: tasks, links })
-          
-          // Force refresh and re-render to ensure styling is applied
-          setTimeout(() => {
-            try {
-              gantt.refreshData()
-              gantt.render()
-              
-              // Manual DOM manipulation as fallback
-              tasks.forEach((task: any) => {
-                if (task.isCritical || task.is_critical_path) {
-                  const taskElement = containerRef.current?.querySelector(`[task_id="${task.id}"]`)
-                  if (taskElement && !taskElement.classList.contains("gantt-task-critical")) {
-                    taskElement.classList.add("gantt-task-critical")
-                    // eslint-disable-next-line no-console
-                    console.log("[Manual] Applied critical class to task", task.id)
-                  }
-                }
-              })
 
-              // Apply classes in bulk based on criticalSet
-              if (containerRef.current) {
-                const bars = containerRef.current.querySelectorAll('.gantt_task_line[task_id]')
-                bars.forEach((el: Element) => {
-                  const id = el.getAttribute('task_id') || ''
-                  if (criticalSet.has(String(id))) {
-                    if (!el.classList.contains('gantt-task-critical')) {
-                      el.classList.add('gantt-task-critical')
-                      // eslint-disable-next-line no-console
-                      console.log('[Bulk] Applied critical class to task', id)
-                    }
-                  }
-                })
-              }
-              
-              // Debug: verify final state
-              gantt.eachTask((t: any) => {
-                const isCrit = !!(t.is_critical_path || t.isCritical)
-                // eslint-disable-next-line no-console
-                console.log("[final]", t.id, "critical:", isCrit, "class:", t.$class)
-              })
-            } catch (e) {
-              console.error("Error in post-render styling:", e)
+        // -------- Wheel & keyboard zoom --------
+        // Ctrl+wheel = zoom in/out around the cursor's date. Plain wheel scrolls
+        // horizontally so users don't fight with their trackpad.
+        const wheelHandler = (e: WheelEvent) => {
+          if (!containerRef.current) return
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault()
+            const dir = e.deltaY > 0 ? +1 : -1
+            const next = ((gantt as any)._zoomIndex ?? initialZoomIdx) + dir
+            applyZoomLevel(next)
+            gantt.render()
+          } else if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+            // Convert vertical wheel into horizontal scroll for time navigation.
+            const dataArea = containerRef.current.querySelector(".gantt_task") as HTMLElement | null
+            if (dataArea) {
+              dataArea.scrollLeft += e.deltaY
+              e.preventDefault()
             }
-          }, 200)
-
-          // Expose debug helpers
-          try {
-            ;(window as any).__ganttDebug = {
-              criticalSet: Array.from(criticalSet),
-              has: (id: string) => criticalSet.has(String(id)),
-              dump: (id: string) => {
-                try {
-                  const t = gantt.getTask(String(id))
-                  return { id: String(id),
-                    inSet: criticalSet.has(String(id)),
-                    isCritical: t?.isCritical,
-                    is_critical_path: t?.is_critical_path,
-                    $class: t?.$class,
-                  }
-                } catch (e) { return { error: String(e) } }
-              },
-              force: (id: string) => {
-                try {
-                  const el = (containerRef.current as any)?.querySelector?.(`[task_id="${id}"]`) ||
-                             (containerRef.current as any)?.querySelector?.(`.gantt_task_line[task_id="${id}"]`) ||
-                             (containerRef.current as any)?.querySelector?.(`[data-task-id="${id}"]`)
-                  if (el) { el.classList.add('gantt-task-critical'); return true }
-                  return false
-                } catch { return false }
-              }
-            }
-          } catch {}
+          }
         }
+        containerRef.current.addEventListener("wheel", wheelHandler, { passive: false })
+
+        // Cleanup-on-rerun: remove the listener via attachEvent's life-cycle.
+        const detach = () => {
+          containerRef.current?.removeEventListener("wheel", wheelHandler)
+        }
+        ;(gantt as any).__detachWheel = detach
       } catch (error) {
+        if (cancelled) return
         console.error("Error initializing Gantt:", error)
         toast.error("Lỗi khi khởi tạo Gantt chart")
       }
@@ -303,10 +206,19 @@ export const useDhtmlxGantt = (
     init()
 
     return () => {
-      if (containerRef.current) {
-        const { gantt } = require("dhtmlx-gantt")
-        gantt.clearAll()
+      cancelled = true
+      try {
+        const mod = require("dhtmlx-gantt")
+        mod.gantt?.__detachWheel?.()
+        mod.gantt?.clearAll?.()
+      } catch {
+        /* ignore */
       }
     }
-  }, [containerRef, projectData, viewMode, showTasksWithoutDependencies])
+    // NOTE: `taskAnalysis` and `setTaskAnalysis` are intentionally NOT in deps.
+    // Reading via ref + stable setter avoids the infinite re-render loop that
+    // happens when this effect calls setTaskAnalysis (which would otherwise
+    // trigger itself on the next render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerRef, projectData, viewMode, showTasksWithoutDependencies, getDisplayTasks])
 }

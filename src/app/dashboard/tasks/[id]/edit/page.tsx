@@ -57,7 +57,7 @@ export default async function EditTaskPage({ params }: { params: Params }) {
     }
 
     // Find the responsible user (role = 'R') from RACI
-    const responsibleUser = task.task_raci?.find(raci => raci.role === 'R')
+    const responsibleUser = (task.task_raci as any[] | undefined)?.find((raci: any) => raci.role === 'R')
     const responsibleUserName = responsibleUser?.users?.full_name || 'Chưa phân công'
 
     return (

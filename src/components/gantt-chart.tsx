@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -9,14 +9,35 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
-import { RefreshCw, Calendar, CalendarDays, CalendarRange, Download, Eye, EyeOff, AlertCircle } from "lucide-react"
+import {
+  RefreshCw,
+  Calendar,
+  CalendarDays,
+  CalendarRange,
+  Download,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  Wand2,
+} from "lucide-react"
 // Import DHTMLX Gantt CSS
 import "dhtmlx-gantt/codebase/dhtmlxgantt.css"
 import { GanttChartProps, OptimizationResult, Task, ViewModeType } from "@/components/gantt/types"
-import { calculateTaskDates, sortTasksByDependencies } from "@/components/gantt/utils"
+import {
+  calculateSequentialTaskDates,
+  calculateTaskDates,
+  sortTasksByDependencies,
+} from "@/components/gantt/utils"
 import { exportGanttToPdf } from "@/components/gantt/export-pdf"
 import { exportGanttToExcel } from "@/components/gantt/export-excel"
 import { useDhtmlxGantt } from "@/components/gantt/useDhtmlxGantt"
+
+/** "cpm" = parallel/optimized staircase, "sequential" = naive one-after-another baseline */
+type ScheduleMode = "cpm" | "sequential"
+
+// sessionStorage keys — scoped by projectId
+const ganttCacheKey = (projectId: string) => `gantt:data:${projectId}`
+const optimizationCacheKey = (projectId: string) => `gantt:optimization:${projectId}`
 
  
 
@@ -24,6 +45,10 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
   const [projectData, setProjectData] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [optimizationResult, setOptimizationResult] = useState<OptimizationResult | null>(null)
+  const [isOptimizing, setIsOptimizing] = useState(false)
+  // CPM = parallel staircase (the "optimized" view). Sequential = baseline so the
+  // user can flip back and forth and see how much was actually saved.
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>("cpm")
   const [viewMode, setViewMode] = useState<ViewModeType>("month")
   const [showTasksWithoutDependencies, setShowTasksWithoutDependencies] = useState(false)
   const [taskAnalysis, setTaskAnalysis] = useState<Record<string, any>>({})
@@ -33,47 +58,58 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
   const [selectedTaskForAnalysis, setSelectedTaskForAnalysis] = useState<string | null>(null)
   const ganttContainerRef = useRef<HTMLDivElement>(null)
 
-  
+  // Keep latest `onOptimize` in a ref so effect deps don't churn when the
+  // parent re-renders with a fresh callback identity (this was the freeze cause).
+  const onOptimizeRef = useRef(onOptimize)
+  useEffect(() => {
+    onOptimizeRef.current = onOptimize
+  }, [onOptimize])
 
-  const getDisplayTasks = () => {
+  /**
+   * Compute the list of tasks to render. Switches between the CPM "staircase"
+   * (parallel where possible — the optimized view) and the naive sequential
+   * baseline whenever the user flips `scheduleMode`. Memoised so downstream
+   * effects (DHTMLX gantt init) don't loop infinitely.
+   *
+   * IMPORTANT: we do NOT use `optimizationResult.optimized_schedule` as the data
+   * source — those are ScheduleDetail rows with `task_id`/`start_ts` shape, not
+   * the Task shape the Gantt expects. The tasks returned from /api/.../gantt
+   * already carry CPM-correct dates; flipping to sequential just re-derives
+   * dates client-side.
+   */
+  const getDisplayTasks = useCallback((): Task[] => {
     if (!projectData) return []
 
-    const { tasks = [] } = projectData
-    let displayTasks = optimizationResult?.optimized_schedule || tasks
+    const baseTasks: Task[] = projectData.tasks || []
+    if (!baseTasks.length) return []
+
+    const projectStart = projectData.project?.start_date
+      ? new Date(projectData.project.start_date)
+      : new Date()
+
+    let displayTasks: Task[] =
+      scheduleMode === "sequential"
+        ? calculateSequentialTaskDates(baseTasks, projectData.dependencies || [], projectStart)
+        : calculateTaskDates(baseTasks, projectData.dependencies || [], projectStart)
 
     if (projectData.dependencies) {
       displayTasks = sortTasksByDependencies(displayTasks, projectData.dependencies)
     }
 
-    // Filter tasks based on dependency visibility setting
     if (!showTasksWithoutDependencies) {
-      // Show tasks that either have dependencies OR are dependencies for other tasks
       const tasksWithDeps = new Set<string>()
-      
-      // Add tasks that have dependencies
       displayTasks.forEach((task: Task) => {
-        if (task.has_dependencies) {
-          tasksWithDeps.add(task.id)
-        }
+        if (task.has_dependencies) tasksWithDeps.add(task.id)
       })
-      
-      // Add tasks that are dependencies for other tasks
       if (projectData.dependencies) {
-        projectData.dependencies.forEach((dep: any) => {
-          tasksWithDeps.add(dep.depends_on_id)
-        })
+        projectData.dependencies.forEach((dep: any) => tasksWithDeps.add(dep.depends_on_id))
       }
-      
-      // If no tasks have dependencies, show all tasks
-      if (tasksWithDeps.size === 0) {
-        return displayTasks
-      }
-      
+      if (tasksWithDeps.size === 0) return displayTasks
       displayTasks = displayTasks.filter((task: Task) => tasksWithDeps.has(task.id))
     }
 
     return displayTasks
-  }
+  }, [projectData, scheduleMode, showTasksWithoutDependencies])
 
   const handleSaveOptimizedSchedule = async () => {
     try {
@@ -181,137 +217,181 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
     taskAnalysis,
   )
 
+  /**
+   * Normalize gantt-API response: ensure tasks carry stable string ids,
+   * `is_critical_path` is set, and `calculated_*` dates exist.
+   * Mutates `data` in place and returns it.
+   */
+  const normalizeProjectData = useCallback((data: any) => {
+    // Older API responses used `critical_path` instead of `cpm_details`
+    if (!data.cpm_details && data.critical_path) data.cpm_details = data.critical_path
+
+    const criticalIds: string[] = (data.cpm_details?.criticalPath || []).map(String)
+    const criticalSet = new Set(criticalIds)
+
+    if (Array.isArray(data.tasks)) {
+      data.tasks = data.tasks.map((t: any) => ({
+        ...t,
+        id: String(t.id),
+        is_critical_path: t.is_critical_path ?? criticalSet.has(String(t.id)),
+      }))
+    }
+
+    // Recompute display dates client-side using the same dependency-aware logic
+    // as the backend (kept here so legacy/cached responses still render correctly).
+    if (data.tasks?.length && data.project?.start_date) {
+      const projectStart = new Date(data.project.start_date)
+      const tasksWithDates = calculateTaskDates(data.tasks, data.dependencies || [], projectStart)
+      data.tasks = tasksWithDates
+      const ends = tasksWithDates
+        .map((t) => new Date(t.calculated_end_date || 0).getTime())
+        .filter((n) => Number.isFinite(n))
+      if (ends.length) data.project.end_date = new Date(Math.max(...ends)).toISOString()
+    }
+    return data
+  }, [])
+
+  // -------- Effect 1: fetch project Gantt data (no optimization) --------
+  // Re-runs only when projectId changes — refreshing the page, switching tabs,
+  // or re-mounting the component all reuse the sessionStorage cache instead of
+  // re-hitting the API or kicking off an optimization run.
   useEffect(() => {
     if (!projectId) return
+    const controller = new AbortController()
 
-    async function fetchProjectDataAndOptimize() {
+    async function fetchProjectData() {
       try {
         setIsLoading(true)
-
-        const cacheKey = `gantt:${projectId}`
-        const cached = typeof window !== 'undefined' ? sessionStorage.getItem(cacheKey) : null
-        let data: any | null = cached ? JSON.parse(cached) : null
+        const cached = typeof window !== "undefined" ? sessionStorage.getItem(ganttCacheKey(projectId)) : null
+        let data = cached ? JSON.parse(cached) : null
 
         if (!data) {
-          const response = await fetch(`/api/projects/${projectId}/gantt`, { cache: 'no-store' })
-        if (!response.ok) {
-          throw new Error(`Không thể tải dữ liệu dự án: ${response.status}`)
-          }
+          const response = await fetch(`/api/projects/${projectId}/gantt`, {
+            cache: "no-store",
+            signal: controller.signal,
+          })
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
           data = await response.json()
-          try { sessionStorage.setItem(cacheKey, JSON.stringify(data)) } catch {}
-        }
-
-        // Fallbacks for older API responses
-        if (!data.cpm_details && data.critical_path) {
-          data.cpm_details = data.critical_path
-        }
-        if (Array.isArray(data.tasks) && data.cpm_details?.criticalPath?.length) {
-          const critical = new Set((data.cpm_details.criticalPath || []).map((x: any) => String(x)))
-          data.tasks = data.tasks.map((t: any) => ({
-            ...t,
-            id: String(t.id),
-            is_critical_path: t.is_critical_path ?? critical.has(String(t.id)),
-          }))
-        }
-
-        if (data.tasks && data.tasks.length > 0 && data.project?.start_date) {
-          const projectStartDate = new Date(data.project.start_date)
-          const tasksWithDates = calculateTaskDates(data.tasks, data.dependencies || [], projectStartDate)
-
-          data.tasks = tasksWithDates
-
-          const latestEndDate = new Date(
-            Math.max(...tasksWithDates.map((t) => new Date(t.calculated_end_date || 0).getTime())),
-          )
-          data.project.end_date = latestEndDate.toISOString()
-          // Re-annotate critical flag after calculating dates (in case fields were dropped)
-          if (data.cpm_details?.criticalPath?.length) {
-            const criticalSet = new Set((data.cpm_details.criticalPath || []).map((x: any) => String(x)))
-            data.tasks = data.tasks.map((t: any) => ({
-              ...t,
-              is_critical_path: t.is_critical_path ?? criticalSet.has(String(t.id)),
-            }))
+          try {
+            sessionStorage.setItem(ganttCacheKey(projectId), JSON.stringify(data))
+          } catch {
+            /* quota errors etc. — non-fatal */
           }
         }
 
-        // Merge CPM details (if provided) into taskAnalysis for richer explanations
-        if (data.cpm_details?.taskDetails) {
-          try {
-            // Deep-merge CPM details into existing analysis entries only
-            setTaskAnalysis((prev) => {
-              const next: Record<string, any> = { ...prev }
-              for (const td of data.cpm_details.taskDetails) {
-                if (next[td.taskId]) {
-                  next[td.taskId] = { ...next[td.taskId], cpm: td }
-                }
-              }
-              return next
-            })
-          } catch {}
-        }
-
+        data = normalizeProjectData(data)
         setProjectData(data)
 
-        if (data.tasks && data.tasks.length > 0) {
-          const optimizeResponse = await fetch(`/api/projects/${projectId}/optimize`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              algorithm: "multi_project_cpm",
-              objective: { type: "time" },
-            }),
+        // Merge CPM details into task analysis (used by the per-task tooltips).
+        if (data.cpm_details?.taskDetails) {
+          setTaskAnalysis((prev) => {
+            const next: Record<string, any> = { ...prev }
+            for (const td of data.cpm_details.taskDetails) {
+              if (next[td.taskId]) next[td.taskId] = { ...next[td.taskId], cpm: td }
+            }
+            return next
           })
-
-          if (optimizeResponse.ok) {
-            const optimizationData = await optimizeResponse.json()
-            // Ensure optimized schedule carries critical flags and string ids
-            if (optimizationData?.optimized_schedule && data.cpm_details?.criticalPath?.length) {
-              const criticalSet = new Set((data.cpm_details.criticalPath || []).map((x: any) => String(x)))
-              optimizationData.optimized_schedule = optimizationData.optimized_schedule.map((t: any) => ({
-                ...t,
-                id: String(t.id),
-                is_critical_path: t.is_critical_path ?? criticalSet.has(String(t.id)),
-              }))
-            }
-            setOptimizationResult(optimizationData)
-            if (onOptimize) {
-              onOptimize(optimizationData)
-            }
-          }
         }
-      } catch (error) {
-        console.error("Error fetching project data:", error)
-        toast.error(`Lỗi khi tải dữ liệu dự án: ${error instanceof Error ? error.message : "Unknown error"}`)
+
+        // Restore previously computed optimization (if user already ran it this session).
+        try {
+          const cachedOpt = sessionStorage.getItem(optimizationCacheKey(projectId))
+          if (cachedOpt) {
+            const parsed = JSON.parse(cachedOpt) as OptimizationResult
+            setOptimizationResult(parsed)
+            onOptimizeRef.current?.(parsed)
+          } else {
+            setOptimizationResult(null)
+          }
+        } catch {
+          /* ignore */
+        }
+      } catch (err: any) {
+        if (err?.name === "AbortError") return
+        console.error("Error fetching project data:", err)
+        toast.error(`Lỗi khi tải dữ liệu dự án: ${err?.message || "Unknown error"}`)
       } finally {
         setIsLoading(false)
       }
     }
 
-    fetchProjectDataAndOptimize()
-  }, [projectId])
+    fetchProjectData()
+    return () => controller.abort()
+    // NOTE: onOptimize is intentionally NOT in deps — it's accessed via a ref to
+    // avoid re-running this effect whenever the parent passes a new function.
+  }, [projectId, normalizeProjectData])
 
-  const handleRefresh = () => {
+  // -------- Manual optimization trigger --------
+  const handleRunOptimization = useCallback(async () => {
+    if (!projectId || !projectData?.tasks?.length) {
+      toast.error("Chưa có dữ liệu để tối ưu")
+      return
+    }
     try {
-      const cacheKey = `gantt:${projectId}`
-      sessionStorage.removeItem(cacheKey)
-    } catch {}
-    ;(async () => {
-      setIsLoading(true)
-      try {
-        const response = await fetch(`/api/projects/${projectId}/gantt`, { cache: 'no-store' })
-        const data = await response.json()
-        try { sessionStorage.setItem(`gantt:${projectId}`, JSON.stringify(data)) } catch {}
-        setProjectData(data)
-      } catch (e) {
-        console.error(e)
-        toast.error('Không thể làm mới dữ liệu')
-      } finally {
-        setIsLoading(false)
+      setIsOptimizing(true)
+      const response = await fetch(`/api/projects/${projectId}/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ algorithm: "multi_project_cpm", objective: { type: "time" } }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const optimizationData = await response.json()
+
+      // Cross-tag critical-path flag onto the optimized schedule for UI styling.
+      const criticalSet = new Set((projectData.cpm_details?.criticalPath || []).map(String))
+      if (optimizationData?.optimized_schedule) {
+        optimizationData.optimized_schedule = optimizationData.optimized_schedule.map((t: any) => ({
+          ...t,
+          id: String(t.id),
+          is_critical_path: t.is_critical_path ?? criticalSet.has(String(t.id)),
+        }))
       }
-    })()
-  }
+
+      setOptimizationResult(optimizationData)
+      try {
+        sessionStorage.setItem(optimizationCacheKey(projectId), JSON.stringify(optimizationData))
+      } catch {
+        /* ignore */
+      }
+      onOptimizeRef.current?.(optimizationData)
+      toast.success("Tối ưu hoá hoàn tất")
+    } catch (err: any) {
+      console.error("Optimize error:", err)
+      toast.error(`Tối ưu hoá thất bại: ${err?.message || "Unknown error"}`)
+    } finally {
+      setIsOptimizing(false)
+    }
+  }, [projectId, projectData, onOptimize])
+
+  // -------- Refresh: clear caches and reload --------
+  const handleRefresh = useCallback(async () => {
+    if (!projectId) return
+    try {
+      sessionStorage.removeItem(ganttCacheKey(projectId))
+      sessionStorage.removeItem(optimizationCacheKey(projectId))
+    } catch {
+      /* ignore */
+    }
+    setOptimizationResult(null)
+    setIsLoading(true)
+    try {
+      const response = await fetch(`/api/projects/${projectId}/gantt`, { cache: "no-store" })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = normalizeProjectData(await response.json())
+      try {
+        sessionStorage.setItem(ganttCacheKey(projectId), JSON.stringify(data))
+      } catch {
+        /* ignore */
+      }
+      setProjectData(data)
+      toast.success("Đã làm mới")
+    } catch (err: any) {
+      console.error(err)
+      toast.error("Không thể làm mới dữ liệu")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [projectId, normalizeProjectData])
 
   
 
@@ -347,52 +427,78 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
     return projectData.tasks.filter((task: Task) => !tasksWithDeps.has(task.id)).length
   }
 
+  // ----- Helpers for the hero comparison card -----
+  const heroBefore = optimizationResult?.original_makespan ?? 0
+  const heroAfter = optimizationResult?.optimized_makespan ?? 0
+  const heroSaved = Math.max(0, heroBefore - heroAfter)
+  const heroPct = optimizationResult?.improvement_percentage ?? 0
+  // Width-as-percentage relative to the longer (sequential) baseline so the two
+  // bars are visually comparable.
+  const heroBeforeWidth = 100
+  const heroAfterWidth = heroBefore > 0 ? Math.max(4, (heroAfter / heroBefore) * 100) : 0
+
   return (
     <div className="space-y-6">
       {showOptimizationResults && optimizationResult && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-l-4 border-l-blue-500">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Thời gian tối ưu</p>
-                  <p className="text-2xl font-bold text-blue-600">{optimizationResult.optimized_makespan} ngày</p>
+        <Card className="border-l-4 border-l-emerald-500 bg-gradient-to-r from-emerald-50 to-white">
+          <CardContent className="pt-6">
+            <div className="flex flex-wrap items-start justify-between gap-6">
+              <div className="flex-1 min-w-[280px]">
+                <p className="text-sm font-medium text-emerald-700">Kết quả tối ưu hoá lịch trình</p>
+                <div className="flex items-baseline gap-3 mt-1">
+                  <span className="text-4xl font-bold text-emerald-700">
+                    Tiết kiệm {heroSaved} ngày
+                  </span>
+                  <span className="text-lg text-emerald-600 font-medium">({heroPct.toFixed(1)}%)</span>
                 </div>
-                <div className="text-right">
-                  <p className="text-xs text-gray-500">Giảm</p>
-                  <p className="text-lg font-semibold text-green-600">
-                    {optimizationResult.improvement_percentage.toFixed(1)}%
-                  </p>
-                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Nhờ chạy {optimizationResult.duration_analysis?.parallel_tasks_count ?? 0} công việc song song,
+                  thay vì tuần tự từng việc một.
+                </p>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card className="border-l-4 border-l-green-500">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Hiệu suất tài nguyên</p>
-                  <p className="text-2xl font-bold text-green-600">
-                    {(optimizationResult.resource_utilization * 100).toFixed(1)}%
-                  </p>
+              <div className="flex-1 min-w-[320px]">
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span>Trước (tuần tự)</span>
+                      <span className="font-mono">{heroBefore} ngày</span>
+                    </div>
+                    <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className="h-full bg-slate-400 transition-all"
+                        style={{ width: `${heroBeforeWidth}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                      <span className="text-emerald-700 font-medium">Sau (CPM song song)</span>
+                      <span className="font-mono text-emerald-700">{heroAfter} ngày</span>
+                    </div>
+                    <div className="h-3 rounded-full bg-slate-200 overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 transition-all"
+                        style={{ width: `${heroAfterWidth}%` }}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <Progress value={optimizationResult.resource_utilization * 100} className="w-16" />
               </div>
-            </CardContent>
-          </Card>
 
-          <Card className="border-l-4 border-l-indigo-500">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600">Thuật toán</p>
-                  <p className="text-lg font-semibold text-indigo-600">Multi-Project CPM</p>
-                </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Đường găng</p>
+                <p className="text-2xl font-bold text-amber-700">
+                  {optimizationResult.critical_path?.length || 0}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">việc</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  không thể trễ một ngày nào
+                </p>
               </div>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <Card>
@@ -402,14 +508,42 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
               <div className="flex items-center gap-4">
               <div className="flex items-center space-x-2">
                 <Switch
-                  // id="show-tasks-without-deps"
                   checked={showTasksWithoutDependencies}
                   onCheckedChange={setShowTasksWithoutDependencies}
                 />
-                <Label htmlFor="show-tasks-without-deps" className="flex items-center gap-2 text-sm">
+                <Label className="flex items-center gap-2 text-sm">
                   {showTasksWithoutDependencies ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                   Hiện task không có dependency ({getTasksWithoutDependenciesCount()})
                 </Label>
+              </div>
+
+              {/* Schedule mode toggle: lets the user A/B between the naive sequential
+                  baseline and the parallel CPM "optimized" layout. */}
+              <div className="flex items-center rounded-md border p-0.5 bg-muted/30">
+                <button
+                  type="button"
+                  onClick={() => setScheduleMode("sequential")}
+                  className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                    scheduleMode === "sequential"
+                      ? "bg-slate-700 text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Lịch tuần tự — từng việc một, không song song. Baseline để so sánh."
+                >
+                  Tuần tự
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setScheduleMode("cpm")}
+                  className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                    scheduleMode === "cpm"
+                      ? "bg-emerald-600 text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  title="Lịch tối ưu (CPM) — chạy song song những việc có thể"
+                >
+                  Tối ưu (CPM)
+                </button>
               </div>
 
               <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewModeType)}>
@@ -430,21 +564,49 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
               </Tabs>
 
               <div className="flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleRunOptimization}
+                  disabled={isOptimizing || isLoading || !projectData?.tasks?.length}
+                  title="Chạy Multi-Project CPM để tính lịch tối ưu"
+                >
+                  {isOptimizing ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
+                  <span className="ml-2 hidden md:inline">
+                    {optimizationResult ? "Tối ưu lại" : "Tối ưu hoá"}
+                  </span>
+                </Button>
                 <Button variant="outline" size="sm" onClick={handleExportPDF} title="Xuất PDF">
                   <Download className="h-4 w-4" /><span className="ml-2 hidden md:inline">PDF</span>
                 </Button>
                 <Button variant="outline" size="sm" onClick={handleExportExcel} title="Xuất Excel">
                   <Download className="h-4 w-4" /><span className="ml-2 hidden md:inline">Excel</span>
                 </Button>
-                <Button variant="default" size="sm" onClick={handleSaveOptimizedSchedule} disabled={saving || isLoading} title="Lưu lịch tối ưu (nháp)">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleSaveOptimizedSchedule}
+                  disabled={saving || isLoading || !optimizationResult}
+                  title="Lưu lịch tối ưu (nháp)"
+                >
                   {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Calendar className="h-4 w-4" />}
                   <span className="ml-2 hidden md:inline">Lưu nháp</span>
                 </Button>
-                <Button variant="secondary" size="sm" onClick={handleApproveLastRun} disabled={approving || !lastDraftRun} title="Duyệt bản nháp gần nhất">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleApproveLastRun}
+                  disabled={approving || !lastDraftRun}
+                  title="Duyệt bản nháp gần nhất"
+                >
                   {approving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CalendarDays className="h-4 w-4" />}
                   <span className="ml-2 hidden md:inline">Duyệt</span>
                 </Button>
-                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
+                <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading} title="Làm mới">
                   <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
                 </Button>
               </div>
@@ -460,14 +622,21 @@ export function GanttChart({ projectId, onOptimize, showOptimizationResults = tr
               </div>
             </div>
           ) : projectData && projectData.tasks && projectData.tasks.length > 0 ? (
-            <div className="w-full overflow-auto">
-              <div 
-                ref={ganttContainerRef} 
-                className="gantt-container"
-                style={{ 
-                  width: "100%", 
-                  height: "500px",
-                  overflow: "auto"
+            <div className="w-full space-y-2">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <kbd className="px-1.5 py-0.5 border rounded bg-muted">Ctrl</kbd>
+                <span>+ lăn chuột để zoom · lăn chuột thường để cuộn ngang · kéo cạnh dưới để thay đổi chiều cao</span>
+              </div>
+              <div
+                ref={ganttContainerRef}
+                className="gantt-container border rounded-md"
+                style={{
+                  width: "100%",
+                  // Bigger default + user-resizable. CSS `resize` adds a drag handle in the SE corner.
+                  height: "700px",
+                  minHeight: "300px",
+                  resize: "vertical",
+                  overflow: "auto",
                 }}
               />
             </div>
